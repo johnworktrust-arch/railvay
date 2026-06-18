@@ -1,0 +1,108 @@
+from __future__ import annotations
+
+import sqlite3
+import threading
+from contextlib import contextmanager
+from pathlib import Path
+from typing import Any, Iterator
+
+from ceai.config import BASE_DIR
+
+
+class DatabaseConnection:
+    def __init__(self, raw_conn: Any, *, driver: str) -> None:
+        self.raw_conn = raw_conn
+        self.driver = driver
+
+    def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any:
+        if self.driver == "postgres":
+            query = query.replace("?", "%s")
+        else:
+            query = query.replace("::jsonb", "")
+        return self.raw_conn.execute(query, params)
+
+
+class Database:
+    def __init__(self, database_url: str) -> None:
+        self.database_url = database_url
+        self.driver = self._driver(database_url)
+        if self.driver == "sqlite":
+            self.path = self._sqlite_path(database_url)
+            if self.path != ":memory:":
+                Path(self.path).parent.mkdir(parents=True, exist_ok=True)
+            self._conn = sqlite3.connect(self.path, check_same_thread=False)
+            self._conn.row_factory = sqlite3.Row
+            self._conn.execute("PRAGMA foreign_keys = ON")
+        else:
+            try:
+                import psycopg
+                from psycopg.rows import dict_row
+            except ImportError as exc:
+                raise RuntimeError(
+                    "Postgres DATABASE_URL requires psycopg. Run `pip install -e .`."
+                ) from exc
+
+            url = database_url
+            if url.startswith("postgres://"):
+                url = "postgresql://" + url.removeprefix("postgres://")
+            self.path = ""
+            self._conn = psycopg.connect(url, row_factory=dict_row)
+        self._lock = threading.RLock()
+
+    @staticmethod
+    def _driver(database_url: str) -> str:
+        if database_url.startswith("sqlite:///"):
+            return "sqlite"
+        if database_url.startswith("postgresql://") or database_url.startswith(
+            "postgres://"
+        ):
+            return "postgres"
+        raise ValueError("DATABASE_URL must start with sqlite:/// or postgresql://")
+
+    @staticmethod
+    def _sqlite_path(database_url: str) -> str:
+        if database_url == "sqlite:///:memory:":
+            return ":memory:"
+        raw_path = database_url.replace("sqlite:///", "", 1)
+        path = Path(raw_path)
+        if not path.is_absolute():
+            path = BASE_DIR / path
+        return str(path)
+
+    @property
+    def conn(self) -> DatabaseConnection:
+        return DatabaseConnection(self._conn, driver=self.driver)
+
+    def close(self) -> None:
+        self._conn.close()
+
+    def migrate(self, migrations_dir: Path | None = None) -> None:
+        if migrations_dir is not None:
+            directory = migrations_dir
+        elif self.driver == "postgres":
+            directory = BASE_DIR / "migrations" / "postgres"
+        else:
+            directory = BASE_DIR / "migrations"
+
+        for migration in sorted(directory.glob("*.sql")):
+            with self._lock:
+                sql = migration.read_text(encoding="utf-8")
+                if self.driver == "sqlite":
+                    self._conn.executescript(sql)
+                else:
+                    for statement in sql.split(";"):
+                        statement = statement.strip()
+                        if statement:
+                            self._conn.execute(statement)
+                self._conn.commit()
+
+    @contextmanager
+    def transaction(self) -> Iterator[DatabaseConnection]:
+        with self._lock:
+            try:
+                self._conn.execute("BEGIN")
+                yield DatabaseConnection(self._conn, driver=self.driver)
+                self._conn.commit()
+            except Exception:
+                self._conn.rollback()
+                raise
