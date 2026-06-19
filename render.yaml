@@ -9,6 +9,10 @@ services:
         sync: false
       - key: APP_ENV
         value: production
+      - key: APP_BASE_URL
+        value: https://ceaai-bot.onrender.com
+      - key: TELEGRAM_WEBHOOK_PATH
+        value: /telegram/webhook
       - key: MOCK_PAYMENT_BASE_URL
         value: https://mock-payments.local/pay
       - key: DATABASE_URL

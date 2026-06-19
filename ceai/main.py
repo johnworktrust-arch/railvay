@@ -2,8 +2,11 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 
 from aiogram import Bot, Dispatcher
+from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
+from aiohttp import web
 
 from ceai.config import load_settings
 from ceai.database import Database
@@ -11,6 +14,46 @@ from ceai.health import start_health_server
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
 from ceai.bot.handlers import create_router
+
+
+async def health(request: web.Request) -> web.Response:
+    return web.Response(text="ok\n", content_type="text/plain")
+
+
+async def run_webhook(
+    *,
+    bot: Bot,
+    dispatcher: Dispatcher,
+    webhook_url: str,
+    webhook_path: str,
+    webhook_secret: str,
+) -> None:
+    app = web.Application()
+    app.router.add_get("/healthz", health)
+    SimpleRequestHandler(
+        dispatcher=dispatcher,
+        bot=bot,
+        secret_token=webhook_secret or None,
+    ).register(app, path=webhook_path)
+    setup_application(app, dispatcher, bot=bot)
+
+    await bot.set_webhook(
+        webhook_url,
+        secret_token=webhook_secret or None,
+        allowed_updates=dispatcher.resolve_used_update_types(),
+    )
+
+    runner = web.AppRunner(app)
+    await runner.setup()
+    port = int(os.getenv("PORT", "8080"))
+    site = web.TCPSite(runner, host="0.0.0.0", port=port)
+    await site.start()
+    logging.info("Webhook endpoint listening on 0.0.0.0:%s%s", port, webhook_path)
+    logging.info("Health endpoint listening on 0.0.0.0:%s/healthz", port)
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await runner.cleanup()
 
 
 async def main() -> None:
@@ -27,10 +70,25 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     dispatcher = Dispatcher()
     dispatcher.include_router(create_router(services))
-    health_server = await start_health_server()
+    health_server = None
 
     try:
-        await dispatcher.start_polling(bot)
+        if settings.app_base_url:
+            webhook_path = settings.telegram_webhook_path
+            if not webhook_path.startswith("/"):
+                webhook_path = "/" + webhook_path
+            webhook_url = settings.app_base_url.rstrip("/") + webhook_path
+            await run_webhook(
+                bot=bot,
+                dispatcher=dispatcher,
+                webhook_url=webhook_url,
+                webhook_path=webhook_path,
+                webhook_secret=settings.telegram_webhook_secret,
+            )
+        else:
+            health_server = await start_health_server()
+            await bot.delete_webhook(drop_pending_updates=False)
+            await dispatcher.start_polling(bot)
     finally:
         if health_server is not None:
             health_server.close()

@@ -5,6 +5,7 @@ description = "CeaAI Telegram bot MVP with mock payments and mock AI providers."
 readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
+    "aiohttp>=3.9,<4.0",
     "aiogram>=3.13,<4.0",
     "psycopg[binary]>=3.2,<4.0",
 ]

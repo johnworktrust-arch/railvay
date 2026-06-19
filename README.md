@@ -82,12 +82,15 @@ Northflank передает `PORT` автоматически. Если пере
 - free Docker web service;
 - free Render Postgres;
 - healthcheck `/healthz`;
+- Telegram webhook `/telegram/webhook`;
 - `TELEGRAM_BOT_TOKEN` вводится вручную в Render как secret.
+
+Render-деплой использует webhook-режим, потому что polling-бот на Render Free засыпает и не просыпается от Telegram-сообщений.
 
 Ограничения Render free:
 
 - web service может засыпать после периода без входящих HTTP-запросов;
-- для polling-бота желательно пинговать `/healthz` внешним монитором;
+- первый ответ после сна может быть медленным, но Telegram webhook сможет разбудить сервис;
 - free Postgres подходит для MVP/демо, но не для продакшена.
 
 Шаги:

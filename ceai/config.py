@@ -29,6 +29,9 @@ class Settings:
     database_url: str
     app_env: str
     mock_payment_base_url: str
+    app_base_url: str = ""
+    telegram_webhook_path: str = "/telegram/webhook"
+    telegram_webhook_secret: str = ""
 
 
 def load_settings() -> Settings:
@@ -44,4 +47,7 @@ def load_settings() -> Settings:
         mock_payment_base_url=read(
             "MOCK_PAYMENT_BASE_URL", "https://mock-payments.local/pay"
         ),
+        app_base_url=read("APP_BASE_URL"),
+        telegram_webhook_path=read("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook"),
+        telegram_webhook_secret=read("TELEGRAM_WEBHOOK_SECRET"),
     )
