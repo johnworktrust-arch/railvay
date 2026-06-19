@@ -73,6 +73,31 @@ Port: $PORT
 
 Northflank передает `PORT` автоматически. Если переменная `PORT` задана, приложение параллельно с Telegram polling поднимает HTTP endpoint `/healthz`.
 
+Важно: на бесплатном плане Northflank может попросить добавить банковскую карту для верификации даже без списаний. Если карта не подходит, используйте Render fallback ниже.
+
+### Бесплатный fallback на Render
+
+В репозитории есть `render.yaml` для Blueprint-деплоя:
+
+- free Docker web service;
+- free Render Postgres;
+- healthcheck `/healthz`;
+- `TELEGRAM_BOT_TOKEN` вводится вручную в Render как secret.
+
+Ограничения Render free:
+
+- web service может засыпать после периода без входящих HTTP-запросов;
+- для polling-бота желательно пинговать `/healthz` внешним монитором;
+- free Postgres подходит для MVP/демо, но не для продакшена.
+
+Шаги:
+
+1. Откройте Render Dashboard.
+2. Создайте Blueprint из GitHub-репозитория.
+3. Выберите этот repo.
+4. Укажите `TELEGRAM_BOT_TOKEN` в env.
+5. После деплоя проверьте `/healthz` и Telegram `/start`.
+
 ### Проверка сценария в Telegram
 
 ```text
