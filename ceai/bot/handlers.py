@@ -130,6 +130,10 @@ def _format_menu(subscription: Dict[str, Any] | None) -> str:
     )
 
 
+def _format_main_menu() -> str:
+    return "🏠 Главное меню\nВыберите нужный раздел\n👇"
+
+
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
     lines = ["Тарифы CeaAI:"]
     for plan in plans:
@@ -195,6 +199,23 @@ async def _send_main_menu(
         services,
         user_id,
         text,
+        reply_markup=main_menu_keyboard(),
+        delete_current=delete_current,
+    )
+
+
+async def _send_menu_screen(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+) -> None:
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_main_menu(),
         reply_markup=main_menu_keyboard(),
         delete_current=delete_current,
     )
@@ -322,16 +343,18 @@ async def _handle_reply_menu(
     text = (message.text or "").strip()
     text_lower = text.casefold()
 
+    if text_lower in {"menu", "/menu", "главное меню"}:
+        _clear_dialog_state(services, user["id"])
+        await _send_menu_screen(message, services, user["id"], delete_current=True)
+        return True
+
     if text_lower in {
         "старт",
         "start",
-        "menu",
-        "/menu",
         "профиль",
         "/профиль",
         "profile",
         "/profile",
-        "главное меню",
     } or text == PROFILE_BUTTON:
         _clear_dialog_state(services, user["id"])
         intro = None
@@ -442,8 +465,14 @@ def create_router(services: AppServices) -> Router:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         await _send_support(message, services, user["id"], delete_current=True)
 
-    @router.message(Command("menu", "profile"))
+    @router.message(Command("menu"))
     async def menu_command(message: Message) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        _clear_dialog_state(services, user["id"])
+        await _send_menu_screen(message, services, user["id"], delete_current=True)
+
+    @router.message(Command("profile"))
+    async def profile_command(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         _clear_dialog_state(services, user["id"])
         await _send_main_menu(message, services, user["id"], delete_current=True)
