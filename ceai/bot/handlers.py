@@ -131,7 +131,7 @@ def _format_menu(subscription: Dict[str, Any] | None) -> str:
 
 
 def _format_main_menu() -> str:
-    return "🏠 Главное меню\nВыберите нужный раздел\n👇"
+    return "🏠 Главное меню\nВыберите нужный раздел 👇"
 
 
 def _format_plans(plans: list[Dict[str, Any]]) -> str:

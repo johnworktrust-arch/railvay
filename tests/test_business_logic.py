@@ -185,8 +185,7 @@ class MigrationAndUITest(unittest.TestCase):
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
         self.assertIn("🏠 Главное меню", handlers_source)
-        self.assertIn("Выберите нужный раздел", handlers_source)
-        self.assertIn("👇", handlers_source)
+        self.assertIn("Выберите нужный раздел 👇", handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
 
     def test_migrations_record_applied_versions_once(self) -> None:
