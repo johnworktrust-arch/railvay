@@ -26,6 +26,7 @@ from ceai.bot.keyboards import (
     payment_keyboard,
     plans_keyboard,
 )
+from ceai.formatting import format_datetime_minute
 from ceai.json_utils import loads_dict
 from ceai.services.app import AppServices
 from ceai.services.exceptions import (
@@ -243,8 +244,8 @@ def _format_admin_user_card(card: Dict[str, Any]) -> str:
         f"Имя: {name or '—'}\n"
         f"Профиль: {_telegram_profile(card)}\n"
         f"Telegram ID: {card['telegram_id']}\n"
-        f"Регистрация: {card['created_at']}\n"
-        f"Last seen: {card['last_seen_at']}\n"
+        f"Дата регистрации: {format_datetime_minute(card['created_at'])}\n"
+        f"Последний визит: {format_datetime_minute(card['last_seen_at'])}\n"
         f"Статус: {'заблокирован' if card['is_blocked'] else 'активен'}\n"
         f"Тариф: {tariff}\n"
         f"Платежи: {payments.get('paid_count', 0)} paid / "

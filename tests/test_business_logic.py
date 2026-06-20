@@ -196,6 +196,17 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Выберите нужный раздел 👇", handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
 
+    def test_admin_user_card_formats_dates_without_iso_noise(self) -> None:
+        from ceai.formatting import format_datetime_minute
+
+        registered_at = format_datetime_minute("2026-06-20T11:22:33.123456+00:00")
+        last_seen_at = format_datetime_minute("2026-06-20T11:25:59+00:00")
+
+        self.assertEqual(registered_at, "20.06.2026 14:22")
+        self.assertEqual(last_seen_at, "20.06.2026 14:25")
+        self.assertNotIn("T11:22", registered_at)
+        self.assertNotIn("+00:00", last_seen_at)
+
     def test_migrations_record_applied_versions_once(self) -> None:
         db = Database("sqlite:///:memory:")
         try:
