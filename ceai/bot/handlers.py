@@ -555,14 +555,6 @@ def create_router(services: AppServices) -> Router:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         admin = services.admin.ensure_admin_access(user)
         if not admin:
-            await _show_screen(
-                message,
-                services,
-                user["id"],
-                "Доступ запрещен.",
-                reply_markup=main_menu_keyboard(),
-                delete_current=True,
-            )
             return
         _clear_dialog_state(services, user["id"])
         await _send_admin_home(message, services, user["id"], delete_current=True)
@@ -613,7 +605,7 @@ def create_router(services: AppServices) -> Router:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         admin = services.admin.ensure_admin_access(user)
         if not admin:
-            await callback.answer("Доступ запрещен", show_alert=True)
+            await callback.answer()
             return
         if not callback.message or not callback.data:
             await callback.answer()
@@ -934,14 +926,7 @@ def create_router(services: AppServices) -> Router:
         if session and session["state"] in {"admin_waiting_search", "admin_waiting_credit"}:
             admin = services.admin.ensure_admin_access(user)
             if not admin:
-                await _show_screen(
-                    message,
-                    services,
-                    user["id"],
-                    "Доступ запрещен.",
-                    reply_markup=main_menu_keyboard(),
-                    delete_current=True,
-                )
+                _clear_dialog_state(services, user["id"])
                 return
             payload = loads_dict(session.get("payload"))
             text = (message.text or "").strip()

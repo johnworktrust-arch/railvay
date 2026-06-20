@@ -183,6 +183,12 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('BotCommand(command="admin"', main_source)
         self.assertNotIn('BotCommand(command="help"', main_source)
 
+    def test_admin_command_is_hidden_and_silent_for_regular_users(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn('@router.message(Command("admin"))', handlers_source)
+        self.assertNotIn("Доступ запрещен", handlers_source)
+
     def test_menu_command_has_main_menu_copy(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
