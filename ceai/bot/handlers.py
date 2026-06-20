@@ -322,7 +322,17 @@ async def _handle_reply_menu(
     text = (message.text or "").strip()
     text_lower = text.casefold()
 
-    if text_lower in {"старт", "start", "профиль"} or text == PROFILE_BUTTON:
+    if text_lower in {
+        "старт",
+        "start",
+        "menu",
+        "/menu",
+        "профиль",
+        "/профиль",
+        "profile",
+        "/profile",
+        "главное меню",
+    } or text == PROFILE_BUTTON:
         _clear_dialog_state(services, user["id"])
         intro = None
         if text_lower in {"старт", "start"}:
@@ -351,11 +361,14 @@ async def _handle_reply_menu(
         return True
 
     if text_lower in {
+        "chatgpt deepseek",
         "gpt deepseek",
         "gpt deepseak",
         "gpt deepseq",
+        "нейронки: chatgpt, deepseek",
         "нейронки: gpt, deepseek",
         "нейронки: gpt, deepseq",
+        "нейронки chatgpt deepseek",
         "нейронки gpt deepseek",
         "нейронки gpt deepseq",
     } or text == TEXT_AI_BUTTON:
@@ -428,6 +441,12 @@ def create_router(services: AppServices) -> Router:
     async def help_command(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         await _send_support(message, services, user["id"], delete_current=True)
+
+    @router.message(Command("menu", "profile"))
+    async def menu_command(message: Message) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        _clear_dialog_state(services, user["id"])
+        await _send_main_menu(message, services, user["id"], delete_current=True)
 
     @router.callback_query(F.data == "menu:home")
     async def menu_home(callback: CallbackQuery) -> None:

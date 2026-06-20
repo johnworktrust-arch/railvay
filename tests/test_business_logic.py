@@ -169,9 +169,17 @@ class MigrationAndUITest(unittest.TestCase):
     def test_reply_keyboard_uses_correct_deepseek_name(self) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
+        self.assertIn("ChatGPT", keyboard_source)
         self.assertIn("DeepSeek", keyboard_source)
         self.assertNotIn("DeepSeq", keyboard_source)
         self.assertNotIn("DeepSeak", keyboard_source)
+
+    def test_telegram_commands_menu_contains_only_menu_and_profile(self) -> None:
+        main_source = Path("ceai/main.py").read_text(encoding="utf-8")
+
+        self.assertIn('BotCommand(command="menu", description="Главное меню")', main_source)
+        self.assertIn('BotCommand(command="profile", description="Профиль")', main_source)
+        self.assertNotIn('BotCommand(command="help"', main_source)
 
     def test_migrations_record_applied_versions_once(self) -> None:
         db = Database("sqlite:///:memory:")

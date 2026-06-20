@@ -5,6 +5,7 @@ import logging
 import os
 
 from aiogram import Bot, Dispatcher
+from aiogram.types import BotCommand
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import web
 
@@ -14,6 +15,12 @@ from ceai.health import start_health_server
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
 from ceai.bot.handlers import create_router
+
+
+BOT_COMMANDS = [
+    BotCommand(command="menu", description="Главное меню"),
+    BotCommand(command="profile", description="Профиль"),
+]
 
 
 async def health(request: web.Request) -> web.Response:
@@ -68,6 +75,7 @@ async def main() -> None:
 
     services = build_services(db, settings)
     bot = Bot(token=settings.telegram_bot_token)
+    await bot.set_my_commands(BOT_COMMANDS)
     dispatcher = Dispatcher()
     dispatcher.include_router(create_router(services))
     health_server = None
