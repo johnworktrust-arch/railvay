@@ -3,7 +3,7 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Dict
+from typing import Dict, Tuple
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -32,6 +32,8 @@ class Settings:
     app_base_url: str = ""
     telegram_webhook_path: str = "/telegram/webhook"
     telegram_webhook_secret: str = ""
+    admin_telegram_ids: Tuple[int, ...] = ()
+    admin_telegram_usernames: Tuple[str, ...] = ()
 
 
 def load_settings() -> Settings:
@@ -39,6 +41,22 @@ def load_settings() -> Settings:
 
     def read(name: str, default: str = "") -> str:
         return os.getenv(name) or dotenv_values.get(name, default)
+
+    def read_int_list(name: str) -> Tuple[int, ...]:
+        values: list[int] = []
+        for item in read(name).split(","):
+            item = item.strip()
+            if item:
+                values.append(int(item))
+        return tuple(values)
+
+    def read_username_list(name: str) -> Tuple[str, ...]:
+        values: list[str] = []
+        for item in read(name).split(","):
+            username = item.strip().lstrip("@").lower()
+            if username:
+                values.append(username)
+        return tuple(values)
 
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
@@ -50,4 +68,6 @@ def load_settings() -> Settings:
         app_base_url=read("APP_BASE_URL"),
         telegram_webhook_path=read("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook"),
         telegram_webhook_secret=read("TELEGRAM_WEBHOOK_SECRET"),
+        admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
+        admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
     )

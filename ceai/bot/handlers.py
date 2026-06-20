@@ -16,6 +16,10 @@ from ceai.bot.keyboards import (
     TEXT_AI_BUTTON,
     VIDEO_AI_BUTTON,
     VOICE_AI_BUTTON,
+    admin_back_keyboard,
+    admin_menu_keyboard,
+    admin_user_card_keyboard,
+    admin_users_keyboard,
     back_to_menu_keyboard,
     main_menu_keyboard,
     models_keyboard,
@@ -25,6 +29,7 @@ from ceai.bot.keyboards import (
 from ceai.json_utils import loads_dict
 from ceai.services.app import AppServices
 from ceai.services.exceptions import (
+    BusinessRuleError,
     GenerationProviderFailedError,
     InsufficientCoinsError,
     NoActiveSubscriptionError,
@@ -182,6 +187,73 @@ def _format_history(rows: list[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _format_admin_stats(stats: Dict[str, Any]) -> str:
+    return (
+        "🛠 Админка CeaAI\n\n"
+        "📊 Статистика\n"
+        f"Пользователей: {stats['users_total']}\n"
+        f"Активных подписок: {stats['active_subscriptions']}\n"
+        f"Paid-платежей: {stats['paid_payments']}\n"
+        f"Mock-выручка: {stats['mock_revenue_rub']} руб.\n"
+        f"Генераций: {stats['generations_total']}\n"
+        f"Баланс активных подписок: {stats['active_balance_total']} coins"
+    )
+
+
+def _telegram_profile(user: Dict[str, Any]) -> str:
+    username = user.get("username")
+    if username:
+        return f"@{username}"
+    return f"tg://user?id={user['telegram_id']}"
+
+
+def _format_admin_users(
+    users: list[Dict[str, Any]], *, page: int, pages: int, total: int
+) -> str:
+    lines = [f"👥 Пользователи ({total})", f"Страница {page}/{pages}", ""]
+    if not users:
+        lines.append("Пользователей пока нет.")
+    for user in users:
+        blocked = "🚫 " if user["is_blocked"] else ""
+        balance = user.get("coins_balance_cache")
+        plan = user.get("plan_name") or "без тарифа"
+        balance_text = f"{balance} coins" if balance is not None else "0 coins"
+        lines.append(
+            f"{blocked}#{user['id']} {_telegram_profile(user)} · {plan} · {balance_text}"
+        )
+    return "\n".join(lines)
+
+
+def _format_admin_user_card(card: Dict[str, Any]) -> str:
+    subscription = card.get("subscription")
+    payments = card.get("payments") or {}
+    generations = card.get("generations") or {}
+    name = " ".join(
+        part for part in [card.get("first_name"), card.get("last_name")] if part
+    ).strip()
+    if subscription:
+        tariff = (
+            f"{subscription['plan_name']} · {subscription['status']} · "
+            f"{subscription['coins_balance_cache']} coins"
+        )
+    else:
+        tariff = "нет активной подписки"
+    return (
+        f"👤 Пользователь #{card['id']}\n\n"
+        f"Имя: {name or '—'}\n"
+        f"Профиль: {_telegram_profile(card)}\n"
+        f"Telegram ID: {card['telegram_id']}\n"
+        f"Регистрация: {card['created_at']}\n"
+        f"Last seen: {card['last_seen_at']}\n"
+        f"Статус: {'заблокирован' if card['is_blocked'] else 'активен'}\n"
+        f"Тариф: {tariff}\n"
+        f"Платежи: {payments.get('paid_count', 0)} paid / "
+        f"{payments.get('paid_amount_rub', 0)} руб.\n"
+        f"Генерации: {generations.get('total', 0)}\n"
+        f"Потрачено: {generations.get('spent_coins', 0)} coins"
+    )
+
+
 async def _send_main_menu(
     message: Message,
     services: AppServices,
@@ -204,6 +276,19 @@ async def _send_main_menu(
     )
 
 
+async def _send_admin_home(
+    message: Message, services: AppServices, user_id: int, *, delete_current: bool = False
+) -> None:
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        "🛠 Админка CeaAI\nВыберите раздел.",
+        reply_markup=admin_menu_keyboard(),
+        delete_current=delete_current,
+    )
+
+
 async def _send_menu_screen(
     message: Message,
     services: AppServices,
@@ -219,6 +304,23 @@ async def _send_menu_screen(
         reply_markup=main_menu_keyboard(),
         delete_current=delete_current,
     )
+
+
+async def _send_blocked_notice(
+    message: Message, services: AppServices, user_id: int, *, delete_current: bool = True
+) -> None:
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        "Ваш аккаунт заблокирован. Обратитесь в поддержку.",
+        reply_markup=main_menu_keyboard(),
+        delete_current=delete_current,
+    )
+
+
+def _is_blocked_regular_user(services: AppServices, user: Dict[str, Any]) -> bool:
+    return services.admin.is_blocked_regular_user(user)
 
 
 async def _send_balance(
@@ -448,9 +550,29 @@ async def _handle_reply_menu(
 def create_router(services: AppServices) -> Router:
     router = Router()
 
+    @router.message(Command("admin"))
+    async def admin_command(message: Message) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        admin = services.admin.ensure_admin_access(user)
+        if not admin:
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Доступ запрещен.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return
+        _clear_dialog_state(services, user["id"])
+        await _send_admin_home(message, services, user["id"], delete_current=True)
+
     @router.message(CommandStart())
     async def start(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        if _is_blocked_regular_user(services, user):
+            await _send_blocked_notice(message, services, user["id"])
+            return
         _clear_dialog_state(services, user["id"])
         await _send_main_menu(
             message,
@@ -463,23 +585,162 @@ def create_router(services: AppServices) -> Router:
     @router.message(Command("help"))
     async def help_command(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        if _is_blocked_regular_user(services, user):
+            await _send_blocked_notice(message, services, user["id"])
+            return
         await _send_support(message, services, user["id"], delete_current=True)
 
     @router.message(Command("menu"))
     async def menu_command(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        if _is_blocked_regular_user(services, user):
+            await _send_blocked_notice(message, services, user["id"])
+            return
         _clear_dialog_state(services, user["id"])
         await _send_menu_screen(message, services, user["id"], delete_current=True)
 
     @router.message(Command("profile"))
     async def profile_command(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        if _is_blocked_regular_user(services, user):
+            await _send_blocked_notice(message, services, user["id"])
+            return
         _clear_dialog_state(services, user["id"])
         await _send_main_menu(message, services, user["id"], delete_current=True)
+
+    @router.callback_query(F.data.startswith("admin:"))
+    async def admin_callback(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        admin = services.admin.ensure_admin_access(user)
+        if not admin:
+            await callback.answer("Доступ запрещен", show_alert=True)
+            return
+        if not callback.message or not callback.data:
+            await callback.answer()
+            return
+
+        parts = callback.data.split(":")
+        action = parts[1] if len(parts) > 1 else "home"
+        try:
+            if action == "home":
+                _clear_dialog_state(services, user["id"])
+                await _send_admin_home(
+                    callback.message, services, user["id"], delete_current=True
+                )
+            elif action == "stats":
+                stats = services.admin.stats()
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    _format_admin_stats(stats),
+                    reply_markup=admin_back_keyboard(),
+                    delete_current=True,
+                )
+            elif action == "users":
+                page = int(parts[2]) if len(parts) > 2 else 1
+                data = services.admin.list_users(page=page)
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    _format_admin_users(
+                        data["users"],
+                        page=data["page"],
+                        pages=data["pages"],
+                        total=data["total"],
+                    ),
+                    reply_markup=admin_users_keyboard(
+                        data["users"], page=data["page"], pages=data["pages"]
+                    ),
+                    delete_current=True,
+                )
+            elif action == "user":
+                target_user_id = int(parts[2])
+                card = services.admin.user_card(target_user_id)
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    _format_admin_user_card(card),
+                    reply_markup=admin_user_card_keyboard(
+                        card, can_manage=services.admin.can_manage(admin)
+                    ),
+                    delete_current=True,
+                )
+            elif action in {"ban", "unban"}:
+                target_user_id = int(parts[2])
+                services.admin.set_blocked(
+                    admin=admin,
+                    target_user_id=target_user_id,
+                    is_blocked=action == "ban",
+                )
+                card = services.admin.user_card(target_user_id)
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    _format_admin_user_card(card),
+                    reply_markup=admin_user_card_keyboard(
+                        card, can_manage=services.admin.can_manage(admin)
+                    ),
+                    delete_current=True,
+                )
+            elif action == "credit":
+                if not services.admin.can_manage(admin):
+                    raise BusinessRuleError("Недостаточно прав")
+                target_user_id = int(parts[2])
+                _set_dialog_state(
+                    services,
+                    user["id"],
+                    state="admin_waiting_credit",
+                    payload={"target_user_id": target_user_id},
+                )
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    "Введите положительное целое число coins для начисления.",
+                    reply_markup=admin_back_keyboard(),
+                    delete_current=True,
+                )
+            elif action == "search":
+                _set_dialog_state(
+                    services,
+                    user["id"],
+                    state="admin_waiting_search",
+                    payload={},
+                )
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    "Введите @username, Telegram ID или внутренний user ID.",
+                    reply_markup=admin_back_keyboard(),
+                    delete_current=True,
+                )
+            else:
+                await callback.answer("Неизвестное действие", show_alert=True)
+                return
+        except (BusinessRuleError, NotFoundError, ValueError) as exc:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                str(exc),
+                reply_markup=admin_back_keyboard(),
+                delete_current=True,
+            )
+        await callback.answer()
 
     @router.callback_query(F.data == "menu:home")
     async def menu_home(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         _clear_dialog_state(services, user["id"])
         if callback.message:
             await _send_main_menu(
@@ -490,6 +751,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "menu:balance")
     async def menu_balance(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         if callback.message:
             await _send_balance(
                 callback.message, services, user["id"], delete_current=True
@@ -499,6 +765,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "menu:plans")
     async def menu_plans(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         if callback.message:
             await _send_plans(
                 callback.message, services, user["id"], delete_current=True
@@ -508,6 +779,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data.startswith("buy:"))
     async def buy_plan(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         plan_code = callback.data.split(":", 1)[1] if callback.data else ""
         try:
             payment = services.payments.create_mock_payment(
@@ -547,6 +823,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data.startswith("pay:"))
     async def pay_mock(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         payment_id = int(callback.data.split(":", 1)[1]) if callback.data else 0
         result = services.payments.process_mock_success_webhook_for_payment_id(
             payment_id=payment_id
@@ -574,6 +855,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "menu:models")
     async def menu_models(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         _clear_dialog_state(services, user["id"])
         models = services.catalog.list_models()
         if callback.message:
@@ -590,6 +876,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data.startswith("model:"))
     async def choose_model(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         model_id = int(callback.data.split(":", 1)[1]) if callback.data else 0
         _set_dialog_state(
             services,
@@ -611,6 +902,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "menu:history")
     async def menu_history(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         if callback.message:
             await _send_history(
                 callback.message, services, user["id"], delete_current=True
@@ -620,6 +916,11 @@ def create_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "menu:support")
     async def menu_support(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
         if callback.message:
             await _send_support(
                 callback.message, services, user["id"], delete_current=True
@@ -629,6 +930,90 @@ def create_router(services: AppServices) -> Router:
     @router.message()
     async def prompt_or_fallback(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        session = services.users.get_session(user["id"])
+        if session and session["state"] in {"admin_waiting_search", "admin_waiting_credit"}:
+            admin = services.admin.ensure_admin_access(user)
+            if not admin:
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Доступ запрещен.",
+                    reply_markup=main_menu_keyboard(),
+                    delete_current=True,
+                )
+                return
+            payload = loads_dict(session.get("payload"))
+            text = (message.text or "").strip()
+            if session["state"] == "admin_waiting_search":
+                target = services.admin.find_user(text)
+                _clear_dialog_state(services, user["id"])
+                if target is None:
+                    await _show_screen(
+                        message,
+                        services,
+                        user["id"],
+                        "Пользователь не найден.",
+                        reply_markup=admin_back_keyboard(),
+                        delete_current=True,
+                    )
+                    return
+                card = services.admin.user_card(target["id"])
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    _format_admin_user_card(card),
+                    reply_markup=admin_user_card_keyboard(
+                        card, can_manage=services.admin.can_manage(admin)
+                    ),
+                    delete_current=True,
+                )
+                return
+
+            target_user_id = int(payload.get("target_user_id", 0))
+            try:
+                amount = int(text)
+                balance = services.admin.manual_credit(
+                    admin=admin, target_user_id=target_user_id, amount=amount
+                )
+                _clear_dialog_state(services, user["id"])
+                card = services.admin.user_card(target_user_id)
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    f"Начислено {amount} coins. Новый баланс: {balance} coins.\n\n"
+                    f"{_format_admin_user_card(card)}",
+                    reply_markup=admin_user_card_keyboard(
+                        card, can_manage=services.admin.can_manage(admin)
+                    ),
+                    delete_current=True,
+                )
+            except ValueError:
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Введите положительное целое число.",
+                    reply_markup=admin_back_keyboard(),
+                    delete_current=True,
+                )
+            except (BusinessRuleError, NotFoundError) as exc:
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    str(exc),
+                    reply_markup=admin_back_keyboard(),
+                    delete_current=True,
+                )
+            return
+
+        if _is_blocked_regular_user(services, user):
+            await _send_blocked_notice(message, services, user["id"])
+            return
+
         if await _handle_reply_menu(message, services, user):
             return
 

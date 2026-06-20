@@ -109,3 +109,91 @@ def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
     ]
     rows.append([InlineKeyboardButton(text="👤 Профиль", callback_data="menu:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
+            [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:1")],
+            [InlineKeyboardButton(text="🔎 Поиск", callback_data="admin:search")],
+        ]
+    )
+
+
+def admin_users_keyboard(
+    users: Iterable[Dict[str, Any]], *, page: int, pages: int
+) -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"👤 {user_label(user)}", callback_data=f"admin:user:{user['id']}"
+            )
+        ]
+        for user in users
+    ]
+    pager = []
+    if page > 1:
+        pager.append(
+            InlineKeyboardButton(text="⬅️", callback_data=f"admin:users:{page - 1}")
+        )
+    if page < pages:
+        pager.append(
+            InlineKeyboardButton(text="➡️", callback_data=f"admin:users:{page + 1}")
+        )
+    if pager:
+        rows.append(pager)
+    rows.append([InlineKeyboardButton(text="⬅️ Админка", callback_data="admin:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_user_card_keyboard(
+    user: Dict[str, Any], *, can_manage: bool
+) -> InlineKeyboardMarkup:
+    rows = []
+    if can_manage:
+        if user["is_blocked"]:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text="✅ Разбанить", callback_data=f"admin:unban:{user['id']}"
+                    )
+                ]
+            )
+        else:
+            rows.append(
+                [
+                    InlineKeyboardButton(
+                        text="🚫 Забанить", callback_data=f"admin:ban:{user['id']}"
+                    )
+                ]
+            )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="➕ Начислить coins",
+                    callback_data=f"admin:credit:{user['id']}",
+                )
+            ]
+        )
+    rows.append([InlineKeyboardButton(text="⬅️ Пользователи", callback_data="admin:users:1")])
+    rows.append([InlineKeyboardButton(text="⬅️ Админка", callback_data="admin:home")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def admin_back_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⬅️ Админка", callback_data="admin:home")]
+        ]
+    )
+
+
+def user_label(user: Dict[str, Any]) -> str:
+    username = user.get("username")
+    if username:
+        return f"@{username} · ID {user['id']}"
+    name = " ".join(
+        part for part in [user.get("first_name"), user.get("last_name")] if part
+    ).strip()
+    return f"{name or user['telegram_id']} · ID {user['id']}"
