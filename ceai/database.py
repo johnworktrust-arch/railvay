@@ -84,8 +84,14 @@ class Database:
         else:
             directory = BASE_DIR / "migrations"
 
+        with self._lock:
+            self._ensure_schema_migrations()
+
         for migration in sorted(directory.glob("*.sql")):
             with self._lock:
+                version = migration.name
+                if self._migration_applied(version):
+                    continue
                 sql = migration.read_text(encoding="utf-8")
                 if self.driver == "sqlite":
                     self._conn.executescript(sql)
@@ -94,7 +100,47 @@ class Database:
                         statement = statement.strip()
                         if statement:
                             self._conn.execute(statement)
+                self._record_migration(version)
                 self._conn.commit()
+
+    def _execute_raw(self, query: str, params: tuple[Any, ...] = ()) -> Any:
+        if self.driver == "postgres":
+            query = query.replace("?", "%s")
+        return self._conn.execute(query, params)
+
+    def _ensure_schema_migrations(self) -> None:
+        if self.driver == "postgres":
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                )
+                """
+            )
+        else:
+            self._conn.execute(
+                """
+                CREATE TABLE IF NOT EXISTS schema_migrations (
+                    version TEXT PRIMARY KEY,
+                    applied_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+        self._conn.commit()
+
+    def _migration_applied(self, version: str) -> bool:
+        row = self._execute_raw(
+            "SELECT 1 AS applied FROM schema_migrations WHERE version = ?",
+            (version,),
+        ).fetchone()
+        return row is not None
+
+    def _record_migration(self, version: str) -> None:
+        self._execute_raw(
+            "INSERT INTO schema_migrations (version) VALUES (?)",
+            (version,),
+        )
 
     @contextmanager
     def transaction(self) -> Iterator[DatabaseConnection]:

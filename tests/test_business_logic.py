@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import sqlite3
 import unittest
+from pathlib import Path
 
 from ceai.config import Settings
 from ceai.database import Database
@@ -11,6 +13,7 @@ from ceai.services.exceptions import (
     InsufficientCoinsError,
     NoActiveSubscriptionError,
 )
+from ceai.time_utils import iso_now
 
 
 class BusinessLogicTest(unittest.TestCase):
@@ -154,6 +157,97 @@ class BusinessLogicTest(unittest.TestCase):
             )
 
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
+
+
+class MigrationAndUITest(unittest.TestCase):
+    def test_reply_keyboard_has_no_audio_button_but_has_tts_button(self) -> None:
+        keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
+
+        self.assertNotIn("Аудио", keyboard_source)
+        self.assertIn("Озвучка", keyboard_source)
+
+    def test_migrations_record_applied_versions_once(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            db.migrate()
+            with db.transaction() as conn:
+                row = conn.execute(
+                    "SELECT COUNT(*) AS count FROM schema_migrations"
+                ).fetchone()
+            self.assertEqual(row["count"], 2)
+        finally:
+            db.close()
+
+    def test_music_generation_type_is_rejected_after_migrations(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            now = iso_now()
+            with self.assertRaises(sqlite3.IntegrityError):
+                with db.transaction() as conn:
+                    conn.execute(
+                        """
+                        INSERT INTO model_prices (
+                            provider, model_key, display_name, generation_type,
+                            coins_cost, is_active, config, created_at, updated_at
+                        )
+                        VALUES (?, ?, ?, ?, ?, 1, '{}', ?, ?)
+                        """,
+                        (
+                            "mock",
+                            "music-test",
+                            "Music Test",
+                            "music",
+                            1,
+                            now,
+                            now,
+                        ),
+                    )
+
+            with db.transaction() as conn:
+                user_id = conn.execute(
+                    """
+                    INSERT INTO users (
+                        telegram_id, referral_code, created_at, last_seen_at
+                    )
+                    VALUES (?, ?, ?, ?)
+                    """,
+                    (4242, "tg4242", now, now),
+                ).lastrowid
+                model_id = conn.execute(
+                    """
+                    INSERT INTO model_prices (
+                        provider, model_key, display_name, generation_type,
+                        coins_cost, is_active, config, created_at, updated_at
+                    )
+                    VALUES (?, ?, ?, ?, ?, 1, '{}', ?, ?)
+                    """,
+                    (
+                        "mock",
+                        "text-test",
+                        "Text Test",
+                        "text",
+                        1,
+                        now,
+                        now,
+                    ),
+                ).lastrowid
+
+            with self.assertRaises(sqlite3.IntegrityError):
+                with db.transaction() as conn:
+                    conn.execute(
+                        """
+                        INSERT INTO generations (
+                            user_id, model_price_id, generation_type, provider,
+                            status, prompt, created_at
+                        )
+                        VALUES (?, ?, ?, ?, 'pending', '{}', ?)
+                        """,
+                        (user_id, model_id, "music", "mock", now),
+                    )
+        finally:
+            db.close()
 
 
 if __name__ == "__main__":

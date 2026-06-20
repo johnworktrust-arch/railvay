@@ -8,12 +8,9 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
 
 from ceai.bot.keyboards import (
-    AUDIO_AI_BUTTON,
-    BALANCE_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
     PHOTO_AI_BUTTON,
-    PLANS_BUTTON,
     PROFILE_BUTTON,
     REPLY_MENU_BUTTONS,
     TEXT_AI_BUTTON,
@@ -335,12 +332,12 @@ async def _handle_reply_menu(
         )
         return True
 
-    if text_lower == "баланс" or text == BALANCE_BUTTON:
+    if text_lower == "баланс":
         _clear_dialog_state(services, user["id"])
-        await _send_balance(message, services, user["id"], delete_current=True)
+        await _send_main_menu(message, services, user["id"], delete_current=True)
         return True
 
-    if text_lower == "тарифы" or text == PLANS_BUTTON:
+    if text_lower == "тарифы":
         await _send_plans(message, services, user["id"], delete_current=True)
         return True
 
@@ -353,7 +350,12 @@ async def _handle_reply_menu(
         await _send_support(message, services, user["id"], delete_current=True)
         return True
 
-    if text_lower == "gpt deepseak" or text == TEXT_AI_BUTTON:
+    if text_lower in {
+        "gpt deepseak",
+        "gpt deepseq",
+        "нейронки: gpt, deepseq",
+        "нейронки gpt deepseq",
+    } or text == TEXT_AI_BUTTON:
         await _send_models_for_types(
             message,
             services,
@@ -386,24 +388,13 @@ async def _handle_reply_menu(
         )
         return True
 
-    if text_lower == "озвучка с ai" or text == VOICE_AI_BUTTON:
+    if text_lower in {"озвучка с ai", "озвучка текста"} or text == VOICE_AI_BUTTON:
         await _send_models_for_types(
             message,
             services,
             user["id"],
             generation_types={"tts"},
-            title="Выберите модель для озвучки с AI.",
-            delete_current=True,
-        )
-        return True
-
-    if text_lower == "аудио с ai" or text == AUDIO_AI_BUTTON:
-        await _send_models_for_types(
-            message,
-            services,
-            user["id"],
-            generation_types={"music", "tts"},
-            title="Аудио с AI: сейчас в MVP доступна озвучка текста.",
+            title="Выберите модель для озвучки текста.",
             delete_current=True,
         )
         return True
