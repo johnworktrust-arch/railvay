@@ -3,6 +3,7 @@ from __future__ import annotations
 import sqlite3
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from ceai.config import Settings
 from ceai.database import Database
@@ -195,6 +196,51 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("🏠 Главное меню", handlers_source)
         self.assertIn("Выберите нужный раздел 👇", handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
+
+    def test_start_onboarding_copy_and_continue_callback_are_present(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn("Приветствую в Cea AI", handlers_source)
+        self.assertIn("Документ оферты здесь", handlers_source)
+        self.assertIn("Чтобы узнать больше о своём аккаунте и тарифах", handlers_source)
+        self.assertIn("В двух словах об основных инструментах", handlers_source)
+        self.assertIn('F.data == "onboarding:continue"', handlers_source)
+        self.assertIn("last_bot_message_ids", handlers_source)
+        self.assertNotIn(
+            "Добро пожаловать в CeaAI MVP. Здесь все AI и платежи",
+            handlers_source,
+        )
+
+    def test_onboarding_keyboards_have_expected_buttons_only(self) -> None:
+        keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
+
+        self.assertIn("Продолжить", keyboard_source)
+        self.assertIn("onboarding:continue", keyboard_source)
+        self.assertIn("Все ай ай инфо", keyboard_source)
+        self.assertIn("Поддержка", keyboard_source)
+        self.assertIn("https://t.me/{username}", keyboard_source)
+        self.assertNotIn("Как пользоваться", keyboard_source)
+        self.assertNotIn("База знаний", keyboard_source)
+        self.assertNotIn("VK", keyboard_source)
+        self.assertNotIn("YT", keyboard_source)
+
+    def test_onboarding_env_settings_are_read(self) -> None:
+        from ceai.config import load_settings
+
+        with patch.dict(
+            "os.environ",
+            {
+                "TELEGRAM_BOT_TOKEN": "test",
+                "PUBLIC_OFFER_URL": "https://cea.ai/offer",
+                "INFO_CHANNEL_URL": "https://t.me/cea_ai_info",
+                "SUPPORT_USERNAME": "@cea_help",
+            },
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.public_offer_url, "https://cea.ai/offer")
+        self.assertEqual(settings.info_channel_url, "https://t.me/cea_ai_info")
+        self.assertEqual(settings.support_username, "cea_help")
 
     def test_admin_user_card_formats_dates_without_iso_noise(self) -> None:
         from ceai.formatting import format_datetime_minute

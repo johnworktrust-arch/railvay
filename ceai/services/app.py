@@ -15,6 +15,7 @@ from ceai.services.users import UserService
 
 @dataclass(frozen=True)
 class AppServices:
+    settings: Settings
     users: UserService
     admin: AdminService
     catalog: CatalogService
@@ -26,6 +27,7 @@ class AppServices:
 def build_services(db: Database, settings: Settings) -> AppServices:
     provider = MockAIProvider()
     return AppServices(
+        settings=settings,
         users=UserService(db),
         admin=AdminService(db, settings),
         catalog=CatalogService(db),

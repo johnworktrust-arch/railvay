@@ -56,6 +56,29 @@ def inline_back_to_menu_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def onboarding_continue_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="Продолжить", callback_data="onboarding:continue")]
+        ]
+    )
+
+
+def onboarding_links_keyboard(
+    *, info_channel_url: str = "", support_username: str = "cea_help"
+) -> InlineKeyboardMarkup:
+    rows = []
+    if info_channel_url:
+        rows.append(
+            [InlineKeyboardButton(text="📢 Все ай ай инфо", url=info_channel_url)]
+        )
+    username = support_username.strip().lstrip("@") or "cea_help"
+    rows.append(
+        [InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{username}")]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def plans_keyboard(plans: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
     rows = [
         [

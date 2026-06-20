@@ -23,6 +23,8 @@ from ceai.bot.keyboards import (
     back_to_menu_keyboard,
     main_menu_keyboard,
     models_keyboard,
+    onboarding_continue_keyboard,
+    onboarding_links_keyboard,
     payment_keyboard,
     plans_keyboard,
 )
@@ -39,6 +41,7 @@ from ceai.services.exceptions import (
 
 
 LAST_BOT_MESSAGE_ID = "last_bot_message_id"
+LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 
 
 def _user_kwargs(message_or_callback: Message | CallbackQuery) -> Dict[str, Any]:
@@ -61,6 +64,19 @@ def _session_state_payload(
     return session["state"], loads_dict(session.get("payload"))
 
 
+def _tracked_message_ids(payload: Dict[str, Any]) -> list[int]:
+    ids: list[int] = []
+    legacy_id = payload.get(LAST_BOT_MESSAGE_ID)
+    if isinstance(legacy_id, int):
+        ids.append(legacy_id)
+    stored_ids = payload.get(LAST_BOT_MESSAGE_IDS)
+    if isinstance(stored_ids, list):
+        for message_id in stored_ids:
+            if isinstance(message_id, int) and message_id not in ids:
+                ids.append(message_id)
+    return ids
+
+
 def _set_dialog_state(
     services: AppServices,
     user_id: int,
@@ -70,8 +86,14 @@ def _set_dialog_state(
 ) -> None:
     _, current_payload = _session_state_payload(services, user_id)
     next_payload = dict(payload or {})
-    if LAST_BOT_MESSAGE_ID in current_payload and LAST_BOT_MESSAGE_ID not in next_payload:
-        next_payload[LAST_BOT_MESSAGE_ID] = current_payload[LAST_BOT_MESSAGE_ID]
+    if LAST_BOT_MESSAGE_ID in next_payload and LAST_BOT_MESSAGE_IDS not in next_payload:
+        legacy_id = next_payload.pop(LAST_BOT_MESSAGE_ID)
+        if isinstance(legacy_id, int):
+            next_payload[LAST_BOT_MESSAGE_IDS] = [legacy_id]
+    if LAST_BOT_MESSAGE_IDS not in next_payload:
+        current_ids = _tracked_message_ids(current_payload)
+        if current_ids:
+            next_payload[LAST_BOT_MESSAGE_IDS] = current_ids
     services.users.set_session(user_id, state=state, payload=next_payload)
 
 
@@ -103,9 +125,8 @@ async def _show_screen(
     delete_current: bool = False,
 ) -> Message:
     state, payload = _session_state_payload(services, user_id)
-    last_message_id = payload.get(LAST_BOT_MESSAGE_ID)
-    if isinstance(last_message_id, int):
-        await _delete_message(message, last_message_id)
+    for message_id in _tracked_message_ids(payload):
+        await _delete_message(message, message_id)
     if delete_current:
         await _delete_current_message(message)
 
@@ -114,9 +135,43 @@ async def _show_screen(
         text=text,
         reply_markup=reply_markup,
     )
-    payload[LAST_BOT_MESSAGE_ID] = sent.message_id
+    payload.pop(LAST_BOT_MESSAGE_ID, None)
+    payload[LAST_BOT_MESSAGE_IDS] = [sent.message_id]
     services.users.set_session(user_id, state=state, payload=payload)
     return sent
+
+
+async def _show_onboarding_followup(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+) -> None:
+    _, payload = _session_state_payload(services, user_id)
+    for message_id in _tracked_message_ids(payload):
+        await _delete_message(message, message_id)
+    if delete_current:
+        await _delete_current_message(message)
+
+    hint = await message.bot.send_message(
+        chat_id=message.chat.id,
+        text=_format_onboarding_hint(),
+        reply_markup=main_menu_keyboard(),
+    )
+    promo = await message.bot.send_message(
+        chat_id=message.chat.id,
+        text=_format_onboarding_promo(),
+        reply_markup=onboarding_links_keyboard(
+            info_channel_url=services.settings.info_channel_url,
+            support_username=services.settings.support_username,
+        ),
+    )
+    services.users.set_session(
+        user_id,
+        state="idle",
+        payload={LAST_BOT_MESSAGE_IDS: [hint.message_id, promo.message_id]},
+    )
 
 
 def _format_menu(subscription: Dict[str, Any] | None) -> str:
@@ -133,6 +188,36 @@ def _format_menu(subscription: Dict[str, Any] | None) -> str:
         f"Баланс: {balance} coins\n"
         f"{sub_line}\n\n"
         "Выберите действие на нижней клавиатуре."
+    )
+
+
+def _format_onboarding_greeting(public_offer_url: str) -> str:
+    lines = [
+        "👋 Приветствую в Cea AI!",
+        "",
+        "Продолжая, вы соглашаетесь с условиями использования сервиса.",
+    ]
+    if public_offer_url:
+        lines.append(f"Документ оферты здесь: {public_offer_url}")
+    else:
+        lines.append("Документ оферты будет доступен после настройки ссылки.")
+    return "\n".join(lines)
+
+
+def _format_onboarding_hint() -> str:
+    return (
+        "ℹ️ Чтобы узнать больше о своём аккаунте и тарифах, нажмите кнопку "
+        "«Меню» снизу слева от поля ввода текста."
+    )
+
+
+def _format_onboarding_promo() -> str:
+    return (
+        "☝️ В двух словах об основных инструментах чат-бота.\n\n"
+        "Cea AI предоставляет доступ к актуальным AI-инструментам в одном "
+        "Telegram-боте: текстовые нейросети, фото с AI, видео с AI и "
+        "озвучка текста.\n\n"
+        "👇 Следите за обновлениями в канале или напишите в поддержку."
     )
 
 
@@ -277,6 +362,24 @@ async def _send_main_menu(
     )
 
 
+async def _send_onboarding_greeting(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+) -> None:
+    _set_dialog_state(services, user_id, state="onboarding_waiting_continue")
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_onboarding_greeting(services.settings.public_offer_url),
+        reply_markup=onboarding_continue_keyboard(),
+        delete_current=delete_current,
+    )
+
+
 async def _send_admin_home(
     message: Message, services: AppServices, user_id: int, *, delete_current: bool = False
 ) -> None:
@@ -394,12 +497,13 @@ async def _send_support(
     delete_current: bool = False,
 ) -> None:
     _clear_dialog_state(services, user_id)
+    support_username = services.settings.support_username or "cea_help"
     await _show_screen(
         message,
         services,
         user_id,
-        "Поддержка MVP: напишите владельцу проекта или используйте /help.\n"
-        "Все платежи и AI-провайдеры сейчас работают в mock-режиме.",
+        f"Поддержка: @{support_username}\n"
+        "Напишите нам, если нужна помощь с аккаунтом, тарифом или генерацией.",
         reply_markup=main_menu_keyboard(),
         delete_current=delete_current,
     )
@@ -451,21 +555,16 @@ async def _handle_reply_menu(
         await _send_menu_screen(message, services, user["id"], delete_current=True)
         return True
 
-    if text_lower in {
-        "старт",
-        "start",
-        "профиль",
-        "/профиль",
-        "profile",
-        "/profile",
-    } or text == PROFILE_BUTTON:
+    if text_lower in {"старт", "start"}:
         _clear_dialog_state(services, user["id"])
-        intro = None
-        if text_lower in {"старт", "start"}:
-            intro = "Добро пожаловать в CeaAI MVP. Открываю профиль."
-        await _send_main_menu(
-            message, services, user["id"], intro=intro, delete_current=True
+        await _send_onboarding_greeting(
+            message, services, user["id"], delete_current=True
         )
+        return True
+
+    if text_lower in {"профиль", "/профиль", "profile", "/profile"} or text == PROFILE_BUTTON:
+        _clear_dialog_state(services, user["id"])
+        await _send_main_menu(message, services, user["id"], delete_current=True)
         return True
 
     if text_lower == "баланс":
@@ -567,12 +666,8 @@ def create_router(services: AppServices) -> Router:
             await _send_blocked_notice(message, services, user["id"])
             return
         _clear_dialog_state(services, user["id"])
-        await _send_main_menu(
-            message,
-            services,
-            user["id"],
-            intro="Добро пожаловать в CeaAI MVP. Здесь все AI и платежи пока работают на mock-заглушках.",
-            delete_current=True,
+        await _send_onboarding_greeting(
+            message, services, user["id"], delete_current=True
         )
 
     @router.message(Command("help"))
@@ -600,6 +695,21 @@ def create_router(services: AppServices) -> Router:
             return
         _clear_dialog_state(services, user["id"])
         await _send_main_menu(message, services, user["id"], delete_current=True)
+
+    @router.callback_query(F.data == "onboarding:continue")
+    async def onboarding_continue(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        _clear_dialog_state(services, user["id"])
+        if callback.message:
+            await _show_onboarding_followup(
+                callback.message, services, user["id"], delete_current=True
+            )
+        await callback.answer()
 
     @router.callback_query(F.data.startswith("admin:"))
     async def admin_callback(callback: CallbackQuery) -> None:

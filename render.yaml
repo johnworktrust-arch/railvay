@@ -15,6 +15,12 @@ services:
         value: /telegram/webhook
       - key: MOCK_PAYMENT_BASE_URL
         value: https://mock-payments.local/pay
+      - key: PUBLIC_OFFER_URL
+        sync: false
+      - key: INFO_CHANNEL_URL
+        sync: false
+      - key: SUPPORT_USERNAME
+        value: cea_help
       - key: ADMIN_TELEGRAM_IDS
         sync: false
       - key: ADMIN_TELEGRAM_USERNAMES
