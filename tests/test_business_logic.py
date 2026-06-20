@@ -166,6 +166,13 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("Аудио", keyboard_source)
         self.assertIn("Озвучка", keyboard_source)
 
+    def test_reply_keyboard_uses_correct_deepseek_name(self) -> None:
+        keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
+
+        self.assertIn("DeepSeek", keyboard_source)
+        self.assertNotIn("DeepSeq", keyboard_source)
+        self.assertNotIn("DeepSeak", keyboard_source)
+
     def test_migrations_record_applied_versions_once(self) -> None:
         db = Database("sqlite:///:memory:")
         try:

@@ -351,9 +351,12 @@ async def _handle_reply_menu(
         return True
 
     if text_lower in {
+        "gpt deepseek",
         "gpt deepseak",
         "gpt deepseq",
+        "нейронки: gpt, deepseek",
         "нейронки: gpt, deepseq",
+        "нейронки gpt deepseek",
         "нейронки gpt deepseq",
     } or text == TEXT_AI_BUTTON:
         await _send_models_for_types(
