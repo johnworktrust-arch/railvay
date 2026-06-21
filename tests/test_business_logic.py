@@ -6,7 +6,7 @@ from json import loads
 from pathlib import Path
 from unittest.mock import patch
 
-from ceai.config import Settings
+from ceai.config import DEFAULT_PUBLIC_OFFER_URL, Settings
 from ceai.database import Database
 from ceai.internal_api import handle_provider_settings_request
 from ceai.json_utils import dumps, loads_dict
@@ -305,10 +305,15 @@ class MigrationAndUITest(unittest.TestCase):
 
         self.assertIn("Приветствую в Cea AI", handlers_source)
         self.assertIn("Документ оферты здесь", handlers_source)
+        self.assertIn("(Документ оферты здесь: {offer_url}).", handlers_source)
+        self.assertIn("DEFAULT_PUBLIC_OFFER_URL", handlers_source)
         self.assertIn("Чтобы узнать больше о своём аккаунте и тарифах", handlers_source)
         self.assertIn("В двух словах об основных инструментах", handlers_source)
         self.assertIn('F.data == "onboarding:continue"', handlers_source)
         self.assertIn("last_bot_message_ids", handlers_source)
+        self.assertNotIn(
+            "Документ оферты будет доступен после настройки ссылки", handlers_source
+        )
         self.assertNotIn(
             "Добро пожаловать в CeaAI MVP. Здесь все AI и платежи",
             handlers_source,
@@ -344,6 +349,14 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.public_offer_url, "https://cea.ai/offer")
         self.assertEqual(settings.info_channel_url, "https://t.me/cea_ai_info")
         self.assertEqual(settings.support_username, "cea_help")
+
+        with (
+            patch("ceai.config._load_dotenv", return_value={}),
+            patch.dict("os.environ", {"TELEGRAM_BOT_TOKEN": "test"}, clear=True),
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.public_offer_url, DEFAULT_PUBLIC_OFFER_URL)
 
     def test_ai_provider_env_settings_are_read(self) -> None:
         from ceai.config import load_settings

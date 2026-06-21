@@ -7,6 +7,7 @@ from typing import Dict, Tuple
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+DEFAULT_PUBLIC_OFFER_URL = "https://ceaai-bot.onrender.com/public-offer"
 
 
 def _load_dotenv(path: Path) -> Dict[str, str]:
@@ -34,7 +35,7 @@ class Settings:
     telegram_webhook_secret: str = ""
     admin_telegram_ids: Tuple[int, ...] = ()
     admin_telegram_usernames: Tuple[str, ...] = ()
-    public_offer_url: str = ""
+    public_offer_url: str = DEFAULT_PUBLIC_OFFER_URL
     info_channel_url: str = ""
     support_username: str = "cea_help"
     ai_provider_mode: str = "auto"
@@ -83,7 +84,7 @@ def load_settings() -> Settings:
         telegram_webhook_secret=read("TELEGRAM_WEBHOOK_SECRET"),
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
-        public_offer_url=read("PUBLIC_OFFER_URL"),
+        public_offer_url=read("PUBLIC_OFFER_URL", DEFAULT_PUBLIC_OFFER_URL),
         info_channel_url=read("INFO_CHANNEL_URL"),
         support_username=read("SUPPORT_USERNAME", "cea_help").strip().lstrip("@"),
         ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),

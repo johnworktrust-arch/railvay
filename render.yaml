@@ -16,7 +16,7 @@ services:
       - key: MOCK_PAYMENT_BASE_URL
         value: https://mock-payments.local/pay
       - key: PUBLIC_OFFER_URL
-        sync: false
+        value: https://ceaai-bot.onrender.com/public-offer
       - key: INFO_CHANNEL_URL
         sync: false
       - key: SUPPORT_USERNAME

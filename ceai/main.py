@@ -13,6 +13,7 @@ from ceai.config import load_settings
 from ceai.database import Database
 from ceai.health import start_health_server
 from ceai.internal_api import handle_provider_settings_request
+from ceai.public_offer import PUBLIC_OFFER_TEXT
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
 from ceai.bot.handlers import create_router
@@ -28,6 +29,10 @@ async def health(request: web.Request) -> web.Response:
     return web.Response(text="ok\n", content_type="text/plain")
 
 
+async def public_offer(request: web.Request) -> web.Response:
+    return web.Response(text=PUBLIC_OFFER_TEXT, content_type="text/plain")
+
+
 async def run_webhook(
     *,
     bot: Bot,
@@ -40,6 +45,7 @@ async def run_webhook(
 ) -> None:
     app = web.Application()
     app.router.add_get("/healthz", health)
+    app.router.add_get("/public-offer", public_offer)
 
     async def provider_settings(request: web.Request) -> web.Response:
         body = await request.read()

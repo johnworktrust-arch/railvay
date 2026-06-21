@@ -44,6 +44,7 @@ from ceai.bot.keyboards import (
     text_chat_label,
     text_chat_prompt_keyboard,
 )
+from ceai.config import DEFAULT_PUBLIC_OFFER_URL
 from ceai.formatting import format_datetime_minute
 from ceai.json_utils import loads_dict
 from ceai.services.app import AppServices
@@ -286,16 +287,12 @@ def _format_menu(subscription: Dict[str, Any] | None) -> str:
 
 
 def _format_onboarding_greeting(public_offer_url: str) -> str:
-    lines = [
-        "👋 Приветствую в Cea AI!",
-        "",
-        "Продолжая, вы соглашаетесь с условиями использования сервиса.",
-    ]
-    if public_offer_url:
-        lines.append(f"Документ оферты здесь: {public_offer_url}")
-    else:
-        lines.append("Документ оферты будет доступен после настройки ссылки.")
-    return "\n".join(lines)
+    offer_url = public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
+    return (
+        "👋 Приветствую в Cea AI!\n\n"
+        "Продолжая, вы соглашаетесь с условиями использования сервиса "
+        f"(Документ оферты здесь: {offer_url})."
+    )
 
 
 def _format_onboarding_hint() -> str:
