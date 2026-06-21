@@ -35,7 +35,7 @@ DEFAULT_TEXT_CHAT_PROMPTS = {
 }
 RESERVED_TEXT_CHAT_TITLES = (
     "➕ Добавить чат",
-    "🗑 Удалить чат",
+    "🗑 Удалить текущий чат",
     "⬅️ Назад",
 )
 CUSTOM_TEXT_CHAT_PROMPT = (

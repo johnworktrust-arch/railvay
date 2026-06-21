@@ -463,7 +463,7 @@ def _format_text_chat_prompt_screen(
     return "\n".join(lines)
 
 
-def _format_generation_result(result: Dict[str, Any], balance_after: int) -> str:
+def _format_generation_result(result: Dict[str, Any]) -> str:
     kind = result.get("kind")
     if kind == "text":
         body = str(result.get("text", ""))
@@ -473,7 +473,7 @@ def _format_generation_result(result: Dict[str, Any], balance_after: int) -> str
         body = f"{result.get('message', 'Mock TTS result')}\n{result.get('url')}"
     else:
         body = str(result)
-    return f"{body}\n\nБаланс после генерации: {balance_after} coins"
+    return body
 
 
 def _format_history(rows: list[Dict[str, Any]]) -> str:
@@ -869,6 +869,55 @@ async def _handle_reply_menu(
         )
         return True
 
+    if session_state == "waiting_text_chat_prompt" and text == DELETE_CURRENT_TEXT_CHAT_BUTTON:
+        model_price_id = int(session_payload.get("model_price_id", 0))
+        current_chat_id = int(session_payload.get("current_text_chat_id", 0))
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Модель не найдена. Выберите нейросетку заново.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return True
+        try:
+            services.text_chats.delete(user_id=user["id"], chat_id=current_chat_id)
+            await _send_text_chat_screen(
+                message,
+                services,
+                user["id"],
+                model=model,
+                notice="Чат удалён.",
+                delete_current=True,
+            )
+        except NotFoundError as exc:
+            await _send_text_chat_screen(
+                message,
+                services,
+                user["id"],
+                model=model,
+                notice=str(exc),
+                delete_current=True,
+            )
+        except BusinessRuleError as exc:
+            current_chat = services.text_chats.get_active(
+                user_id=user["id"], chat_id=current_chat_id
+            )
+            await _send_text_chat_prompt_screen(
+                message,
+                services,
+                user["id"],
+                model=model,
+                current_chat=current_chat,
+                notice=str(exc),
+                delete_current=True,
+            )
+        return True
+
     if text_lower in {"menu", "/menu", "главное меню", "назад", "назад в меню"} or (
         text == BACK_TO_MENU_BUTTON
     ):
@@ -948,32 +997,6 @@ async def _handle_reply_menu(
                 reply_markup=ReplyKeyboardRemove(),
                 delete_current=True,
             )
-            return True
-
-        if text == DELETE_CURRENT_TEXT_CHAT_BUTTON:
-            try:
-                fallback = services.text_chats.delete(
-                    user_id=user["id"], chat_id=current_chat_id
-                )
-                await _send_text_chat_screen(
-                    message,
-                    services,
-                    user["id"],
-                    model=model,
-                    current_chat_id=int(fallback["id"]),
-                    notice="Чат удалён.",
-                    delete_current=True,
-                )
-            except BusinessRuleError as exc:
-                await _send_text_chat_screen(
-                    message,
-                    services,
-                    user["id"],
-                    model=model,
-                    current_chat_id=current_chat_id,
-                    notice=str(exc),
-                    delete_current=True,
-                )
             return True
 
         choices = session_payload.get("text_chat_choices")
@@ -1868,7 +1891,7 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                _format_generation_result(generation.result, generation.balance_after),
+                _format_generation_result(generation.result),
                 reply_markup=chat_keyboard,
             )
             return
@@ -1976,7 +1999,7 @@ def create_router(services: AppServices) -> Router:
             message,
             services,
             user["id"],
-            _format_generation_result(generation.result, generation.balance_after),
+            _format_generation_result(generation.result),
             reply_markup=back_to_menu_keyboard(),
         )
 

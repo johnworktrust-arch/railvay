@@ -19,7 +19,7 @@ HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
-DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить чат"
+DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -193,12 +193,6 @@ def text_chat_inline_keyboard(
                     text=ADD_TEXT_CHAT_BUTTON, callback_data="text_chat:add"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text=DELETE_CURRENT_TEXT_CHAT_BUTTON,
-                    callback_data="text_chat:delete",
-                )
-            ],
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")],
         ]
     )
@@ -206,7 +200,10 @@ def text_chat_inline_keyboard(
 
 def text_chat_prompt_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],
+        keyboard=[
+            [KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)],
+            [KeyboardButton(text=BACK_TO_MENU_BUTTON)],
+        ],
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="Напишите вопрос",

@@ -254,6 +254,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('lines = ["Выберите AI-инструмент:"]', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
+        self.assertIn("_format_generation_result(generation.result)", handlers_source)
+        self.assertNotIn("Баланс после генерации", handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
 
     def test_text_chat_navigation_has_back_and_no_premature_current_chat(
@@ -267,11 +269,11 @@ class MigrationAndUITest(unittest.TestCase):
 
         self.assertIn("Основной", chat_keyboard_source)
         self.assertIn("ADD_TEXT_CHAT_BUTTON", chat_keyboard_source)
-        self.assertIn("DELETE_CURRENT_TEXT_CHAT_BUTTON", chat_keyboard_source)
+        self.assertNotIn("DELETE_CURRENT_TEXT_CHAT_BUTTON", chat_keyboard_source)
         self.assertIn("BACK_TO_MENU_BUTTON", chat_keyboard_source)
         self.assertIn('callback_data=f"text_chat:select:{chat[\'id\']}"', chat_keyboard_source)
         self.assertIn('callback_data="text_chat:add"', chat_keyboard_source)
-        self.assertIn('callback_data="text_chat:delete"', chat_keyboard_source)
+        self.assertNotIn('callback_data="text_chat:delete"', chat_keyboard_source)
         self.assertNotIn('TEXT_CHAT_LIST_BUTTON = "К чатам"', keyboard_source)
         self.assertNotIn('"К чатам"', keyboard_source)
         self.assertNotIn('"Текущий чат:', handlers_source)
@@ -279,7 +281,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('prefix = "✓ "', keyboard_source)
         self.assertIn("def text_chat_inline_keyboard(", keyboard_source)
         self.assertIn("def text_chat_prompt_keyboard(", keyboard_source)
-        self.assertIn("keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]]", keyboard_source)
+        self.assertIn("KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)", keyboard_source)
+        self.assertIn("KeyboardButton(text=BACK_TO_MENU_BUTTON)", keyboard_source)
         self.assertIn("state=\"waiting_text_chat_choice\"", handlers_source)
         self.assertIn("current_text_chat_id\": int(current_chat[\"id\"]) if current_chat else 0", handlers_source)
         self.assertIn('F.data.startswith("text_chat:")', handlers_source)
