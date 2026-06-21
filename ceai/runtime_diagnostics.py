@@ -6,6 +6,7 @@ from typing import Any, Dict
 
 
 _STATE: Dict[str, Any] = {
+    "last_webhook_request": None,
     "last_message": None,
     "last_error": None,
 }
@@ -31,6 +32,16 @@ def record_message(*, handler: str, message: Any) -> None:
     }
 
 
+def record_webhook_request(*, path: str, method: str, body: bytes) -> None:
+    text = body.decode("utf-8", errors="replace")
+    _STATE["last_webhook_request"] = {
+        "at": _now(),
+        "method": method,
+        "path": path,
+        "body": text[:1000],
+    }
+
+
 def record_error(*, exception: BaseException, update: Any = None) -> None:
     update_id = getattr(update, "update_id", None)
     _STATE["last_error"] = {
@@ -46,6 +57,7 @@ def record_error(*, exception: BaseException, update: Any = None) -> None:
 
 def snapshot() -> Dict[str, Any]:
     return {
+        "last_webhook_request": _STATE.get("last_webhook_request"),
         "last_message": _STATE.get("last_message"),
         "last_error": _STATE.get("last_error"),
     }
