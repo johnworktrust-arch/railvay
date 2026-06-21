@@ -243,28 +243,35 @@ class MigrationAndUITest(unittest.TestCase):
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
         self.assertIn('BACK_TO_MENU_BUTTON = "⬅️ В меню"', keyboard_source)
-        self.assertIn("def model_choice_keyboard(", keyboard_source)
-        self.assertIn("model_choice_label(model)", keyboard_source)
+        self.assertIn("def models_keyboard(", keyboard_source)
+        self.assertIn('callback_data=f"model:{model[\'id\']}"', keyboard_source)
         self.assertIn("state=\"waiting_model_choice\"", handlers_source)
-        self.assertIn("reply_markup=model_choice_keyboard(models)", handlers_source)
+        self.assertIn("reply_markup=models_keyboard(models)", handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
 
-    def test_text_chat_keyboard_has_default_and_custom_controls_without_back(self) -> None:
+    def test_text_chat_inline_keyboard_has_default_and_custom_controls_without_back(
+        self,
+    ) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         chat_keyboard_source = keyboard_source.split(
-            "def text_chat_keyboard(", 1
-        )[1].split("def admin_menu_keyboard", 1)[0]
+            "def text_chat_inline_keyboard(", 1
+        )[1].split("def text_chat_prompt_keyboard", 1)[0]
 
         self.assertIn("Основной", chat_keyboard_source)
         self.assertIn("ADD_TEXT_CHAT_BUTTON", chat_keyboard_source)
         self.assertIn("DELETE_CURRENT_TEXT_CHAT_BUTTON", chat_keyboard_source)
         self.assertNotIn("BACK_TO_MENU_BUTTON", chat_keyboard_source)
+        self.assertIn('callback_data=f"text_chat:select:{chat[\'id\']}"', chat_keyboard_source)
+        self.assertIn('callback_data="text_chat:add"', chat_keyboard_source)
+        self.assertIn('callback_data="text_chat:delete"', chat_keyboard_source)
         self.assertIn('TEXT_CHAT_LIST_BUTTON = "К чатам"', keyboard_source)
+        self.assertIn("def text_chat_inline_keyboard(", keyboard_source)
         self.assertIn("def text_chat_prompt_keyboard(", keyboard_source)
         self.assertIn("state=\"waiting_text_chat_choice\"", handlers_source)
+        self.assertIn('F.data.startswith("text_chat:")', handlers_source)
         self.assertIn("waiting_text_chat_prompt", handlers_source)
         self.assertIn("waiting_text_chat_name", handlers_source)
         self.assertIn("text_chat_id", handlers_source)
@@ -298,9 +305,12 @@ class MigrationAndUITest(unittest.TestCase):
         )[0]
 
         self.assertIn("edit_message_text", handlers_source)
+        self.assertIn("message is not modified", handlers_source)
         self.assertIn("last_reply_keyboard_signature", handlers_source)
         self.assertIn("Telegram cannot attach or replace a bottom reply keyboard", handlers_source)
-        self.assertNotIn("delete_message", regular_screen_source)
+        self.assertIn("async def _refresh_reply_keyboard", regular_screen_source)
+        self.assertIn("KEYBOARD_REFRESH_TEXT", regular_screen_source)
+        self.assertIn("await _refresh_reply_keyboard", regular_screen_source)
         self.assertNotIn("message.delete", regular_screen_source)
         self.assertIn("await message.bot.delete_message", handlers_source)
 

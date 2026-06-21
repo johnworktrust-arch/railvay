@@ -157,41 +157,22 @@ def model_choice_label(model: Dict[str, Any]) -> str:
     )
 
 
-def model_choice_keyboard(models: Iterable[Dict[str, Any]]) -> ReplyKeyboardMarkup:
-    rows = [[KeyboardButton(text=model_choice_label(model))] for model in models]
-    rows.append([KeyboardButton(text=BACK_TO_MENU_BUTTON)])
-    return ReplyKeyboardMarkup(
-        keyboard=rows,
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Выберите модель",
-    )
-
-
-def model_choice_keyboard_from_labels(labels: Iterable[str]) -> ReplyKeyboardMarkup:
-    rows = [[KeyboardButton(text=label)] for label in labels]
-    rows.append([KeyboardButton(text=BACK_TO_MENU_BUTTON)])
-    return ReplyKeyboardMarkup(
-        keyboard=rows,
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Выберите модель",
-    )
-
-
 def text_chat_label(chat: Dict[str, Any], *, current_chat_id: int | None) -> str:
     prefix = "✓ " if int(chat["id"]) == current_chat_id else ""
     return f"{prefix}{chat['title']}"
 
 
-def text_chat_keyboard(
+def text_chat_inline_keyboard(
     chats: Iterable[Dict[str, Any]], *, current_chat_id: int | None
-) -> ReplyKeyboardMarkup:
-    default_rows: list[list[KeyboardButton]] = []
-    custom_rows: list[list[KeyboardButton]] = []
-    default_buffer: list[KeyboardButton] = []
+) -> InlineKeyboardMarkup:
+    default_rows: list[list[InlineKeyboardButton]] = []
+    custom_rows: list[list[InlineKeyboardButton]] = []
+    default_buffer: list[InlineKeyboardButton] = []
     for chat in chats:
-        button = KeyboardButton(text=text_chat_label(chat, current_chat_id=current_chat_id))
+        button = InlineKeyboardButton(
+            text=text_chat_label(chat, current_chat_id=current_chat_id),
+            callback_data=f"text_chat:select:{chat['id']}",
+        )
         if chat["is_default"]:
             if chat["title"] == "Основной":
                 default_rows.append([button])
@@ -205,16 +186,22 @@ def text_chat_keyboard(
     if default_buffer:
         default_rows.append(default_buffer)
 
-    return ReplyKeyboardMarkup(
-        keyboard=[
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             *default_rows,
             *custom_rows,
-            [KeyboardButton(text=ADD_TEXT_CHAT_BUTTON)],
-            [KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Введите вопрос или выберите чат",
+            [
+                InlineKeyboardButton(
+                    text=ADD_TEXT_CHAT_BUTTON, callback_data="text_chat:add"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=DELETE_CURRENT_TEXT_CHAT_BUTTON,
+                    callback_data="text_chat:delete",
+                )
+            ],
+        ]
     )
 
 

@@ -32,15 +32,13 @@ from ceai.bot.keyboards import (
     admin_users_keyboard,
     back_to_menu_keyboard,
     main_menu_keyboard,
-    model_choice_keyboard,
-    model_choice_keyboard_from_labels,
     model_choice_label,
     models_keyboard,
     onboarding_continue_keyboard,
     onboarding_links_keyboard,
     payment_keyboard,
     plans_keyboard,
-    text_chat_keyboard,
+    text_chat_inline_keyboard,
     text_chat_label,
     text_chat_prompt_keyboard,
 )
@@ -60,6 +58,7 @@ from ceai.services.exceptions import (
 LAST_BOT_MESSAGE_ID = "last_bot_message_id"
 LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
+KEYBOARD_REFRESH_TEXT = "."
 
 
 def _user_kwargs(message_or_callback: Message | CallbackQuery) -> Dict[str, Any]:
@@ -168,8 +167,34 @@ async def _edit_screen_message(
             ),
         )
         return edited if isinstance(edited, Message) else None
-    except (TelegramBadRequest, TelegramForbiddenError):
+    except TelegramBadRequest as exc:
+        if "message is not modified" in str(exc).casefold():
+            return message
         return None
+    except TelegramForbiddenError:
+        return None
+
+
+async def _refresh_reply_keyboard(
+    message: Message, *, reply_markup: ReplyKeyboardMarkup | ReplyKeyboardRemove
+) -> None:
+    try:
+        carrier = await message.bot.send_message(
+            chat_id=message.chat.id,
+            text=KEYBOARD_REFRESH_TEXT,
+            reply_markup=reply_markup,
+            disable_notification=True,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        return
+
+    try:
+        await message.bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=carrier.message_id,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
 
 
 async def _show_screen(
@@ -208,8 +233,30 @@ async def _show_screen(
             )
             return edited
 
+    if (
+        last_message_id is not None
+        and isinstance(reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove))
+    ):
+        edited = await _edit_screen_message(
+            message,
+            message_id=last_message_id,
+            text=text,
+            reply_markup=None,
+        )
+        if edited is not None:
+            await _refresh_reply_keyboard(message, reply_markup=reply_markup)
+            _remember_screen_message(
+                services,
+                user_id,
+                state=state,
+                payload=payload,
+                message_id=last_message_id,
+                reply_markup=reply_markup,
+            )
+            return edited
+
     # Telegram cannot attach or replace a bottom reply keyboard through editMessageText.
-    # In that case we send a fresh message, but keep the old one in chat instead of deleting it.
+    # If editing fails, we send a fresh message as the fallback screen.
     sent = await message.bot.send_message(
         chat_id=message.chat.id,
         text=text,
@@ -708,7 +755,7 @@ async def _send_models_for_types(
         services,
         user_id,
         f"{title}\n\n{_format_models(models)}",
-        reply_markup=model_choice_keyboard(models),
+        reply_markup=models_keyboard(models),
         delete_current=delete_current,
     )
 
@@ -751,7 +798,10 @@ async def _send_text_chat_screen(
         services,
         user_id,
         _format_text_chat_list_screen(model, current_chat, notice=notice),
-        reply_markup=text_chat_keyboard(chats, current_chat_id=int(current_chat["id"])),
+        reply_markup=text_chat_inline_keyboard(
+            chats,
+            current_chat_id=int(current_chat["id"]),
+        ),
         delete_current=delete_current,
     )
 
@@ -1450,6 +1500,113 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
+    @router.callback_query(F.data.startswith("text_chat:"))
+    async def text_chat_callback(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if not callback.message or not callback.data:
+            await callback.answer()
+            return
+
+        session_state, session_payload = _session_state_payload(services, user["id"])
+        if session_state not in {"waiting_text_chat_choice", "waiting_text_chat_prompt"}:
+            await callback.answer()
+            return
+
+        model_price_id = int(session_payload.get("model_price_id", 0))
+        current_chat_id = int(session_payload.get("current_text_chat_id", 0))
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                "Модель не найдена. Выберите нейросетку заново.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            await callback.answer()
+            return
+
+        action_parts = callback.data.split(":")
+        action = action_parts[1] if len(action_parts) > 1 else ""
+
+        if action == "add":
+            _set_dialog_state(
+                services,
+                user["id"],
+                state="waiting_text_chat_name",
+                payload={
+                    "model_price_id": model_price_id,
+                    "current_text_chat_id": current_chat_id,
+                },
+            )
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                "Введите название нового чата.",
+                reply_markup=ReplyKeyboardRemove(),
+                delete_current=True,
+            )
+            await callback.answer()
+            return
+
+        if action == "delete":
+            try:
+                fallback = services.text_chats.delete(
+                    user_id=user["id"], chat_id=current_chat_id
+                )
+                await _send_text_chat_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    model=model,
+                    current_chat_id=int(fallback["id"]),
+                    notice="Чат удалён.",
+                    delete_current=True,
+                )
+            except BusinessRuleError as exc:
+                await _send_text_chat_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    model=model,
+                    current_chat_id=current_chat_id,
+                    notice=str(exc),
+                    delete_current=True,
+                )
+            await callback.answer()
+            return
+
+        if action == "select" and len(action_parts) > 2:
+            chat_id = int(action_parts[2])
+            try:
+                chat = services.text_chats.get_active(
+                    user_id=user["id"], chat_id=chat_id
+                )
+            except NotFoundError:
+                await callback.answer("Чат не найден.", show_alert=True)
+                return
+            await _send_text_chat_prompt_screen(
+                callback.message,
+                services,
+                user["id"],
+                model=model,
+                current_chat=chat,
+                notice=f"Чат «{chat['title']}» выбран.",
+                delete_current=True,
+            )
+            await callback.answer()
+            return
+
+        await callback.answer()
+
     @router.callback_query(F.data == "menu:history")
     async def menu_history(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
@@ -1584,7 +1741,7 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 model=model,
                 current_chat_id=current_chat_id,
-                notice="Выберите чат на нижней клавиатуре.",
+                notice="Выберите чат кнопкой под сообщением.",
                 delete_current=True,
             )
             return
@@ -1706,13 +1863,18 @@ def create_router(services: AppServices) -> Router:
         if session and session["state"] == "waiting_model_choice":
             payload = loads_dict(session.get("payload"))
             choices = payload.get("model_choices")
-            labels = choices.keys() if isinstance(choices, dict) else []
+            model_ids = choices.values() if isinstance(choices, dict) else []
+            models = [
+                model
+                for model_id in model_ids
+                if (model := services.catalog.get_model(int(model_id))) is not None
+            ]
             await _show_screen(
                 message,
                 services,
                 user["id"],
-                "Выберите модель на нижней клавиатуре или нажмите «Назад».",
-                reply_markup=model_choice_keyboard_from_labels(labels),
+                "Выберите модель кнопкой под сообщением.",
+                reply_markup=models_keyboard(models) if models else main_menu_keyboard(),
                 delete_current=True,
             )
             return
