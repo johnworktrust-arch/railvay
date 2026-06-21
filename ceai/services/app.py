@@ -25,7 +25,7 @@ class AppServices:
 
 
 def build_services(db: Database, settings: Settings) -> AppServices:
-    provider = AIProviderRouter(settings)
+    provider = AIProviderRouter(settings, db)
     return AppServices(
         settings=settings,
         users=UserService(db),

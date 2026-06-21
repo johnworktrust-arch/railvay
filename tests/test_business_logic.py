@@ -8,6 +8,7 @@ from unittest.mock import patch
 from ceai.config import Settings
 from ceai.database import Database
 from ceai.json_utils import loads_dict
+from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.providers.base import ProviderError
 from ceai.providers.router import AIProviderRouter
 from ceai.seed import seed_reference_data
@@ -318,6 +319,39 @@ class MigrationAndUITest(unittest.TestCase):
                 prompt_text="Привет",
             )
 
+    def test_ai_provider_router_uses_saved_provider_keys(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            with db.transaction() as conn:
+                repo = AppSettingsRepository()
+                repo.upsert(
+                    conn,
+                    key="DEEPSEEK_API_KEY",
+                    value="saved-deepseek-key",
+                    is_secret=True,
+                )
+                repo.upsert(
+                    conn,
+                    key="OPENAI_API_KEY",
+                    value="saved-openai-key",
+                    is_secret=True,
+                )
+
+            settings = Settings(
+                telegram_bot_token="test",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+                ai_provider_mode="auto",
+            )
+            router = AIProviderRouter(settings, db)
+
+            self.assertIsNotNone(router.deepseek)
+            self.assertIsNotNone(router.openai)
+        finally:
+            db.close()
+
     def test_admin_user_card_formats_dates_without_iso_noise(self) -> None:
         from ceai.formatting import format_datetime_minute
 
@@ -338,7 +372,7 @@ class MigrationAndUITest(unittest.TestCase):
                 row = conn.execute(
                     "SELECT COUNT(*) AS count FROM schema_migrations"
                 ).fetchone()
-            self.assertEqual(row["count"], 3)
+            self.assertEqual(row["count"], 4)
         finally:
             db.close()
 
