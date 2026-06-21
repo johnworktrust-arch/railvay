@@ -68,10 +68,20 @@ class AIProviderRouter:
             else None
         )
 
-    def generate(self, *, model: Dict[str, Any], prompt_text: str) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        model: Dict[str, Any],
+        prompt_text: str,
+        system_prompt: str | None = None,
+    ) -> ProviderResult:
         self.reload_settings()
         provider = self._provider_for(model)
-        return provider.generate(model=model, prompt_text=prompt_text)
+        return provider.generate(
+            model=model,
+            prompt_text=prompt_text,
+            system_prompt=system_prompt,
+        )
 
     def _provider_for(self, model: Dict[str, Any]) -> AIProvider:
         mode = self.ai_provider_mode

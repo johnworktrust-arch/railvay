@@ -5,7 +5,13 @@ from typing import Any, Dict
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
+from aiogram.types import (
+    CallbackQuery,
+    InlineKeyboardMarkup,
+    Message,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
+)
 
 from ceai.bot.keyboards import (
     ADD_TEXT_CHAT_BUTTON,
@@ -17,6 +23,7 @@ from ceai.bot.keyboards import (
     PROFILE_BUTTON,
     REPLY_MENU_BUTTONS,
     TEXT_AI_BUTTON,
+    TEXT_CHAT_LIST_BUTTON,
     VIDEO_AI_BUTTON,
     VOICE_AI_BUTTON,
     admin_back_keyboard,
@@ -35,6 +42,7 @@ from ceai.bot.keyboards import (
     plans_keyboard,
     text_chat_keyboard,
     text_chat_label,
+    text_chat_prompt_keyboard,
 )
 from ceai.formatting import format_datetime_minute
 from ceai.json_utils import loads_dict
@@ -50,6 +58,7 @@ from ceai.services.exceptions import (
 
 LAST_BOT_MESSAGE_ID = "last_bot_message_id"
 LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
+LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
 
 
 def _user_kwargs(message_or_callback: Message | CallbackQuery) -> Dict[str, Any]:
@@ -85,6 +94,14 @@ def _tracked_message_ids(payload: Dict[str, Any]) -> list[int]:
     return ids
 
 
+def _reply_keyboard_signature(reply_markup: Any | None) -> list[list[str]] | str | None:
+    if isinstance(reply_markup, ReplyKeyboardMarkup):
+        return [[button.text for button in row] for row in reply_markup.keyboard]
+    if isinstance(reply_markup, ReplyKeyboardRemove):
+        return "remove"
+    return None
+
+
 def _set_dialog_state(
     services: AppServices,
     user_id: int,
@@ -102,6 +119,13 @@ def _set_dialog_state(
         current_ids = _tracked_message_ids(current_payload)
         if current_ids:
             next_payload[LAST_BOT_MESSAGE_IDS] = current_ids
+    if (
+        LAST_REPLY_KEYBOARD_SIGNATURE in current_payload
+        and LAST_REPLY_KEYBOARD_SIGNATURE not in next_payload
+    ):
+        next_payload[LAST_REPLY_KEYBOARD_SIGNATURE] = current_payload[
+            LAST_REPLY_KEYBOARD_SIGNATURE
+        ]
     services.users.set_session(user_id, state=state, payload=next_payload)
 
 
@@ -109,18 +133,42 @@ def _clear_dialog_state(services: AppServices, user_id: int) -> None:
     _set_dialog_state(services, user_id, state="idle", payload={})
 
 
-async def _delete_message(message: Message, message_id: int) -> None:
-    try:
-        await message.bot.delete_message(chat_id=message.chat.id, message_id=message_id)
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
+def _remember_screen_message(
+    services: AppServices,
+    user_id: int,
+    *,
+    state: str,
+    payload: Dict[str, Any],
+    message_id: int,
+    reply_markup: Any | None,
+) -> None:
+    payload.pop(LAST_BOT_MESSAGE_ID, None)
+    payload[LAST_BOT_MESSAGE_IDS] = [message_id]
+    reply_signature = _reply_keyboard_signature(reply_markup)
+    if reply_signature is not None:
+        payload[LAST_REPLY_KEYBOARD_SIGNATURE] = reply_signature
+    services.users.set_session(user_id, state=state, payload=payload)
 
 
-async def _delete_current_message(message: Message) -> None:
+async def _edit_screen_message(
+    message: Message,
+    *,
+    message_id: int,
+    text: str,
+    reply_markup: Any | None,
+) -> Message | None:
     try:
-        await message.delete()
+        edited = await message.bot.edit_message_text(
+            chat_id=message.chat.id,
+            message_id=message_id,
+            text=text,
+            reply_markup=(
+                reply_markup if isinstance(reply_markup, InlineKeyboardMarkup) else None
+            ),
+        )
+        return edited if isinstance(edited, Message) else None
     except (TelegramBadRequest, TelegramForbiddenError):
-        pass
+        return None
 
 
 async def _show_screen(
@@ -133,19 +181,47 @@ async def _show_screen(
     delete_current: bool = False,
 ) -> Message:
     state, payload = _session_state_payload(services, user_id)
-    for message_id in _tracked_message_ids(payload):
-        await _delete_message(message, message_id)
-    if delete_current:
-        await _delete_current_message(message)
+    tracked_ids = _tracked_message_ids(payload)
+    last_message_id = tracked_ids[-1] if tracked_ids else None
+    reply_signature = _reply_keyboard_signature(reply_markup)
+    current_reply_signature = payload.get(LAST_REPLY_KEYBOARD_SIGNATURE)
+    can_edit_with_current_keyboard = (
+        reply_signature is None or reply_signature == current_reply_signature
+    )
 
+    if last_message_id is not None and can_edit_with_current_keyboard:
+        edited = await _edit_screen_message(
+            message,
+            message_id=last_message_id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+        if edited is not None:
+            _remember_screen_message(
+                services,
+                user_id,
+                state=state,
+                payload=payload,
+                message_id=last_message_id,
+                reply_markup=reply_markup,
+            )
+            return edited
+
+    # Telegram cannot attach or replace a bottom reply keyboard through editMessageText.
+    # In that case we send a fresh message, but keep the old one in chat instead of deleting it.
     sent = await message.bot.send_message(
         chat_id=message.chat.id,
         text=text,
         reply_markup=reply_markup,
     )
-    payload.pop(LAST_BOT_MESSAGE_ID, None)
-    payload[LAST_BOT_MESSAGE_IDS] = [sent.message_id]
-    services.users.set_session(user_id, state=state, payload=payload)
+    _remember_screen_message(
+        services,
+        user_id,
+        state=state,
+        payload=payload,
+        message_id=sent.message_id,
+        reply_markup=reply_markup,
+    )
     return sent
 
 
@@ -157,10 +233,15 @@ async def _show_onboarding_followup(
     delete_current: bool = False,
 ) -> None:
     _, payload = _session_state_payload(services, user_id)
-    for message_id in _tracked_message_ids(payload):
-        await _delete_message(message, message_id)
-    if delete_current:
-        await _delete_current_message(message)
+    if message.message_id:
+        try:
+            await message.bot.edit_message_reply_markup(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+                reply_markup=None,
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
 
     hint = await message.bot.send_message(
         chat_id=message.chat.id,
@@ -178,7 +259,12 @@ async def _show_onboarding_followup(
     services.users.set_session(
         user_id,
         state="idle",
-        payload={LAST_BOT_MESSAGE_IDS: [hint.message_id, promo.message_id]},
+        payload={
+            LAST_BOT_MESSAGE_IDS: [hint.message_id, promo.message_id],
+            LAST_REPLY_KEYBOARD_SIGNATURE: _reply_keyboard_signature(
+                main_menu_keyboard()
+            ),
+        },
     )
 
 
@@ -274,7 +360,7 @@ def _text_chat_payload(
     }
 
 
-def _format_text_chat_screen(
+def _format_text_chat_list_screen(
     model: Dict[str, Any], current_chat: Dict[str, Any], *, notice: str | None = None
 ) -> str:
     lines = []
@@ -290,6 +376,24 @@ def _format_text_chat_screen(
             f"Текущий чат: {current_chat['title']}",
             "",
             "Выберите чат ниже:",
+        ]
+    )
+    return "\n".join(lines)
+
+
+def _format_text_chat_prompt_screen(
+    model: Dict[str, Any], current_chat: Dict[str, Any], *, notice: str | None = None
+) -> str:
+    lines = []
+    if notice:
+        lines.extend([notice, ""])
+    lines.extend(
+        [
+            f"🤖 {model['display_name']}",
+            f"Чат: {current_chat['title']}",
+            "",
+            f"Стоимость 1 запроса: {model['coins_cost']} coins",
+            "Напишите вопрос сообщением ниже.",
         ]
     )
     return "\n".join(lines)
@@ -629,6 +733,35 @@ async def _send_text_chat_screen(
     _set_dialog_state(
         services,
         user_id,
+        state="waiting_text_chat_choice",
+        payload=_text_chat_payload(model, chats, current_chat),
+    )
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_text_chat_list_screen(model, current_chat, notice=notice),
+        reply_markup=text_chat_keyboard(chats, current_chat_id=int(current_chat["id"])),
+        delete_current=delete_current,
+    )
+
+
+async def _send_text_chat_prompt_screen(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    model: Dict[str, Any],
+    current_chat: Dict[str, Any],
+    notice: str | None = None,
+    delete_current: bool = False,
+) -> None:
+    chats = services.text_chats.list_for_model(
+        user_id=user_id, model_price_id=int(model["id"])
+    )
+    _set_dialog_state(
+        services,
+        user_id,
         state="waiting_text_chat_prompt",
         payload=_text_chat_payload(model, chats, current_chat),
     )
@@ -636,8 +769,8 @@ async def _send_text_chat_screen(
         message,
         services,
         user_id,
-        _format_text_chat_screen(model, current_chat, notice=notice),
-        reply_markup=text_chat_keyboard(chats, current_chat_id=int(current_chat["id"])),
+        _format_text_chat_prompt_screen(model, current_chat, notice=notice),
+        reply_markup=text_chat_prompt_keyboard(),
         delete_current=delete_current,
     )
 
@@ -674,12 +807,12 @@ async def _handle_reply_menu(
             chat = services.text_chats.create_custom(
                 user_id=user["id"], model_price_id=model_price_id, title=text
             )
-            await _send_text_chat_screen(
+            await _send_text_chat_prompt_screen(
                 message,
                 services,
                 user["id"],
                 model=model,
-                current_chat_id=int(chat["id"]),
+                current_chat=chat,
                 notice=f"Чат «{chat['title']}» создан.",
                 delete_current=True,
             )
@@ -694,7 +827,32 @@ async def _handle_reply_menu(
             )
         return True
 
-    if session_state == "waiting_text_chat_prompt":
+    if session_state == "waiting_text_chat_prompt" and text == TEXT_CHAT_LIST_BUTTON:
+        model_price_id = int(session_payload.get("model_price_id", 0))
+        current_chat_id = int(session_payload.get("current_text_chat_id", 0))
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Модель не найдена. Выберите нейросетку заново.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return True
+        await _send_text_chat_screen(
+            message,
+            services,
+            user["id"],
+            model=model,
+            current_chat_id=current_chat_id,
+            delete_current=True,
+        )
+        return True
+
+    if session_state == "waiting_text_chat_choice":
         model_price_id = int(session_payload.get("model_price_id", 0))
         current_chat_id = int(session_payload.get("current_text_chat_id", 0))
         model = services.catalog.get_model(model_price_id)
@@ -760,12 +918,12 @@ async def _handle_reply_menu(
         if isinstance(choices, dict) and text in choices:
             chat_id = int(choices[text])
             chat = services.text_chats.get_active(user_id=user["id"], chat_id=chat_id)
-            await _send_text_chat_screen(
+            await _send_text_chat_prompt_screen(
                 message,
                 services,
                 user["id"],
                 model=model,
-                current_chat_id=chat_id,
+                current_chat=chat,
                 notice=f"Чат «{chat['title']}» выбран.",
                 delete_current=True,
             )
@@ -1394,6 +1552,33 @@ def create_router(services: AppServices) -> Router:
             return
 
         session = services.users.get_session(user["id"])
+        if session and session["state"] == "waiting_text_chat_choice":
+            payload = loads_dict(session.get("payload"))
+            model_price_id = int(payload.get("model_price_id", 0))
+            current_chat_id = int(payload.get("current_text_chat_id", 0))
+            model = services.catalog.get_model(model_price_id)
+            if model is None:
+                _clear_dialog_state(services, user["id"])
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Модель не найдена. Выберите нейросетку заново.",
+                    reply_markup=main_menu_keyboard(),
+                    delete_current=True,
+                )
+                return
+            await _send_text_chat_screen(
+                message,
+                services,
+                user["id"],
+                model=model,
+                current_chat_id=current_chat_id,
+                notice="Выберите чат на нижней клавиатуре.",
+                delete_current=True,
+            )
+            return
+
         if session and session["state"] == "waiting_text_chat_prompt":
             payload = loads_dict(session.get("payload"))
             model_price_id = int(payload.get("model_price_id", 0))
@@ -1429,10 +1614,7 @@ def create_router(services: AppServices) -> Router:
                     payload=_text_chat_payload(model, chats, current_chat),
                 )
 
-            chats = services.text_chats.list_for_model(
-                user_id=user["id"], model_price_id=model_price_id
-            )
-            chat_keyboard = text_chat_keyboard(chats, current_chat_id=current_chat_id)
+            chat_keyboard = text_chat_prompt_keyboard()
             prompt_text = message.text or ""
             if not prompt_text.strip():
                 await _show_screen(
@@ -1460,6 +1642,7 @@ def create_router(services: AppServices) -> Router:
                     prompt_text=prompt_text,
                     text_chat_id=current_chat_id,
                     text_chat_title=str(current_chat["title"]),
+                    text_chat_system_prompt=str(current_chat.get("system_prompt") or ""),
                 )
             except NoActiveSubscriptionError:
                 _clear_dialog_state(services, user["id"])

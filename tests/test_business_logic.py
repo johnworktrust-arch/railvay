@@ -115,6 +115,11 @@ class BusinessLogicTest(unittest.TestCase):
             [chat["title"] for chat in chats[:5]],
             ["Основной", "Медицина", "Работа", "Психолог", "Спорт"],
         )
+        prompts = {chat["title"]: chat["system_prompt"] for chat in chats}
+        self.assertIn("медицинским", prompts["Медицина"])
+        self.assertIn("рабочих задач", prompts["Работа"])
+        self.assertIn("психологический", prompts["Психолог"])
+        self.assertIn("спорту", prompts["Спорт"])
 
         custom = self.services.text_chats.create_custom(
             user_id=self.user["id"],
@@ -145,11 +150,16 @@ class BusinessLogicTest(unittest.TestCase):
             prompt_text="Сделай список задач",
             text_chat_id=chat["id"],
             text_chat_title=chat["title"],
+            text_chat_system_prompt=chat["system_prompt"],
         )
 
         history = self.services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["prompt_payload"]["text_chat_id"], chat["id"])
         self.assertEqual(history[0]["prompt_payload"]["text_chat_title"], "Рабочие вопросы")
+        self.assertIn(
+            "пользовательском чате",
+            history[0]["prompt_payload"]["text_chat_system_prompt"],
+        )
 
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
@@ -252,9 +262,13 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("ADD_TEXT_CHAT_BUTTON", chat_keyboard_source)
         self.assertIn("DELETE_CURRENT_TEXT_CHAT_BUTTON", chat_keyboard_source)
         self.assertNotIn("BACK_TO_MENU_BUTTON", chat_keyboard_source)
+        self.assertIn('TEXT_CHAT_LIST_BUTTON = "К чатам"', keyboard_source)
+        self.assertIn("def text_chat_prompt_keyboard(", keyboard_source)
+        self.assertIn("state=\"waiting_text_chat_choice\"", handlers_source)
         self.assertIn("waiting_text_chat_prompt", handlers_source)
         self.assertIn("waiting_text_chat_name", handlers_source)
         self.assertIn("text_chat_id", handlers_source)
+        self.assertIn("text_chat_system_prompt", handlers_source)
 
     def test_telegram_commands_menu_contains_only_menu_and_profile(self) -> None:
         main_source = Path("ceai/main.py").read_text(encoding="utf-8")
@@ -276,6 +290,15 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("🏠 Главное меню", handlers_source)
         self.assertIn("Выберите нужный раздел 👇", handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
+
+    def test_bot_screens_edit_messages_instead_of_deleting_them(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn("edit_message_text", handlers_source)
+        self.assertIn("last_reply_keyboard_signature", handlers_source)
+        self.assertIn("Telegram cannot attach or replace a bottom reply keyboard", handlers_source)
+        self.assertNotIn("delete_message", handlers_source)
+        self.assertNotIn("message.delete", handlers_source)
 
     def test_start_onboarding_copy_and_continue_callback_are_present(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")

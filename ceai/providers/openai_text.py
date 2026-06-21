@@ -21,16 +21,25 @@ class OpenAITextProvider:
         self.base_url = base_url.rstrip("/")
         self.timeout_seconds = timeout_seconds
 
-    def generate(self, *, model: Dict[str, Any], prompt_text: str) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        model: Dict[str, Any],
+        prompt_text: str,
+        system_prompt: str | None = None,
+    ) -> ProviderResult:
         config = loads_dict(model.get("config"))
         model_key = str(config.get("api_model") or model["model_key"])
+        instructions = (
+            "Ты полезный AI-помощник внутри Telegram-бота CeaAI. "
+            "Отвечай кратко, понятно и по-русски, если пользователь не попросил иначе."
+        )
+        if system_prompt:
+            instructions = f"{instructions}\n\n{system_prompt.strip()}"
         payload = {
             "model": model_key,
             "reasoning": {"effort": str(config.get("reasoning_effort", "low"))},
-            "instructions": (
-                "Ты полезный AI-помощник внутри Telegram-бота CeaAI. "
-                "Отвечай кратко, понятно и по-русски, если пользователь не попросил иначе."
-            ),
+            "instructions": instructions,
             "input": prompt_text.strip(),
         }
         raw = self._post_json("/responses", payload)

@@ -20,6 +20,7 @@ HISTORY_BUTTON = "🕘 История"
 BACK_TO_MENU_BUTTON = "⬅️ В меню"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
 DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
+TEXT_CHAT_LIST_BUTTON = "К чатам"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -216,6 +217,15 @@ def text_chat_keyboard(
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="Введите вопрос или выберите чат",
+    )
+
+
+def text_chat_prompt_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=TEXT_CHAT_LIST_BUTTON)]],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Напишите вопрос",
     )
 
 

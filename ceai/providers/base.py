@@ -18,5 +18,11 @@ class ProviderResult:
 
 
 class AIProvider(Protocol):
-    def generate(self, *, model: Dict[str, Any], prompt_text: str) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        model: Dict[str, Any],
+        prompt_text: str,
+        system_prompt: str | None = None,
+    ) -> ProviderResult:
         ...

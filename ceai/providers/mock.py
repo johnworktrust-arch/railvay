@@ -12,7 +12,13 @@ class MockProviderError(ProviderError):
 
 
 class MockAIProvider:
-    def generate(self, *, model: Dict[str, Any], prompt_text: str) -> ProviderResult:
+    def generate(
+        self,
+        *,
+        model: Dict[str, Any],
+        prompt_text: str,
+        system_prompt: str | None = None,
+    ) -> ProviderResult:
         normalized_prompt = prompt_text.strip()
         if "mock_error" in normalized_prompt.lower():
             raise MockProviderError("Mock AI provider returned an error")

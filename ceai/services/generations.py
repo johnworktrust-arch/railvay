@@ -43,6 +43,7 @@ class GenerationService:
         prompt_text: str,
         text_chat_id: int | None = None,
         text_chat_title: str | None = None,
+        text_chat_system_prompt: str | None = None,
     ) -> GenerationResult:
         business_error: NoActiveSubscriptionError | InsufficientCoinsError | None = None
         with self.db.transaction() as conn:
@@ -55,6 +56,8 @@ class GenerationService:
                 prompt_payload["text_chat_id"] = text_chat_id
             if text_chat_title:
                 prompt_payload["text_chat_title"] = text_chat_title
+            if text_chat_system_prompt:
+                prompt_payload["text_chat_system_prompt"] = text_chat_system_prompt
 
             generation = self.generations.create_pending(
                 conn,
@@ -109,7 +112,11 @@ class GenerationService:
             raise business_error
 
         try:
-            provider_result = self.provider.generate(model=model, prompt_text=prompt_text)
+            provider_result = self.provider.generate(
+                model=model,
+                prompt_text=prompt_text,
+                system_prompt=text_chat_system_prompt,
+            )
         except ProviderError as exc:
             with self.db.transaction() as conn:
                 self.generations.mark_failed(

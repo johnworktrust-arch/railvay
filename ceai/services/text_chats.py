@@ -9,10 +9,39 @@ from ceai.services.exceptions import BusinessRuleError, NotFoundError
 
 
 DEFAULT_TEXT_CHAT_TITLES = ("Основной", "Медицина", "Работа", "Психолог", "Спорт")
+DEFAULT_TEXT_CHAT_PROMPTS = {
+    "Основной": (
+        "Ты универсальный AI-ассистент Cea AI. Отвечай ясно, полезно и по делу."
+    ),
+    "Медицина": (
+        "Ты AI-помощник по медицинским вопросам. Объясняй аккуратно и понятно, "
+        "не ставь диагнозы, не назначай лечение и рекомендуй обратиться к врачу "
+        "при симптомах, рисках или срочных состояниях."
+    ),
+    "Работа": (
+        "Ты AI-ассистент для рабочих задач: помогаешь с планированием, письмами, "
+        "идеями, структурой документов, переговорами и продуктивностью."
+    ),
+    "Психолог": (
+        "Ты бережный AI-психологический ассистент. Поддерживай пользователя, "
+        "помогай разложить ситуацию и эмоции, но не заменяй психотерапевта "
+        "и советуй обратиться к специалисту при кризисных состояниях."
+    ),
+    "Спорт": (
+        "Ты AI-помощник по спорту и тренировкам. Давай понятные рекомендации "
+        "по упражнениям, режиму и восстановлению, учитывай безопасность и "
+        "советуй врача или тренера при травмах и ограничениях."
+    ),
+}
 RESERVED_TEXT_CHAT_TITLES = (
     "➕ Добавить чат",
     "🗑 Удалить текущий чат",
     "⬅️ В меню",
+    "К чатам",
+)
+CUSTOM_TEXT_CHAT_PROMPT = (
+    "Ты AI-ассистент в пользовательском чате Cea AI. Учитывай название чата "
+    "как контекст и отвечай по теме запроса."
 )
 
 
@@ -28,8 +57,10 @@ class TextChatService:
         with self.db.transaction() as conn:
             self._ensure_text_model(conn, model_price_id)
             self._ensure_default_chats(conn, user_id, model_price_id)
-            return self.chats.list_active_for_model(
-                conn, user_id=user_id, model_price_id=model_price_id
+            return self._decorate_chats(
+                self.chats.list_active_for_model(
+                    conn, user_id=user_id, model_price_id=model_price_id
+                )
             )
 
     def default_for_model(self, *, user_id: int, model_price_id: int) -> Dict[str, Any]:
@@ -46,7 +77,7 @@ class TextChatService:
             chat = self.chats.get_active_for_user(conn, user_id=user_id, chat_id=chat_id)
             if chat is None:
                 raise NotFoundError("Чат не найден")
-            return chat
+            return self._decorate_chat(chat)
 
     def create_custom(
         self, *, user_id: int, model_price_id: int, title: str
@@ -69,12 +100,14 @@ class TextChatService:
             )
             if existing is not None:
                 raise BusinessRuleError("Чат с таким названием уже есть")
-            return self.chats.create(
-                conn,
-                user_id=user_id,
-                model_price_id=model_price_id,
-                title=normalized,
-                is_default=False,
+            return self._decorate_chat(
+                self.chats.create(
+                    conn,
+                    user_id=user_id,
+                    model_price_id=model_price_id,
+                    title=normalized,
+                    is_default=False,
+                )
             )
 
     def delete(self, *, user_id: int, chat_id: int) -> Dict[str, Any]:
@@ -94,7 +127,7 @@ class TextChatService:
             )
             if fallback is None:
                 raise RuntimeError("Default text chat was not found")
-            return fallback
+            return self._decorate_chat(fallback)
 
     def _ensure_text_model(self, conn: Any, model_price_id: int) -> Dict[str, Any]:
         model = self.models.get_by_id(conn, model_price_id)
@@ -122,3 +155,13 @@ class TextChatService:
                     title=title,
                     is_default=True,
                 )
+
+    def _decorate_chats(self, chats: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        return [self._decorate_chat(chat) for chat in chats]
+
+    def _decorate_chat(self, chat: Dict[str, Any]) -> Dict[str, Any]:
+        decorated = dict(chat)
+        decorated["system_prompt"] = DEFAULT_TEXT_CHAT_PROMPTS.get(
+            str(chat["title"]), CUSTOM_TEXT_CHAT_PROMPT
+        )
+        return decorated
