@@ -8,6 +8,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, Message
 
 from ceai.bot.keyboards import (
+    BACK_TO_MENU_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
     PHOTO_AI_BUTTON,
@@ -22,6 +23,9 @@ from ceai.bot.keyboards import (
     admin_users_keyboard,
     back_to_menu_keyboard,
     main_menu_keyboard,
+    model_choice_keyboard,
+    model_choice_keyboard_from_labels,
+    model_choice_label,
     models_keyboard,
     onboarding_continue_keyboard,
     onboarding_links_keyboard,
@@ -243,6 +247,14 @@ def _format_models(models: list[Dict[str, Any]]) -> str:
             f"{model['coins_cost']} coins"
         )
     return "\n".join(lines)
+
+
+def _model_choice_payload(models: list[Dict[str, Any]]) -> Dict[str, Any]:
+    return {
+        "model_choices": {
+            model_choice_label(model): int(model["id"]) for model in models
+        }
+    }
 
 
 def _format_generation_result(result: Dict[str, Any], balance_after: int) -> str:
@@ -518,7 +530,6 @@ async def _send_models_for_types(
     title: str,
     delete_current: bool = False,
 ) -> None:
-    _clear_dialog_state(services, user_id)
     models = [
         model
         for model in services.catalog.list_models()
@@ -534,12 +545,18 @@ async def _send_models_for_types(
             delete_current=delete_current,
         )
         return
+    _set_dialog_state(
+        services,
+        user_id,
+        state="waiting_model_choice",
+        payload=_model_choice_payload(models),
+    )
     await _show_screen(
         message,
         services,
         user_id,
         f"{title}\n\n{_format_models(models)}",
-        reply_markup=models_keyboard(models),
+        reply_markup=model_choice_keyboard(models),
         delete_current=delete_current,
     )
 
@@ -549,11 +566,33 @@ async def _handle_reply_menu(
 ) -> bool:
     text = (message.text or "").strip()
     text_lower = text.casefold()
+    session_state, session_payload = _session_state_payload(services, user["id"])
 
-    if text_lower in {"menu", "/menu", "главное меню"}:
+    if text_lower in {"menu", "/menu", "главное меню", "назад", "назад в меню"} or (
+        text == BACK_TO_MENU_BUTTON
+    ):
         _clear_dialog_state(services, user["id"])
         await _send_menu_screen(message, services, user["id"], delete_current=True)
         return True
+
+    if session_state == "waiting_model_choice":
+        choices = session_payload.get("model_choices")
+        if isinstance(choices, dict) and text in choices:
+            _set_dialog_state(
+                services,
+                user["id"],
+                state="waiting_prompt",
+                payload={"model_price_id": int(choices[text])},
+            )
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Отправьте prompt для выбранной модели.",
+                reply_markup=back_to_menu_keyboard(),
+                delete_current=True,
+            )
+            return True
 
     if text_lower in {"старт", "start"}:
         _clear_dialog_state(services, user["id"])
@@ -997,7 +1036,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Отправьте prompt для выбранной модели.",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=back_to_menu_keyboard(),
                 delete_current=True,
             )
         await callback.answer()
@@ -1114,6 +1153,20 @@ def create_router(services: AppServices) -> Router:
             return
 
         session = services.users.get_session(user["id"])
+        if session and session["state"] == "waiting_model_choice":
+            payload = loads_dict(session.get("payload"))
+            choices = payload.get("model_choices")
+            labels = choices.keys() if isinstance(choices, dict) else []
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Выберите модель на нижней клавиатуре или нажмите «Назад».",
+                reply_markup=model_choice_keyboard_from_labels(labels),
+                delete_current=True,
+            )
+            return
+
         if not session or session["state"] != "waiting_prompt":
             await _show_screen(
                 message,
@@ -1134,7 +1187,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Отправьте текстовый prompt.",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=back_to_menu_keyboard(),
                 delete_current=True,
             )
             return
@@ -1143,8 +1196,8 @@ def create_router(services: AppServices) -> Router:
             message,
             services,
             user["id"],
-            "Запускаю mock-генерацию...",
-            reply_markup=main_menu_keyboard(),
+            "Запускаю генерацию...",
+            reply_markup=back_to_menu_keyboard(),
             delete_current=True,
         )
         try:
@@ -1160,7 +1213,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Нужна активная подписка. Откройте тарифы и оплатите тестово.",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=back_to_menu_keyboard(),
             )
             return
         except InsufficientCoinsError:
@@ -1170,7 +1223,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Недостаточно coins для этой модели. Выберите тариф или модель дешевле.",
-                reply_markup=main_menu_keyboard(),
+                reply_markup=back_to_menu_keyboard(),
             )
             return
         except GenerationProviderFailedError:
@@ -1179,8 +1232,8 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Не получилось выполнить mock-генерацию. Coins возвращены.",
-                reply_markup=main_menu_keyboard(),
+                "Не получилось выполнить генерацию. Coins возвращены.",
+                reply_markup=back_to_menu_keyboard(),
             )
             return
         except NotFoundError as exc:
@@ -1190,17 +1243,16 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 str(exc),
-                reply_markup=main_menu_keyboard(),
+                reply_markup=back_to_menu_keyboard(),
             )
             return
 
-        _clear_dialog_state(services, user["id"])
         await _show_screen(
             message,
             services,
             user["id"],
             _format_generation_result(generation.result, generation.balance_after),
-            reply_markup=main_menu_keyboard(),
+            reply_markup=back_to_menu_keyboard(),
         )
 
     return router

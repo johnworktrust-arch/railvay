@@ -182,6 +182,19 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("DeepSeq", keyboard_source)
         self.assertNotIn("DeepSeak", keyboard_source)
 
+    def test_ai_inner_keyboards_have_back_button_only(self) -> None:
+        keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn('BACK_TO_MENU_BUTTON = "⬅️ В меню"', keyboard_source)
+        self.assertIn("def model_choice_keyboard(", keyboard_source)
+        self.assertIn("model_choice_label(model)", keyboard_source)
+        self.assertIn("state=\"waiting_model_choice\"", handlers_source)
+        self.assertIn("reply_markup=model_choice_keyboard(models)", handlers_source)
+        self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
+        self.assertIn('"Запускаю генерацию..."', handlers_source)
+        self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
+
     def test_telegram_commands_menu_contains_only_menu_and_profile(self) -> None:
         main_source = Path("ceai/main.py").read_text(encoding="utf-8")
 

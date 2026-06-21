@@ -17,6 +17,7 @@ VIDEO_AI_BUTTON = "🎬 Видео с AI"
 VOICE_AI_BUTTON = "🎙 Озвучка с AI"
 HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
+BACK_TO_MENU_BUTTON = "⬅️ В меню"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -26,6 +27,7 @@ REPLY_MENU_BUTTONS = {
     VOICE_AI_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
+    BACK_TO_MENU_BUTTON,
 }
 
 
@@ -45,13 +47,18 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
 
 
 def back_to_menu_keyboard() -> ReplyKeyboardMarkup:
-    return main_menu_keyboard()
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Отправьте prompt или вернитесь в меню",
+    )
 
 
 def inline_back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="👤 Профиль", callback_data="menu:home")]
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
         ]
     )
 
@@ -89,7 +96,9 @@ def plans_keyboard(plans: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
         ]
         for plan in plans
     ]
-    rows.append([InlineKeyboardButton(text="👤 Профиль", callback_data="menu:home")])
+    rows.append(
+        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -102,7 +111,11 @@ def payment_keyboard(payment_id: int, payment_url: str) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text="🔗 Тестовая ссылка оплаты", url=payment_url)],
-            [InlineKeyboardButton(text="👤 Профиль", callback_data="menu:home")],
+            [
+                InlineKeyboardButton(
+                    text=BACK_TO_MENU_BUTTON, callback_data="menu:home"
+                )
+            ],
         ]
     )
 
@@ -130,8 +143,39 @@ def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
         ]
         for model in models
     ]
-    rows.append([InlineKeyboardButton(text="👤 Профиль", callback_data="menu:home")])
+    rows.append(
+        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def model_choice_label(model: Dict[str, Any]) -> str:
+    return (
+        f"{_model_emoji(model['generation_type'])} {model['display_name']} · "
+        f"{model['coins_cost']} coins"
+    )
+
+
+def model_choice_keyboard(models: Iterable[Dict[str, Any]]) -> ReplyKeyboardMarkup:
+    rows = [[KeyboardButton(text=model_choice_label(model))] for model in models]
+    rows.append([KeyboardButton(text=BACK_TO_MENU_BUTTON)])
+    return ReplyKeyboardMarkup(
+        keyboard=rows,
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Выберите модель",
+    )
+
+
+def model_choice_keyboard_from_labels(labels: Iterable[str]) -> ReplyKeyboardMarkup:
+    rows = [[KeyboardButton(text=label)] for label in labels]
+    rows.append([KeyboardButton(text=BACK_TO_MENU_BUTTON)])
+    return ReplyKeyboardMarkup(
+        keyboard=rows,
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Выберите модель",
+    )
 
 
 def admin_menu_keyboard() -> InlineKeyboardMarkup:
