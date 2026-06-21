@@ -7,6 +7,7 @@ from typing import Any, Dict
 
 from ceai.json_utils import loads_dict
 from ceai.providers.base import ProviderError, ProviderResult
+from ceai.providers.identity import text_model_instructions
 
 
 class OpenAITextProvider:
@@ -30,12 +31,7 @@ class OpenAITextProvider:
     ) -> ProviderResult:
         config = loads_dict(model.get("config"))
         model_key = str(config.get("api_model") or model["model_key"])
-        instructions = (
-            "Ты полезный AI-помощник внутри Telegram-бота CeaAI. "
-            "Отвечай кратко, понятно и по-русски, если пользователь не попросил иначе."
-        )
-        if system_prompt:
-            instructions = f"{instructions}\n\n{system_prompt.strip()}"
+        instructions = text_model_instructions(model, system_prompt=system_prompt)
         payload = {
             "model": model_key,
             "reasoning": {"effort": str(config.get("reasoning_effort", "low"))},

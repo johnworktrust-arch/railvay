@@ -487,6 +487,29 @@ class MigrationAndUITest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_text_provider_instructions_identify_chatgpt_and_deepseek(self) -> None:
+        from ceai.providers.identity import text_model_instructions
+
+        chatgpt = text_model_instructions(
+            {
+                "provider": "openai",
+                "model_key": "gpt-4o-mini",
+                "display_name": "ChatGPT GPT-5.5",
+            }
+        )
+        deepseek = text_model_instructions(
+            {
+                "provider": "deepseek",
+                "model_key": "deepseek-v4-flash",
+                "display_name": "DeepSeek V4 Flash",
+            }
+        )
+
+        self.assertIn("ты ChatGPT", chatgpt)
+        self.assertIn("ты DeepSeek", deepseek)
+        self.assertIn("кто ты", chatgpt)
+        self.assertIn("Telegram-боте Cea AI", deepseek)
+
     def test_internal_provider_settings_endpoint_saves_keys(self) -> None:
         db = Database("sqlite:///:memory:")
         try:
