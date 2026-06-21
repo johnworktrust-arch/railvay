@@ -208,6 +208,17 @@ async def _refresh_reply_keyboard(
         pass
 
 
+async def _delete_screen_messages(message: Message, message_ids: list[int]) -> None:
+    for message_id in message_ids:
+        try:
+            await message.bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=message_id,
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+
 async def _show_screen(
     message: Message,
     services: AppServices,
@@ -220,13 +231,28 @@ async def _show_screen(
     state, payload = _session_state_payload(services, user_id)
     tracked_ids = _tracked_message_ids(payload)
     last_message_id = tracked_ids[-1] if tracked_ids else None
-    reply_signature = _reply_keyboard_signature(reply_markup)
-    current_reply_signature = payload.get(LAST_REPLY_KEYBOARD_SIGNATURE)
-    can_edit_with_current_keyboard = (
-        reply_signature is None or reply_signature == current_reply_signature
-    )
 
-    if last_message_id is not None and can_edit_with_current_keyboard:
+    # Bottom reply keyboards are not part of the editable message body.
+    # For those screens we replace the bot screen with a fresh message.
+    if isinstance(reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove)):
+        if tracked_ids:
+            await _delete_screen_messages(message, tracked_ids)
+        sent = await message.bot.send_message(
+            chat_id=message.chat.id,
+            text=text,
+            reply_markup=reply_markup,
+        )
+        _remember_screen_message(
+            services,
+            user_id,
+            state=state,
+            payload=payload,
+            message_id=sent.message_id,
+            reply_markup=reply_markup,
+        )
+        return sent
+
+    if last_message_id is not None:
         edited = await _edit_screen_message(
             message,
             message_id=last_message_id,
@@ -244,29 +270,7 @@ async def _show_screen(
             )
             return edited
 
-    if (
-        last_message_id is not None
-        and isinstance(reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove))
-    ):
-        edited = await _edit_screen_message(
-            message,
-            message_id=last_message_id,
-            text=text,
-            reply_markup=None,
-        )
-        if edited is not None:
-            await _refresh_reply_keyboard(message, reply_markup=reply_markup)
-            _remember_screen_message(
-                services,
-                user_id,
-                state=state,
-                payload=payload,
-                message_id=last_message_id,
-                reply_markup=reply_markup,
-            )
-            return edited
-
-    # Telegram cannot attach or replace a bottom reply keyboard through editMessageText.
+    # Inline keyboards are part of the message and can be edited with the text.
     # If editing fails, we send a fresh message as the fallback screen.
     sent = await message.bot.send_message(
         chat_id=message.chat.id,

@@ -334,20 +334,29 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)
         self.assertIn("Реферальная программа пока ещё не готова", handlers_source)
 
-    def test_bot_screens_edit_messages_except_onboarding_greeting(self) -> None:
+    def test_bot_screens_edit_inline_messages_and_replace_bottom_keyboard(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         regular_screen_source = handlers_source.split(
             "async def _show_onboarding_followup", 1
         )[0]
+        show_screen_source = handlers_source.split(
+            "async def _show_screen", 1
+        )[1].split("async def _remove_reply_keyboard", 1)[0]
 
         self.assertIn("edit_message_text", handlers_source)
         self.assertIn("message is not modified", handlers_source)
         self.assertIn("last_reply_keyboard_signature", handlers_source)
-        self.assertIn("Telegram cannot attach or replace a bottom reply keyboard", handlers_source)
+        self.assertIn("Bottom reply keyboards are not part of the editable message body.", handlers_source)
+        self.assertIn("Inline keyboards are part of the message", handlers_source)
+        self.assertIn("async def _delete_screen_messages", regular_screen_source)
         self.assertIn("async def _refresh_reply_keyboard", regular_screen_source)
         self.assertIn("KEYBOARD_REFRESH_TEXT", regular_screen_source)
-        self.assertIn("await _refresh_reply_keyboard", regular_screen_source)
-        self.assertNotIn("message.delete", regular_screen_source)
+        self.assertIn("await _delete_screen_messages(message, tracked_ids)", show_screen_source)
+        self.assertLess(
+            show_screen_source.index("await _delete_screen_messages(message, tracked_ids)"),
+            show_screen_source.index("edited = await _edit_screen_message"),
+        )
+        self.assertNotIn("await _refresh_reply_keyboard(message, reply_markup=reply_markup)", show_screen_source)
         self.assertIn("await message.bot.delete_message", handlers_source)
 
     def test_start_onboarding_copy_and_continue_callback_are_present(self) -> None:
