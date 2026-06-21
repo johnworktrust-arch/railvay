@@ -1,0 +1,15 @@
+name: Render Keepalive
+
+on:
+  schedule:
+    - cron: "*/10 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping CeaAI health endpoint
+        run: |
+          curl --fail --show-error --silent --max-time 20 --retry 2 \
+            https://ceaai-bot.onrender.com/healthz
