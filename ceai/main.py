@@ -12,6 +12,7 @@ from aiohttp import web
 from ceai.config import load_settings
 from ceai.database import Database
 from ceai.health import start_health_server
+from ceai.internal_api import handle_provider_settings_request
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
 from ceai.bot.handlers import create_router
@@ -31,12 +32,27 @@ async def run_webhook(
     *,
     bot: Bot,
     dispatcher: Dispatcher,
+    settings,
+    db: Database,
     webhook_url: str,
     webhook_path: str,
     webhook_secret: str,
 ) -> None:
     app = web.Application()
     app.router.add_get("/healthz", health)
+
+    async def provider_settings(request: web.Request) -> web.Response:
+        body = await request.read()
+        status, content_type, response = await asyncio.to_thread(
+            handle_provider_settings_request,
+            settings=settings,
+            db=db,
+            headers=request.headers,
+            body=body,
+        )
+        return web.Response(status=status, text=response, content_type=content_type)
+
+    app.router.add_post("/internal/provider-settings", provider_settings)
     SimpleRequestHandler(
         dispatcher=dispatcher,
         bot=bot,
@@ -89,12 +105,14 @@ async def main() -> None:
             await run_webhook(
                 bot=bot,
                 dispatcher=dispatcher,
+                settings=settings,
+                db=db,
                 webhook_url=webhook_url,
                 webhook_path=webhook_path,
                 webhook_secret=settings.telegram_webhook_secret,
             )
         else:
-            health_server = await start_health_server()
+            health_server = await start_health_server(settings=settings, db=db)
             await bot.delete_webhook(drop_pending_updates=False)
             await dispatcher.start_polling(bot)
     finally:

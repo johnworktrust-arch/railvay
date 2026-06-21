@@ -2,12 +2,14 @@ from __future__ import annotations
 
 import sqlite3
 import unittest
+from json import loads
 from pathlib import Path
 from unittest.mock import patch
 
 from ceai.config import Settings
 from ceai.database import Database
-from ceai.json_utils import loads_dict
+from ceai.internal_api import handle_provider_settings_request
+from ceai.json_utils import dumps, loads_dict
 from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.providers.base import ProviderError
 from ceai.providers.router import AIProviderRouter
@@ -349,6 +351,65 @@ class MigrationAndUITest(unittest.TestCase):
 
             self.assertIsNotNone(router.deepseek)
             self.assertIsNotNone(router.openai)
+        finally:
+            db.close()
+
+    def test_internal_provider_settings_endpoint_saves_keys(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            settings = Settings(
+                telegram_bot_token="secret-token",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+            )
+            status, content_type, body = handle_provider_settings_request(
+                settings=settings,
+                db=db,
+                headers={"Authorization": "Bearer secret-token"},
+                body=dumps(
+                    {
+                        "settings": {
+                            "AI_PROVIDER_MODE": "auto",
+                            "DEEPSEEK_API_KEY": "deepseek-test",
+                            "OPENAI_API_KEY": "openai-test",
+                        }
+                    }
+                ).encode("utf-8"),
+            )
+
+            self.assertEqual(status, 200)
+            self.assertEqual(content_type, "application/json")
+            self.assertTrue(loads(body)["ok"])
+            with db.transaction() as conn:
+                saved = AppSettingsRepository().get_many(
+                    conn, ("DEEPSEEK_API_KEY", "OPENAI_API_KEY")
+                )
+            self.assertEqual(saved["DEEPSEEK_API_KEY"], "deepseek-test")
+            self.assertEqual(saved["OPENAI_API_KEY"], "openai-test")
+        finally:
+            db.close()
+
+    def test_internal_provider_settings_endpoint_requires_auth(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            settings = Settings(
+                telegram_bot_token="secret-token",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+            )
+            status, _, body = handle_provider_settings_request(
+                settings=settings,
+                db=db,
+                headers={},
+                body=dumps({"settings": {"AI_PROVIDER_MODE": "auto"}}).encode("utf-8"),
+            )
+
+            self.assertEqual(status, 401)
+            self.assertFalse(loads(body)["ok"])
         finally:
             db.close()
 
