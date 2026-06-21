@@ -25,6 +25,18 @@ services:
         sync: false
       - key: ADMIN_TELEGRAM_USERNAMES
         value: samescam
+      - key: AI_PROVIDER_MODE
+        value: auto
+      - key: AI_REQUEST_TIMEOUT_SECONDS
+        value: "60"
+      - key: DEEPSEEK_API_KEY
+        sync: false
+      - key: DEEPSEEK_BASE_URL
+        value: https://api.deepseek.com
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: OPENAI_BASE_URL
+        value: https://api.openai.com/v1
       - key: DATABASE_URL
         fromDatabase:
           name: ceaai-db

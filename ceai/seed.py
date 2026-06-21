@@ -49,15 +49,25 @@ MODEL_PRICES = [
         "display_name": "DeepSeek V4 Flash",
         "generation_type": "text",
         "coins_cost": 1,
-        "config": {"provider_cost_amount": 0.03, "provider_cost_currency": "RUB"},
+        "config": {
+            "api_model": "deepseek-v4-flash",
+            "thinking_type": "disabled",
+            "provider_cost_amount": 0.03,
+            "provider_cost_currency": "RUB",
+        },
     },
     {
         "provider": "openai",
         "model_key": "gpt-4o-mini",
-        "display_name": "GPT-4o mini",
+        "display_name": "ChatGPT GPT-5.5",
         "generation_type": "text",
         "coins_cost": 2,
-        "config": {"provider_cost_amount": 0.2, "provider_cost_currency": "RUB"},
+        "config": {
+            "api_model": "gpt-5.5",
+            "reasoning_effort": "low",
+            "provider_cost_amount": 0.2,
+            "provider_cost_currency": "RUB",
+        },
     },
     {
         "provider": "openai",

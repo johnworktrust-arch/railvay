@@ -7,6 +7,9 @@ from unittest.mock import patch
 
 from ceai.config import Settings
 from ceai.database import Database
+from ceai.json_utils import loads_dict
+from ceai.providers.base import ProviderError
+from ceai.providers.router import AIProviderRouter
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
 from ceai.services.exceptions import (
@@ -241,6 +244,79 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.public_offer_url, "https://cea.ai/offer")
         self.assertEqual(settings.info_channel_url, "https://t.me/cea_ai_info")
         self.assertEqual(settings.support_username, "cea_help")
+
+    def test_ai_provider_env_settings_are_read(self) -> None:
+        from ceai.config import load_settings
+
+        with patch.dict(
+            "os.environ",
+            {
+                "TELEGRAM_BOT_TOKEN": "test",
+                "AI_PROVIDER_MODE": "real",
+                "AI_REQUEST_TIMEOUT_SECONDS": "45",
+                "DEEPSEEK_API_KEY": "deepseek-test",
+                "DEEPSEEK_BASE_URL": "https://deepseek.test",
+                "OPENAI_API_KEY": "openai-test",
+                "OPENAI_BASE_URL": "https://openai.test/v1",
+            },
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.ai_provider_mode, "real")
+        self.assertEqual(settings.ai_request_timeout_seconds, 45)
+        self.assertEqual(settings.deepseek_api_key, "deepseek-test")
+        self.assertEqual(settings.deepseek_base_url, "https://deepseek.test")
+        self.assertEqual(settings.openai_api_key, "openai-test")
+        self.assertEqual(settings.openai_base_url, "https://openai.test/v1")
+
+    def test_seed_text_models_are_configured_for_real_api(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            seed_reference_data(db)
+            with db.transaction() as conn:
+                deepseek = conn.execute(
+                    "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
+                    ("deepseek", "deepseek-v4-flash"),
+                ).fetchone()
+                openai = conn.execute(
+                    "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
+                    ("openai", "gpt-4o-mini"),
+                ).fetchone()
+
+            self.assertEqual(
+                loads_dict(deepseek["config"])["api_model"], "deepseek-v4-flash"
+            )
+            self.assertEqual(
+                loads_dict(deepseek["config"])["thinking_type"], "disabled"
+            )
+            self.assertEqual(openai["display_name"], "ChatGPT GPT-5.5")
+            self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
+            self.assertEqual(loads_dict(openai["config"])["reasoning_effort"], "low")
+        finally:
+            db.close()
+
+    def test_ai_provider_router_requires_real_provider_in_real_mode(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            ai_provider_mode="real",
+        )
+        router = AIProviderRouter(settings)
+
+        with self.assertRaises(ProviderError):
+            router.generate(
+                model={
+                    "provider": "deepseek",
+                    "model_key": "deepseek-v4-flash",
+                    "display_name": "DeepSeek V4 Flash",
+                    "generation_type": "text",
+                    "config": "{}",
+                },
+                prompt_text="Привет",
+            )
 
     def test_admin_user_card_formats_dates_without_iso_noise(self) -> None:
         from ceai.formatting import format_datetime_minute

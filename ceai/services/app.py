@@ -4,7 +4,7 @@ from dataclasses import dataclass
 
 from ceai.config import Settings
 from ceai.database import Database
-from ceai.providers.mock import MockAIProvider
+from ceai.providers.router import AIProviderRouter
 from ceai.services.catalog import CatalogService
 from ceai.services.admin import AdminService
 from ceai.services.generations import GenerationService
@@ -25,7 +25,7 @@ class AppServices:
 
 
 def build_services(db: Database, settings: Settings) -> AppServices:
-    provider = MockAIProvider()
+    provider = AIProviderRouter(settings)
     return AppServices(
         settings=settings,
         users=UserService(db),

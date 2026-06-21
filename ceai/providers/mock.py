@@ -1,27 +1,18 @@
 from __future__ import annotations
 
 import hashlib
-from dataclasses import dataclass
 from typing import Any, Dict
 
 from ceai.json_utils import loads_dict
+from ceai.providers.base import ProviderError, ProviderResult
 
 
-class MockProviderError(RuntimeError):
+class MockProviderError(ProviderError):
     pass
 
 
-@dataclass(frozen=True)
-class MockProviderResult:
-    provider_job_id: str
-    result: Dict[str, Any]
-    provider_cost_amount: float
-    provider_cost_currency: str
-    duration_seconds: int | None = None
-
-
 class MockAIProvider:
-    def generate(self, *, model: Dict[str, Any], prompt_text: str) -> MockProviderResult:
+    def generate(self, *, model: Dict[str, Any], prompt_text: str) -> ProviderResult:
         normalized_prompt = prompt_text.strip()
         if "mock_error" in normalized_prompt.lower():
             raise MockProviderError("Mock AI provider returned an error")
@@ -74,7 +65,7 @@ class MockAIProvider:
             }
             duration = None
 
-        return MockProviderResult(
+        return ProviderResult(
             provider_job_id=provider_job_id,
             result=result,
             provider_cost_amount=cost_amount,

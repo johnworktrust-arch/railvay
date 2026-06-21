@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 from ceai.database import Database
 from ceai.json_utils import loads_dict
-from ceai.providers.mock import MockAIProvider, MockProviderError
+from ceai.providers.base import AIProvider, ProviderError
 from ceai.repositories.generations import GenerationRepository
 from ceai.repositories.model_prices import ModelPriceRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
@@ -27,7 +27,7 @@ class GenerationResult:
 
 
 class GenerationService:
-    def __init__(self, db: Database, provider: MockAIProvider) -> None:
+    def __init__(self, db: Database, provider: AIProvider) -> None:
         self.db = db
         self.provider = provider
         self.models = ModelPriceRepository()
@@ -98,7 +98,7 @@ class GenerationService:
 
         try:
             provider_result = self.provider.generate(model=model, prompt_text=prompt_text)
-        except MockProviderError as exc:
+        except ProviderError as exc:
             with self.db.transaction() as conn:
                 self.generations.mark_failed(
                     conn,

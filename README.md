@@ -2,14 +2,14 @@
 
 ## Быстрый запуск технического MVP
 
-В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами и mock AI-провайдерами. Реальные AI API и реальная платежка не подключаются.
+В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами, реальными текстовыми AI-провайдерами DeepSeek/OpenAI и mock-заглушками для остальных типов генераций.
 
 ### Что внутри
 
 - `ceai/bot` — команды, меню и callback handlers Telegram-бота.
 - `ceai/services` — бизнес-логика пользователей, подписок, платежей, coins и генераций.
 - `ceai/repositories` — доступ к SQLite-таблицам из модели данных.
-- `ceai/providers/mock.py` — заглушки text/image/video/tts.
+- `ceai/providers` — реальные text-провайдеры DeepSeek/OpenAI и mock-заглушки image/video/tts.
 - `migrations/001_init.sql` — схема БД из `Документация.md`.
 - `migrations/postgres/001_init.sql` — та же схема для Postgres.
 - `ceai/seed.py` — стартовые тарифы и цены моделей.
@@ -31,7 +31,12 @@ cp .env.example .env
 TELEGRAM_BOT_TOKEN=put-your-telegram-bot-token-here
 DATABASE_URL=sqlite:///./data/ceai.sqlite3
 MOCK_PAYMENT_BASE_URL=https://mock-payments.local/pay
+AI_PROVIDER_MODE=auto
+DEEPSEEK_API_KEY=your-deepseek-api-key
+OPENAI_API_KEY=your-openai-api-key
 ```
+
+`AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI текст работают через реальные API при наличии ключей, а неподключенные типы генераций остаются на mock-заглушках. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
 
 Создать БД и заполнить тарифы/модели можно отдельно:
 
@@ -62,6 +67,9 @@ TELEGRAM_BOT_TOKEN=your-botfather-token
 DATABASE_URL=postgresql://user:password@host:5432/dbname
 APP_ENV=production
 MOCK_PAYMENT_BASE_URL=https://mock-payments.local/pay
+AI_PROVIDER_MODE=auto
+DEEPSEEK_API_KEY=your-deepseek-api-key
+OPENAI_API_KEY=your-openai-api-key
 ```
 
 6. Healthcheck:
@@ -83,7 +91,7 @@ Northflank передает `PORT` автоматически. Если пере
 - free Render Postgres;
 - healthcheck `/healthz`;
 - Telegram webhook `/telegram/webhook`;
-- `TELEGRAM_BOT_TOKEN` вводится вручную в Render как secret.
+- `TELEGRAM_BOT_TOKEN`, `DEEPSEEK_API_KEY` и `OPENAI_API_KEY` вводятся вручную в Render как secrets.
 
 Render-деплой использует webhook-режим, потому что polling-бот на Render Free засыпает и не просыпается от Telegram-сообщений.
 

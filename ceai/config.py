@@ -37,6 +37,12 @@ class Settings:
     public_offer_url: str = ""
     info_channel_url: str = ""
     support_username: str = "cea_help"
+    ai_provider_mode: str = "auto"
+    ai_request_timeout_seconds: int = 60
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    openai_api_key: str = ""
+    openai_base_url: str = "https://api.openai.com/v1"
 
 
 def load_settings() -> Settings:
@@ -61,6 +67,10 @@ def load_settings() -> Settings:
                 values.append(username)
         return tuple(values)
 
+    def read_int(name: str, default: int) -> int:
+        raw = read(name, str(default)).strip()
+        return int(raw) if raw else default
+
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
         database_url=read("DATABASE_URL", "sqlite:///./data/ceai.sqlite3"),
@@ -76,4 +86,10 @@ def load_settings() -> Settings:
         public_offer_url=read("PUBLIC_OFFER_URL"),
         info_channel_url=read("INFO_CHANNEL_URL"),
         support_username=read("SUPPORT_USERNAME", "cea_help").strip().lstrip("@"),
+        ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),
+        ai_request_timeout_seconds=read_int("AI_REQUEST_TIMEOUT_SECONDS", 60),
+        deepseek_api_key=read("DEEPSEEK_API_KEY"),
+        deepseek_base_url=read("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+        openai_api_key=read("OPENAI_API_KEY"),
+        openai_base_url=read("OPENAI_BASE_URL", "https://api.openai.com/v1"),
     )
