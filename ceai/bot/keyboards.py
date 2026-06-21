@@ -48,6 +48,33 @@ def main_menu_keyboard() -> ReplyKeyboardMarkup:
     )
 
 
+def profile_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💳 Подписка и тарифы", callback_data="menu:plans"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🏠 Главное меню", callback_data="menu:main"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🆘 Поддержка", callback_data="menu:support"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🤝 Реферальная программа", callback_data="menu:referral"
+                )
+            ],
+        ]
+    )
+
+
 def back_to_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],

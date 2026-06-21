@@ -312,6 +312,28 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Выберите нужный раздел 👇", handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
 
+    def test_profile_screen_has_inline_actions_and_no_bottom_prompt(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
+        profile_format_source = handlers_source.split(
+            "def _format_menu(", 1
+        )[1].split("def _format_onboarding_greeting", 1)[0]
+        send_profile_source = handlers_source.split(
+            "async def _send_main_menu(", 1
+        )[1].split("async def _send_onboarding_greeting", 1)[0]
+
+        self.assertIn("def profile_keyboard(", keyboard_source)
+        self.assertIn("Подписка и тарифы", keyboard_source)
+        self.assertIn("Главное меню", keyboard_source)
+        self.assertIn("Поддержка", keyboard_source)
+        self.assertIn("Реферальная программа", keyboard_source)
+        self.assertIn('callback_data="menu:referral"', keyboard_source)
+        self.assertIn('callback_data="menu:main"', keyboard_source)
+        self.assertIn("reply_markup=profile_keyboard()", send_profile_source)
+        self.assertIn("await _remove_reply_keyboard", send_profile_source)
+        self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)
+        self.assertIn("Реферальная программа пока ещё не готова", handlers_source)
+
     def test_bot_screens_edit_messages_except_onboarding_greeting(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         regular_screen_source = handlers_source.split(
@@ -336,6 +358,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("(Документ оферты здесь: {offer_url}).", handlers_source)
         self.assertIn("DEFAULT_PUBLIC_OFFER_URL", handlers_source)
         self.assertIn("Чтобы узнать больше о своём аккаунте и тарифах", handlers_source)
+        self.assertIn("«Профиль».", handlers_source)
+        self.assertNotIn("«Меню» снизу слева от поля ввода текста", handlers_source)
         self.assertIn("В двух словах об основных инструментах", handlers_source)
         self.assertIn("_format_main_menu()", handlers_source)
         self.assertIn("menu.message_id", handlers_source)

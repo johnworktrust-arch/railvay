@@ -37,6 +37,7 @@ from ceai.bot.keyboards import (
     onboarding_links_keyboard,
     payment_keyboard,
     plans_keyboard,
+    profile_keyboard,
     text_chat_inline_keyboard,
     text_chat_label,
     text_chat_prompt_keyboard,
@@ -272,6 +273,17 @@ async def _show_screen(
     return sent
 
 
+async def _remove_reply_keyboard(
+    message: Message, services: AppServices, user_id: int
+) -> None:
+    await _refresh_reply_keyboard(message, reply_markup=ReplyKeyboardRemove())
+    state, payload = _session_state_payload(services, user_id)
+    payload[LAST_REPLY_KEYBOARD_SIGNATURE] = _reply_keyboard_signature(
+        ReplyKeyboardRemove()
+    )
+    services.users.set_session(user_id, state=state, payload=payload)
+
+
 async def _show_onboarding_followup(
     message: Message,
     services: AppServices,
@@ -340,8 +352,7 @@ def _format_menu(subscription: Dict[str, Any] | None) -> str:
     return (
         "Профиль CeaAI\n\n"
         f"Баланс: {balance} coins\n"
-        f"{sub_line}\n\n"
-        "Выберите действие на нижней клавиатуре."
+        f"{sub_line}"
     )
 
 
@@ -357,7 +368,7 @@ def _format_onboarding_greeting(public_offer_url: str) -> str:
 def _format_onboarding_hint() -> str:
     return (
         "ℹ️ Чтобы узнать больше о своём аккаунте и тарифах, нажмите кнопку "
-        "«Меню» снизу слева от поля ввода текста."
+        "«Профиль»."
     )
 
 
@@ -575,9 +586,10 @@ async def _send_main_menu(
         services,
         user_id,
         text,
-        reply_markup=main_menu_keyboard(),
+        reply_markup=profile_keyboard(),
         delete_current=delete_current,
     )
+    await _remove_reply_keyboard(message, services, user_id)
 
 
 async def _send_onboarding_greeting(
@@ -1350,6 +1362,21 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
+    @router.callback_query(F.data == "menu:main")
+    async def menu_main(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        _clear_dialog_state(services, user["id"])
+        if callback.message:
+            await _send_menu_screen(
+                callback.message, services, user["id"], delete_current=True
+            )
+        await callback.answer()
+
     @router.callback_query(F.data == "menu:balance")
     async def menu_balance(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
@@ -1669,6 +1696,26 @@ def create_router(services: AppServices) -> Router:
             await _send_support(
                 callback.message, services, user["id"], delete_current=True
             )
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:referral")
+    async def menu_referral(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if callback.message:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                "🤝 Реферальная программа пока ещё не готова.",
+                reply_markup=profile_keyboard(),
+                delete_current=True,
+            )
+            await _remove_reply_keyboard(callback.message, services, user["id"])
         await callback.answer()
 
     @router.message()
