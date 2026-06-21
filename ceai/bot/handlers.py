@@ -68,6 +68,11 @@ def _is_start_text(text: str | None) -> bool:
     return (text or "").strip().casefold() in START_TEXT_ALIASES
 
 
+def _is_user_message(message: Message) -> bool:
+    from_user = getattr(message, "from_user", None)
+    return bool(from_user and not from_user.is_bot)
+
+
 def _user_kwargs(message_or_callback: Message | CallbackQuery) -> Dict[str, Any]:
     from_user = message_or_callback.from_user
     return {
@@ -231,10 +236,13 @@ async def _show_screen(
     state, payload = _session_state_payload(services, user_id)
     tracked_ids = _tracked_message_ids(payload)
     last_message_id = tracked_ids[-1] if tracked_ids else None
+    replace_current = isinstance(
+        reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove)
+    ) or (delete_current and _is_user_message(message))
 
-    # Bottom reply keyboards are not part of the editable message body.
-    # For those screens we replace the bot screen with a fresh message.
-    if isinstance(reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove)):
+    # Bottom-keyboard actions arrive as user messages, so they should replace
+    # the previous bot screen. Inline callback actions keep editing the message.
+    if replace_current:
         if tracked_ids:
             await _delete_screen_messages(message, tracked_ids)
         sent = await message.bot.send_message(
