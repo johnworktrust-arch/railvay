@@ -59,6 +59,11 @@ LAST_BOT_MESSAGE_ID = "last_bot_message_id"
 LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
 KEYBOARD_REFRESH_TEXT = "."
+START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
+
+
+def _is_start_text(text: str | None) -> bool:
+    return (text or "").strip().casefold() in START_TEXT_ALIASES
 
 
 def _user_kwargs(message_or_callback: Message | CallbackQuery) -> Dict[str, Any]:
@@ -1066,13 +1071,6 @@ async def _handle_reply_menu(
             )
             return True
 
-    if text_lower in {"старт", "start"}:
-        _clear_dialog_state(services, user["id"])
-        await _send_onboarding_greeting(
-            message, services, user["id"], delete_current=True
-        )
-        return True
-
     if text_lower in {"профиль", "/профиль", "profile", "/profile"} or text == PROFILE_BUTTON:
         _clear_dialog_state(services, user["id"])
         await _send_main_menu(message, services, user["id"], delete_current=True)
@@ -1721,6 +1719,16 @@ def create_router(services: AppServices) -> Router:
     @router.message()
     async def prompt_or_fallback(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        if _is_start_text(message.text):
+            if _is_blocked_regular_user(services, user):
+                await _send_blocked_notice(message, services, user["id"])
+                return
+            _clear_dialog_state(services, user["id"])
+            await _send_onboarding_greeting(
+                message, services, user["id"], delete_current=True
+            )
+            return
+
         session = services.users.get_session(user["id"])
         if session and session["state"] in {"admin_waiting_search", "admin_waiting_credit"}:
             admin = services.admin.ensure_admin_access(user)

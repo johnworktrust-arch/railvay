@@ -373,6 +373,23 @@ class MigrationAndUITest(unittest.TestCase):
             handlers_source,
         )
 
+    def test_start_text_resets_any_dialog_state_before_prompt_handling(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        fallback_source = handlers_source.split(
+            "async def prompt_or_fallback", 1
+        )[1]
+
+        self.assertIn('START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}', handlers_source)
+        self.assertIn("if _is_start_text(message.text):", fallback_source)
+        self.assertLess(
+            fallback_source.index("if _is_start_text(message.text):"),
+            fallback_source.index('session["state"] in {"admin_waiting_search", "admin_waiting_credit"}'),
+        )
+        self.assertLess(
+            fallback_source.index("if _is_start_text(message.text):"),
+            fallback_source.index('session["state"] == "waiting_text_chat_prompt"'),
+        )
+
     def test_onboarding_keyboards_have_expected_buttons_only(self) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
