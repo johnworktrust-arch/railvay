@@ -104,6 +104,7 @@ async def run_webhook(
     SimpleRequestHandler(
         dispatcher=dispatcher,
         bot=bot,
+        handle_in_background=True,
         secret_token=webhook_secret or None,
     ).register(app, path=webhook_path)
     setup_application(app, dispatcher, bot=bot)
