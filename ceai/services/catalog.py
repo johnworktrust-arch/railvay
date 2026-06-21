@@ -20,3 +20,10 @@ class CatalogService:
     def list_models(self) -> List[Dict[str, Any]]:
         with self.db.transaction() as conn:
             return self.models.list_active(conn)
+
+    def get_model(self, model_price_id: int) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            model = self.models.get_by_id(conn, model_price_id)
+            if model is None or not model["is_active"]:
+                return None
+            return model

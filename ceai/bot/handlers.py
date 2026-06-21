@@ -5,10 +5,12 @@ from typing import Any, Dict
 from aiogram import F, Router
 from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, Message
+from aiogram.types import CallbackQuery, Message, ReplyKeyboardRemove
 
 from ceai.bot.keyboards import (
+    ADD_TEXT_CHAT_BUTTON,
     BACK_TO_MENU_BUTTON,
+    DELETE_CURRENT_TEXT_CHAT_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
     PHOTO_AI_BUTTON,
@@ -31,6 +33,8 @@ from ceai.bot.keyboards import (
     onboarding_links_keyboard,
     payment_keyboard,
     plans_keyboard,
+    text_chat_keyboard,
+    text_chat_label,
 )
 from ceai.formatting import format_datetime_minute
 from ceai.json_utils import loads_dict
@@ -255,6 +259,40 @@ def _model_choice_payload(models: list[Dict[str, Any]]) -> Dict[str, Any]:
             model_choice_label(model): int(model["id"]) for model in models
         }
     }
+
+
+def _text_chat_payload(
+    model: Dict[str, Any], chats: list[Dict[str, Any]], current_chat: Dict[str, Any]
+) -> Dict[str, Any]:
+    return {
+        "model_price_id": int(model["id"]),
+        "current_text_chat_id": int(current_chat["id"]),
+        "text_chat_choices": {
+            text_chat_label(chat, current_chat_id=int(current_chat["id"])): int(chat["id"])
+            for chat in chats
+        },
+    }
+
+
+def _format_text_chat_screen(
+    model: Dict[str, Any], current_chat: Dict[str, Any], *, notice: str | None = None
+) -> str:
+    lines = []
+    if notice:
+        lines.extend([notice, ""])
+    lines.extend(
+        [
+            f"🤖 {model['display_name']}",
+            "",
+            f"Стоимость 1 запроса: {model['coins_cost']} coins",
+            "Введите текст, что хотите спросить у нейросетки.",
+            "",
+            f"Текущий чат: {current_chat['title']}",
+            "",
+            "Выберите чат ниже:",
+        ]
+    )
+    return "\n".join(lines)
 
 
 def _format_generation_result(result: Dict[str, Any], balance_after: int) -> str:
@@ -561,6 +599,49 @@ async def _send_models_for_types(
     )
 
 
+async def _send_text_chat_screen(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    model: Dict[str, Any],
+    current_chat_id: int | None = None,
+    notice: str | None = None,
+    delete_current: bool = False,
+) -> None:
+    chats = services.text_chats.list_for_model(
+        user_id=user_id, model_price_id=int(model["id"])
+    )
+    current_chat = None
+    if current_chat_id is not None:
+        for chat in chats:
+            if int(chat["id"]) == current_chat_id:
+                current_chat = chat
+                break
+    if current_chat is None:
+        current_chat = services.text_chats.default_for_model(
+            user_id=user_id, model_price_id=int(model["id"])
+        )
+        chats = services.text_chats.list_for_model(
+            user_id=user_id, model_price_id=int(model["id"])
+        )
+
+    _set_dialog_state(
+        services,
+        user_id,
+        state="waiting_text_chat_prompt",
+        payload=_text_chat_payload(model, chats, current_chat),
+    )
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_text_chat_screen(model, current_chat, notice=notice),
+        reply_markup=text_chat_keyboard(chats, current_chat_id=int(current_chat["id"])),
+        delete_current=delete_current,
+    )
+
+
 async def _handle_reply_menu(
     message: Message, services: AppServices, user: Dict[str, Any]
 ) -> bool:
@@ -575,14 +656,150 @@ async def _handle_reply_menu(
         await _send_menu_screen(message, services, user["id"], delete_current=True)
         return True
 
+    if session_state == "waiting_text_chat_name":
+        model_price_id = int(session_payload.get("model_price_id", 0))
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Модель не найдена. Выберите нейросетку заново.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return True
+        try:
+            chat = services.text_chats.create_custom(
+                user_id=user["id"], model_price_id=model_price_id, title=text
+            )
+            await _send_text_chat_screen(
+                message,
+                services,
+                user["id"],
+                model=model,
+                current_chat_id=int(chat["id"]),
+                notice=f"Чат «{chat['title']}» создан.",
+                delete_current=True,
+            )
+        except BusinessRuleError as exc:
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                str(exc),
+                reply_markup=ReplyKeyboardRemove(),
+                delete_current=True,
+            )
+        return True
+
+    if session_state == "waiting_text_chat_prompt":
+        model_price_id = int(session_payload.get("model_price_id", 0))
+        current_chat_id = int(session_payload.get("current_text_chat_id", 0))
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Модель не найдена. Выберите нейросетку заново.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return True
+
+        if text == ADD_TEXT_CHAT_BUTTON:
+            _set_dialog_state(
+                services,
+                user["id"],
+                state="waiting_text_chat_name",
+                payload={
+                    "model_price_id": model_price_id,
+                    "current_text_chat_id": current_chat_id,
+                },
+            )
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Введите название нового чата.",
+                reply_markup=ReplyKeyboardRemove(),
+                delete_current=True,
+            )
+            return True
+
+        if text == DELETE_CURRENT_TEXT_CHAT_BUTTON:
+            try:
+                fallback = services.text_chats.delete(
+                    user_id=user["id"], chat_id=current_chat_id
+                )
+                await _send_text_chat_screen(
+                    message,
+                    services,
+                    user["id"],
+                    model=model,
+                    current_chat_id=int(fallback["id"]),
+                    notice="Чат удалён.",
+                    delete_current=True,
+                )
+            except BusinessRuleError as exc:
+                await _send_text_chat_screen(
+                    message,
+                    services,
+                    user["id"],
+                    model=model,
+                    current_chat_id=current_chat_id,
+                    notice=str(exc),
+                    delete_current=True,
+                )
+            return True
+
+        choices = session_payload.get("text_chat_choices")
+        if isinstance(choices, dict) and text in choices:
+            chat_id = int(choices[text])
+            chat = services.text_chats.get_active(user_id=user["id"], chat_id=chat_id)
+            await _send_text_chat_screen(
+                message,
+                services,
+                user["id"],
+                model=model,
+                current_chat_id=chat_id,
+                notice=f"Чат «{chat['title']}» выбран.",
+                delete_current=True,
+            )
+            return True
+
     if session_state == "waiting_model_choice":
         choices = session_payload.get("model_choices")
         if isinstance(choices, dict) and text in choices:
+            model_price_id = int(choices[text])
+            model = services.catalog.get_model(model_price_id)
+            if model is None:
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Модель не найдена. Выберите нейросетку заново.",
+                    reply_markup=main_menu_keyboard(),
+                    delete_current=True,
+                )
+                return True
+            if model["generation_type"] == "text":
+                await _send_text_chat_screen(
+                    message,
+                    services,
+                    user["id"],
+                    model=model,
+                    delete_current=True,
+                )
+                return True
             _set_dialog_state(
                 services,
                 user["id"],
                 state="waiting_prompt",
-                payload={"model_price_id": int(choices[text])},
+                payload={"model_price_id": model_price_id},
             )
             await _show_screen(
                 message,
@@ -1024,6 +1241,30 @@ def create_router(services: AppServices) -> Router:
             await callback.answer()
             return
         model_id = int(callback.data.split(":", 1)[1]) if callback.data else 0
+        model = services.catalog.get_model(model_id)
+        if model is None:
+            if callback.message:
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    "Модель не найдена. Выберите нейросетку заново.",
+                    reply_markup=main_menu_keyboard(),
+                    delete_current=True,
+                )
+            await callback.answer()
+            return
+        if model["generation_type"] == "text":
+            if callback.message:
+                await _send_text_chat_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    model=model,
+                    delete_current=True,
+                )
+            await callback.answer()
+            return
         _set_dialog_state(
             services,
             user["id"],
@@ -1153,6 +1394,122 @@ def create_router(services: AppServices) -> Router:
             return
 
         session = services.users.get_session(user["id"])
+        if session and session["state"] == "waiting_text_chat_prompt":
+            payload = loads_dict(session.get("payload"))
+            model_price_id = int(payload.get("model_price_id", 0))
+            current_chat_id = int(payload.get("current_text_chat_id", 0))
+            model = services.catalog.get_model(model_price_id)
+            if model is None:
+                _clear_dialog_state(services, user["id"])
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Модель не найдена. Выберите нейросетку заново.",
+                    reply_markup=main_menu_keyboard(),
+                    delete_current=True,
+                )
+                return
+            try:
+                current_chat = services.text_chats.get_active(
+                    user_id=user["id"], chat_id=current_chat_id
+                )
+            except NotFoundError:
+                current_chat = services.text_chats.default_for_model(
+                    user_id=user["id"], model_price_id=model_price_id
+                )
+                current_chat_id = int(current_chat["id"])
+                chats = services.text_chats.list_for_model(
+                    user_id=user["id"], model_price_id=model_price_id
+                )
+                _set_dialog_state(
+                    services,
+                    user["id"],
+                    state="waiting_text_chat_prompt",
+                    payload=_text_chat_payload(model, chats, current_chat),
+                )
+
+            chats = services.text_chats.list_for_model(
+                user_id=user["id"], model_price_id=model_price_id
+            )
+            chat_keyboard = text_chat_keyboard(chats, current_chat_id=current_chat_id)
+            prompt_text = message.text or ""
+            if not prompt_text.strip():
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Отправьте текстовый вопрос.",
+                    reply_markup=chat_keyboard,
+                    delete_current=True,
+                )
+                return
+
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Запускаю генерацию...",
+                reply_markup=chat_keyboard,
+                delete_current=True,
+            )
+            try:
+                generation = services.generations.generate(
+                    user_id=user["id"],
+                    model_price_id=model_price_id,
+                    prompt_text=prompt_text,
+                    text_chat_id=current_chat_id,
+                    text_chat_title=str(current_chat["title"]),
+                )
+            except NoActiveSubscriptionError:
+                _clear_dialog_state(services, user["id"])
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Нужна активная подписка. Откройте тарифы и оплатите тестово.",
+                    reply_markup=main_menu_keyboard(),
+                )
+                return
+            except InsufficientCoinsError:
+                _clear_dialog_state(services, user["id"])
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Недостаточно coins для этой модели. Выберите тариф или модель дешевле.",
+                    reply_markup=main_menu_keyboard(),
+                )
+                return
+            except GenerationProviderFailedError:
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    "Не получилось выполнить генерацию. Coins возвращены.",
+                    reply_markup=chat_keyboard,
+                )
+                return
+            except NotFoundError as exc:
+                _clear_dialog_state(services, user["id"])
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    str(exc),
+                    reply_markup=main_menu_keyboard(),
+                )
+                return
+
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                _format_generation_result(generation.result, generation.balance_after),
+                reply_markup=chat_keyboard,
+            )
+            return
+
         if session and session["state"] == "waiting_model_choice":
             payload = loads_dict(session.get("payload"))
             choices = payload.get("model_choices")

@@ -18,6 +18,8 @@ VOICE_AI_BUTTON = "🎙 Озвучка с AI"
 HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
 BACK_TO_MENU_BUTTON = "⬅️ В меню"
+ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
+DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -175,6 +177,45 @@ def model_choice_keyboard_from_labels(labels: Iterable[str]) -> ReplyKeyboardMar
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="Выберите модель",
+    )
+
+
+def text_chat_label(chat: Dict[str, Any], *, current_chat_id: int | None) -> str:
+    prefix = "✓ " if int(chat["id"]) == current_chat_id else ""
+    return f"{prefix}{chat['title']}"
+
+
+def text_chat_keyboard(
+    chats: Iterable[Dict[str, Any]], *, current_chat_id: int | None
+) -> ReplyKeyboardMarkup:
+    default_rows: list[list[KeyboardButton]] = []
+    custom_rows: list[list[KeyboardButton]] = []
+    default_buffer: list[KeyboardButton] = []
+    for chat in chats:
+        button = KeyboardButton(text=text_chat_label(chat, current_chat_id=current_chat_id))
+        if chat["is_default"]:
+            if chat["title"] == "Основной":
+                default_rows.append([button])
+            else:
+                default_buffer.append(button)
+                if len(default_buffer) == 2:
+                    default_rows.append(default_buffer)
+                    default_buffer = []
+        else:
+            custom_rows.append([button])
+    if default_buffer:
+        default_rows.append(default_buffer)
+
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            *default_rows,
+            *custom_rows,
+            [KeyboardButton(text=ADD_TEXT_CHAT_BUTTON)],
+            [KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Введите вопрос или выберите чат",
     )
 
 

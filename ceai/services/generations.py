@@ -36,7 +36,13 @@ class GenerationService:
         self.coins = CoinService()
 
     def generate(
-        self, *, user_id: int, model_price_id: int, prompt_text: str
+        self,
+        *,
+        user_id: int,
+        model_price_id: int,
+        prompt_text: str,
+        text_chat_id: int | None = None,
+        text_chat_title: str | None = None,
     ) -> GenerationResult:
         business_error: NoActiveSubscriptionError | InsufficientCoinsError | None = None
         with self.db.transaction() as conn:
@@ -44,13 +50,19 @@ class GenerationService:
             if model is None or not model["is_active"]:
                 raise NotFoundError("Модель не найдена")
 
+            prompt_payload: Dict[str, Any] = {"text": prompt_text}
+            if text_chat_id is not None:
+                prompt_payload["text_chat_id"] = text_chat_id
+            if text_chat_title:
+                prompt_payload["text_chat_title"] = text_chat_title
+
             generation = self.generations.create_pending(
                 conn,
                 user_id=user_id,
                 model_price_id=model["id"],
                 generation_type=model["generation_type"],
                 provider=model["provider"],
-                prompt={"text": prompt_text},
+                prompt=prompt_payload,
             )
             subscription = self.subscriptions.get_active_for_user(conn, user_id)
             if subscription is None:

@@ -10,6 +10,7 @@ from ceai.services.admin import AdminService
 from ceai.services.generations import GenerationService
 from ceai.services.payments import PaymentService
 from ceai.services.subscriptions import SubscriptionService
+from ceai.services.text_chats import TextChatService
 from ceai.services.users import UserService
 
 
@@ -22,6 +23,7 @@ class AppServices:
     subscriptions: SubscriptionService
     payments: PaymentService
     generations: GenerationService
+    text_chats: TextChatService
 
 
 def build_services(db: Database, settings: Settings) -> AppServices:
@@ -36,4 +38,5 @@ def build_services(db: Database, settings: Settings) -> AppServices:
             db, mock_payment_base_url=settings.mock_payment_base_url
         ),
         generations=GenerationService(db, provider),
+        text_chats=TextChatService(db),
     )

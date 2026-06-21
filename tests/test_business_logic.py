@@ -105,6 +105,52 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.balance_after, 99)
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 99)
 
+    def test_text_chats_have_defaults_custom_delete_and_protect_defaults(self) -> None:
+        model = self._model("deepseek-v4-flash")
+
+        chats = self.services.text_chats.list_for_model(
+            user_id=self.user["id"], model_price_id=model["id"]
+        )
+        self.assertEqual(
+            [chat["title"] for chat in chats[:5]],
+            ["Основной", "Медицина", "Работа", "Психолог", "Спорт"],
+        )
+
+        custom = self.services.text_chats.create_custom(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            title="Мой чат",
+        )
+        self.assertFalse(custom["is_default"])
+        fallback = self.services.text_chats.delete(
+            user_id=self.user["id"], chat_id=custom["id"]
+        )
+        self.assertEqual(fallback["title"], "Основной")
+
+        with self.assertRaises(BusinessRuleError):
+            self.services.text_chats.delete(user_id=self.user["id"], chat_id=chats[0]["id"])
+
+    def test_text_generation_stores_selected_chat_in_prompt(self) -> None:
+        self._buy_plan("start")
+        model = self._model("deepseek-v4-flash")
+        chat = self.services.text_chats.create_custom(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            title="Рабочие вопросы",
+        )
+
+        self.services.generations.generate(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            prompt_text="Сделай список задач",
+            text_chat_id=chat["id"],
+            text_chat_title=chat["title"],
+        )
+
+        history = self.services.generations.list_recent(user_id=self.user["id"])
+        self.assertEqual(history[0]["prompt_payload"]["text_chat_id"], chat["id"])
+        self.assertEqual(history[0]["prompt_payload"]["text_chat_title"], "Рабочие вопросы")
+
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
         model = self._model("deepseek-v4-flash")
@@ -194,6 +240,21 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
+
+    def test_text_chat_keyboard_has_default_and_custom_controls_without_back(self) -> None:
+        keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        chat_keyboard_source = keyboard_source.split(
+            "def text_chat_keyboard(", 1
+        )[1].split("def admin_menu_keyboard", 1)[0]
+
+        self.assertIn("Основной", chat_keyboard_source)
+        self.assertIn("ADD_TEXT_CHAT_BUTTON", chat_keyboard_source)
+        self.assertIn("DELETE_CURRENT_TEXT_CHAT_BUTTON", chat_keyboard_source)
+        self.assertNotIn("BACK_TO_MENU_BUTTON", chat_keyboard_source)
+        self.assertIn("waiting_text_chat_prompt", handlers_source)
+        self.assertIn("waiting_text_chat_name", handlers_source)
+        self.assertIn("text_chat_id", handlers_source)
 
     def test_telegram_commands_menu_contains_only_menu_and_profile(self) -> None:
         main_source = Path("ceai/main.py").read_text(encoding="utf-8")
@@ -482,7 +543,7 @@ class MigrationAndUITest(unittest.TestCase):
                 row = conn.execute(
                     "SELECT COUNT(*) AS count FROM schema_migrations"
                 ).fetchone()
-            self.assertEqual(row["count"], 4)
+            self.assertEqual(row["count"], 5)
         finally:
             db.close()
 
