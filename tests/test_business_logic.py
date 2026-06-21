@@ -354,6 +354,42 @@ class MigrationAndUITest(unittest.TestCase):
         finally:
             db.close()
 
+    def test_ai_provider_router_reloads_saved_provider_keys(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            settings = Settings(
+                telegram_bot_token="test",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+                ai_provider_mode="auto",
+            )
+            router = AIProviderRouter(settings, db)
+            self.assertIsNone(router.deepseek)
+            self.assertIsNone(router.openai)
+
+            with db.transaction() as conn:
+                repo = AppSettingsRepository()
+                repo.upsert(
+                    conn,
+                    key="DEEPSEEK_API_KEY",
+                    value="saved-deepseek-key",
+                    is_secret=True,
+                )
+                repo.upsert(
+                    conn,
+                    key="OPENAI_API_KEY",
+                    value="saved-openai-key",
+                    is_secret=True,
+                )
+            router.reload_settings()
+
+            self.assertIsNotNone(router.deepseek)
+            self.assertIsNotNone(router.openai)
+        finally:
+            db.close()
+
     def test_internal_provider_settings_endpoint_saves_keys(self) -> None:
         db = Database("sqlite:///:memory:")
         try:

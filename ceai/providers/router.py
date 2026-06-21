@@ -24,23 +24,30 @@ PROVIDER_SETTING_KEYS = (
 class AIProviderRouter:
     def __init__(self, settings: Settings, db: Database | None = None) -> None:
         self.settings = settings
+        self.db = db
         self.mock = MockAIProvider()
-        saved_settings = self._load_saved_settings(db)
+        self.ai_provider_mode = settings.ai_provider_mode
+        self.deepseek: AIProvider | None = None
+        self.openai: AIProvider | None = None
+        self.reload_settings()
+
+    def reload_settings(self) -> None:
+        saved_settings = self._load_saved_settings(self.db)
         self.ai_provider_mode = (
-            saved_settings.get("AI_PROVIDER_MODE") or settings.ai_provider_mode
+            saved_settings.get("AI_PROVIDER_MODE") or self.settings.ai_provider_mode
         ).strip().lower()
-        timeout_seconds = self._read_timeout(settings, saved_settings)
-        deepseek_api_key = settings.deepseek_api_key or saved_settings.get(
+        timeout_seconds = self._read_timeout(self.settings, saved_settings)
+        deepseek_api_key = self.settings.deepseek_api_key or saved_settings.get(
             "DEEPSEEK_API_KEY", ""
         )
         deepseek_base_url = (
-            saved_settings.get("DEEPSEEK_BASE_URL") or settings.deepseek_base_url
+            saved_settings.get("DEEPSEEK_BASE_URL") or self.settings.deepseek_base_url
         )
-        openai_api_key = settings.openai_api_key or saved_settings.get(
+        openai_api_key = self.settings.openai_api_key or saved_settings.get(
             "OPENAI_API_KEY", ""
         )
         openai_base_url = (
-            saved_settings.get("OPENAI_BASE_URL") or settings.openai_base_url
+            saved_settings.get("OPENAI_BASE_URL") or self.settings.openai_base_url
         )
         self.deepseek = (
             DeepSeekProvider(
@@ -62,6 +69,7 @@ class AIProviderRouter:
         )
 
     def generate(self, *, model: Dict[str, Any], prompt_text: str) -> ProviderResult:
+        self.reload_settings()
         provider = self._provider_for(model)
         return provider.generate(model=model, prompt_text=prompt_text)
 
