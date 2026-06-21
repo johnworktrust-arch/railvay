@@ -8,6 +8,7 @@ from typing import Dict, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_PUBLIC_OFFER_URL = "https://ceaai-bot.onrender.com/public-offer"
+DEFAULT_INFO_CHANNEL_URL = "https://t.me/cea_family"
 
 
 def _load_dotenv(path: Path) -> Dict[str, str]:
@@ -36,7 +37,7 @@ class Settings:
     admin_telegram_ids: Tuple[int, ...] = ()
     admin_telegram_usernames: Tuple[str, ...] = ()
     public_offer_url: str = DEFAULT_PUBLIC_OFFER_URL
-    info_channel_url: str = ""
+    info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
     support_username: str = "cea_help"
     ai_provider_mode: str = "auto"
     ai_request_timeout_seconds: int = 60
@@ -85,7 +86,7 @@ def load_settings() -> Settings:
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
         public_offer_url=read("PUBLIC_OFFER_URL", DEFAULT_PUBLIC_OFFER_URL),
-        info_channel_url=read("INFO_CHANNEL_URL"),
+        info_channel_url=read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL),
         support_username=read("SUPPORT_USERNAME", "cea_help").strip().lstrip("@"),
         ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),
         ai_request_timeout_seconds=read_int("AI_REQUEST_TIMEOUT_SECONDS", 60),

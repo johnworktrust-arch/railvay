@@ -233,21 +233,25 @@ async def _show_onboarding_followup(
     *,
     delete_current: bool = False,
 ) -> None:
-    _, payload = _session_state_payload(services, user_id)
     if message.message_id:
         try:
-            await message.bot.edit_message_reply_markup(
+            await message.bot.delete_message(
                 chat_id=message.chat.id,
                 message_id=message.message_id,
-                reply_markup=None,
             )
         except (TelegramBadRequest, TelegramForbiddenError):
-            pass
+            try:
+                await message.bot.edit_message_reply_markup(
+                    chat_id=message.chat.id,
+                    message_id=message.message_id,
+                    reply_markup=None,
+                )
+            except (TelegramBadRequest, TelegramForbiddenError):
+                pass
 
     hint = await message.bot.send_message(
         chat_id=message.chat.id,
         text=_format_onboarding_hint(),
-        reply_markup=main_menu_keyboard(),
     )
     promo = await message.bot.send_message(
         chat_id=message.chat.id,
@@ -257,11 +261,20 @@ async def _show_onboarding_followup(
             support_username=services.settings.support_username,
         ),
     )
+    menu = await message.bot.send_message(
+        chat_id=message.chat.id,
+        text=_format_main_menu(),
+        reply_markup=main_menu_keyboard(),
+    )
     services.users.set_session(
         user_id,
         state="idle",
         payload={
-            LAST_BOT_MESSAGE_IDS: [hint.message_id, promo.message_id],
+            LAST_BOT_MESSAGE_IDS: [
+                hint.message_id,
+                promo.message_id,
+                menu.message_id,
+            ],
             LAST_REPLY_KEYBOARD_SIGNATURE: _reply_keyboard_signature(
                 main_menu_keyboard()
             ),

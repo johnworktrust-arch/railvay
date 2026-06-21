@@ -6,7 +6,7 @@ from json import loads
 from pathlib import Path
 from unittest.mock import patch
 
-from ceai.config import DEFAULT_PUBLIC_OFFER_URL, Settings
+from ceai.config import DEFAULT_INFO_CHANNEL_URL, DEFAULT_PUBLIC_OFFER_URL, Settings
 from ceai.database import Database
 from ceai.internal_api import handle_provider_settings_request
 from ceai.json_utils import dumps, loads_dict
@@ -291,14 +291,18 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Выберите нужный раздел 👇", handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
 
-    def test_bot_screens_edit_messages_instead_of_deleting_them(self) -> None:
+    def test_bot_screens_edit_messages_except_onboarding_greeting(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        regular_screen_source = handlers_source.split(
+            "async def _show_onboarding_followup", 1
+        )[0]
 
         self.assertIn("edit_message_text", handlers_source)
         self.assertIn("last_reply_keyboard_signature", handlers_source)
         self.assertIn("Telegram cannot attach or replace a bottom reply keyboard", handlers_source)
-        self.assertNotIn("delete_message", handlers_source)
-        self.assertNotIn("message.delete", handlers_source)
+        self.assertNotIn("delete_message", regular_screen_source)
+        self.assertNotIn("message.delete", regular_screen_source)
+        self.assertIn("await message.bot.delete_message", handlers_source)
 
     def test_start_onboarding_copy_and_continue_callback_are_present(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
@@ -309,6 +313,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("DEFAULT_PUBLIC_OFFER_URL", handlers_source)
         self.assertIn("Чтобы узнать больше о своём аккаунте и тарифах", handlers_source)
         self.assertIn("В двух словах об основных инструментах", handlers_source)
+        self.assertIn("_format_main_menu()", handlers_source)
+        self.assertIn("menu.message_id", handlers_source)
         self.assertIn('F.data == "onboarding:continue"', handlers_source)
         self.assertIn("last_bot_message_ids", handlers_source)
         self.assertNotIn(
@@ -324,9 +330,10 @@ class MigrationAndUITest(unittest.TestCase):
 
         self.assertIn("Продолжить", keyboard_source)
         self.assertIn("onboarding:continue", keyboard_source)
-        self.assertIn("Все ай ай инфо", keyboard_source)
+        self.assertIn("Cea Family", keyboard_source)
         self.assertIn("Поддержка", keyboard_source)
         self.assertIn("https://t.me/{username}", keyboard_source)
+        self.assertNotIn("Все ай ай инфо", keyboard_source)
         self.assertNotIn("Как пользоваться", keyboard_source)
         self.assertNotIn("База знаний", keyboard_source)
         self.assertNotIn("VK", keyboard_source)
@@ -357,6 +364,7 @@ class MigrationAndUITest(unittest.TestCase):
             settings = load_settings()
 
         self.assertEqual(settings.public_offer_url, DEFAULT_PUBLIC_OFFER_URL)
+        self.assertEqual(settings.info_channel_url, DEFAULT_INFO_CHANNEL_URL)
 
     def test_ai_provider_env_settings_are_read(self) -> None:
         from ceai.config import load_settings

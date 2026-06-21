@@ -18,7 +18,7 @@ services:
       - key: PUBLIC_OFFER_URL
         value: https://ceaai-bot.onrender.com/public-offer
       - key: INFO_CHANNEL_URL
-        sync: false
+        value: https://t.me/cea_family
       - key: SUPPORT_USERNAME
         value: cea_help
       - key: ADMIN_TELEGRAM_IDS

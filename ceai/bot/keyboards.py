@@ -79,9 +79,7 @@ def onboarding_links_keyboard(
 ) -> InlineKeyboardMarkup:
     rows = []
     if info_channel_url:
-        rows.append(
-            [InlineKeyboardButton(text="📢 Все ай ай инфо", url=info_channel_url)]
-        )
+        rows.append([InlineKeyboardButton(text="📢 Cea Family", url=info_channel_url)])
     username = support_username.strip().lstrip("@") or "cea_help"
     rows.append(
         [InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{username}")]
