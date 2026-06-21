@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import traceback
+import json
 from datetime import datetime, timezone
 from typing import Any, Dict
 
 
 _STATE: Dict[str, Any] = {
     "last_webhook_request": None,
+    "last_callback": None,
     "last_message": None,
     "last_error": None,
 }
@@ -40,6 +42,23 @@ def record_webhook_request(*, path: str, method: str, body: bytes) -> None:
         "path": path,
         "body": text[:1000],
     }
+    try:
+        payload = json.loads(text)
+    except json.JSONDecodeError:
+        return
+    callback = payload.get("callback_query")
+    if not isinstance(callback, dict):
+        return
+    from_user = callback.get("from") if isinstance(callback.get("from"), dict) else {}
+    message = callback.get("message") if isinstance(callback.get("message"), dict) else {}
+    _STATE["last_callback"] = {
+        "at": _now(),
+        "id": callback.get("id"),
+        "from_id": from_user.get("id"),
+        "username": from_user.get("username"),
+        "message_id": message.get("message_id"),
+        "data": callback.get("data"),
+    }
 
 
 def record_error(*, exception: BaseException, update: Any = None) -> None:
@@ -58,6 +77,7 @@ def record_error(*, exception: BaseException, update: Any = None) -> None:
 def snapshot() -> Dict[str, Any]:
     return {
         "last_webhook_request": _STATE.get("last_webhook_request"),
+        "last_callback": _STATE.get("last_callback"),
         "last_message": _STATE.get("last_message"),
         "last_error": _STATE.get("last_error"),
     }
