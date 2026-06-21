@@ -1618,6 +1618,18 @@ def create_router(services: AppServices) -> Router:
         action_parts = callback.data.split(":")
         action = action_parts[1] if len(action_parts) > 1 else ""
 
+        if action == "back":
+            await _send_text_chat_screen(
+                callback.message,
+                services,
+                user["id"],
+                model=model,
+                current_chat_id=current_chat_id if current_chat_id > 0 else None,
+                delete_current=True,
+            )
+            await callback.answer()
+            return
+
         if action == "add":
             _set_dialog_state(
                 services,

@@ -75,12 +75,11 @@ def profile_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def back_to_menu_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Отправьте prompt или вернитесь в меню",
+def back_to_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
+        ]
     )
 
 
@@ -225,15 +224,17 @@ def text_chat_inline_keyboard(
     )
 
 
-def text_chat_prompt_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)],
-            [KeyboardButton(text=BACK_TO_MENU_BUTTON)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Напишите вопрос",
+def text_chat_prompt_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=DELETE_CURRENT_TEXT_CHAT_BUTTON,
+                    callback_data="text_chat:delete",
+                )
+            ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="text_chat:back")],
+        ]
     )
 
 
