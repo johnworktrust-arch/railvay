@@ -23,7 +23,6 @@ from ceai.bot.keyboards import (
     PROFILE_BUTTON,
     REPLY_MENU_BUTTONS,
     TEXT_AI_BUTTON,
-    TEXT_CHAT_LIST_BUTTON,
     VIDEO_AI_BUTTON,
     VOICE_AI_BUTTON,
     admin_back_keyboard,
@@ -414,20 +413,22 @@ def _model_choice_payload(models: list[Dict[str, Any]]) -> Dict[str, Any]:
 
 
 def _text_chat_payload(
-    model: Dict[str, Any], chats: list[Dict[str, Any]], current_chat: Dict[str, Any]
+    model: Dict[str, Any],
+    chats: list[Dict[str, Any]],
+    current_chat: Dict[str, Any] | None = None,
 ) -> Dict[str, Any]:
     return {
         "model_price_id": int(model["id"]),
-        "current_text_chat_id": int(current_chat["id"]),
+        "current_text_chat_id": int(current_chat["id"]) if current_chat else 0,
         "text_chat_choices": {
-            text_chat_label(chat, current_chat_id=int(current_chat["id"])): int(chat["id"])
+            text_chat_label(chat, current_chat_id=None): int(chat["id"])
             for chat in chats
         },
     }
 
 
 def _format_text_chat_list_screen(
-    model: Dict[str, Any], current_chat: Dict[str, Any], *, notice: str | None = None
+    model: Dict[str, Any], *, notice: str | None = None
 ) -> str:
     lines = []
     if notice:
@@ -437,9 +438,6 @@ def _format_text_chat_list_screen(
             f"🤖 {model['display_name']}",
             "",
             f"Стоимость 1 запроса: {model['coins_cost']} coins",
-            "Введите текст, что хотите спросить у нейросетки.",
-            "",
-            f"Текущий чат: {current_chat['title']}",
             "",
             "Выберите чат ниже:",
         ]
@@ -788,13 +786,6 @@ async def _send_text_chat_screen(
             if int(chat["id"]) == current_chat_id:
                 current_chat = chat
                 break
-    if current_chat is None:
-        current_chat = services.text_chats.default_for_model(
-            user_id=user_id, model_price_id=int(model["id"])
-        )
-        chats = services.text_chats.list_for_model(
-            user_id=user_id, model_price_id=int(model["id"])
-        )
 
     _set_dialog_state(
         services,
@@ -806,10 +797,10 @@ async def _send_text_chat_screen(
         message,
         services,
         user_id,
-        _format_text_chat_list_screen(model, current_chat, notice=notice),
+        _format_text_chat_list_screen(model, notice=notice),
         reply_markup=text_chat_inline_keyboard(
             chats,
-            current_chat_id=int(current_chat["id"]),
+            current_chat_id=int(current_chat["id"]) if current_chat else None,
         ),
         delete_current=delete_current,
     )
@@ -850,6 +841,33 @@ async def _handle_reply_menu(
     text = (message.text or "").strip()
     text_lower = text.casefold()
     session_state, session_payload = _session_state_payload(services, user["id"])
+
+    if session_state == "waiting_text_chat_prompt" and (
+        text == BACK_TO_MENU_BUTTON or text_lower in {"назад", "back"}
+    ):
+        model_price_id = int(session_payload.get("model_price_id", 0))
+        current_chat_id = int(session_payload.get("current_text_chat_id", 0))
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Модель не найдена. Выберите нейросетку заново.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return True
+        await _send_text_chat_screen(
+            message,
+            services,
+            user["id"],
+            model=model,
+            current_chat_id=current_chat_id if current_chat_id > 0 else None,
+            delete_current=True,
+        )
+        return True
 
     if text_lower in {"menu", "/menu", "главное меню", "назад", "назад в меню"} or (
         text == BACK_TO_MENU_BUTTON
@@ -894,31 +912,6 @@ async def _handle_reply_menu(
                 reply_markup=ReplyKeyboardRemove(),
                 delete_current=True,
             )
-        return True
-
-    if session_state == "waiting_text_chat_prompt" and text == TEXT_CHAT_LIST_BUTTON:
-        model_price_id = int(session_payload.get("model_price_id", 0))
-        current_chat_id = int(session_payload.get("current_text_chat_id", 0))
-        model = services.catalog.get_model(model_price_id)
-        if model is None:
-            _clear_dialog_state(services, user["id"])
-            await _show_screen(
-                message,
-                services,
-                user["id"],
-                "Модель не найдена. Выберите нейросетку заново.",
-                reply_markup=main_menu_keyboard(),
-                delete_current=True,
-            )
-            return True
-        await _send_text_chat_screen(
-            message,
-            services,
-            user["id"],
-            model=model,
-            current_chat_id=current_chat_id,
-            delete_current=True,
-        )
         return True
 
     if session_state == "waiting_text_chat_choice":
@@ -1567,6 +1560,17 @@ def create_router(services: AppServices) -> Router:
             return
 
         if action == "delete":
+            if current_chat_id <= 0:
+                await _send_text_chat_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    model=model,
+                    notice="Сначала откройте чат, который хотите удалить.",
+                    delete_current=True,
+                )
+                await callback.answer()
+                return
             try:
                 fallback = services.text_chats.delete(
                     user_id=user["id"], chat_id=current_chat_id

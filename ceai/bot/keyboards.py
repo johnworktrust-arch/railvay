@@ -17,10 +17,9 @@ VIDEO_AI_BUTTON = "🎬 Видео с AI"
 VOICE_AI_BUTTON = "🎙 Озвучка с AI"
 HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
-BACK_TO_MENU_BUTTON = "⬅️ В меню"
+BACK_TO_MENU_BUTTON = "⬅️ Назад"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
-DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
-TEXT_CHAT_LIST_BUTTON = "К чатам"
+DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить чат"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -158,8 +157,7 @@ def model_choice_label(model: Dict[str, Any]) -> str:
 
 
 def text_chat_label(chat: Dict[str, Any], *, current_chat_id: int | None) -> str:
-    prefix = "✓ " if int(chat["id"]) == current_chat_id else ""
-    return f"{prefix}{chat['title']}"
+    return str(chat["title"])
 
 
 def text_chat_inline_keyboard(
@@ -201,13 +199,14 @@ def text_chat_inline_keyboard(
                     callback_data="text_chat:delete",
                 )
             ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")],
         ]
     )
 
 
 def text_chat_prompt_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=TEXT_CHAT_LIST_BUTTON)]],
+        keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],
         resize_keyboard=True,
         is_persistent=True,
         input_field_placeholder="Напишите вопрос",
