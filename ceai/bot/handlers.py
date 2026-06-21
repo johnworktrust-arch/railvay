@@ -138,6 +138,10 @@ def _clear_dialog_state(services: AppServices, user_id: int) -> None:
     _set_dialog_state(services, user_id, state="idle", payload={})
 
 
+def _reset_dialog_state(services: AppServices, user_id: int) -> None:
+    services.users.set_session(user_id, state="idle", payload={})
+
+
 def _remember_screen_message(
     services: AppServices,
     user_id: int,
@@ -613,6 +617,7 @@ async def _send_onboarding_greeting(
         reply_markup=onboarding_continue_keyboard(),
         delete_current=delete_current,
     )
+    await _remove_reply_keyboard(message, services, user_id)
 
 
 async def _send_admin_home(
@@ -1174,7 +1179,7 @@ def create_router(services: AppServices) -> Router:
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
             return
-        _clear_dialog_state(services, user["id"])
+        _reset_dialog_state(services, user["id"])
         await _send_onboarding_greeting(
             message, services, user["id"], delete_current=True
         )
@@ -1723,7 +1728,7 @@ def create_router(services: AppServices) -> Router:
             if _is_blocked_regular_user(services, user):
                 await _send_blocked_notice(message, services, user["id"])
                 return
-            _clear_dialog_state(services, user["id"])
+            _reset_dialog_state(services, user["id"])
             await _send_onboarding_greeting(
                 message, services, user["id"], delete_current=True
             )
