@@ -387,12 +387,21 @@ def _format_plans(plans: list[Dict[str, Any]]) -> str:
 
 
 def _format_models(models: list[Dict[str, Any]]) -> str:
-    lines = ["Выберите AI-инструмент:"]
+    lines = []
     for model in models:
-        lines.append(
-            f"{model['display_name']} — {model['generation_type']} — "
-            f"{model['coins_cost']} coins"
+        config = loads_dict(model.get("config"))
+        description = str(config.get("ui_description") or "").strip()
+        lines.extend(
+            [
+                f"🤖 {model['display_name']}",
+                f"Стоимость: {model['coins_cost']} coins за запрос.",
+            ]
         )
+        if description:
+            lines.append(description)
+        lines.append("")
+    if lines and lines[-1] == "":
+        lines.pop()
     return "\n".join(lines)
 
 

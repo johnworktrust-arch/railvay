@@ -54,6 +54,10 @@ MODEL_PRICES = [
             "thinking_type": "disabled",
             "provider_cost_amount": 0.03,
             "provider_cost_currency": "RUB",
+            "ui_description": (
+                "Быстрая и экономная нейросетка для повседневных вопросов, "
+                "идей, объяснений и черновиков."
+            ),
         },
     },
     {
@@ -67,6 +71,10 @@ MODEL_PRICES = [
             "reasoning_effort": "low",
             "provider_cost_amount": 0.2,
             "provider_cost_currency": "RUB",
+            "ui_description": (
+                "Сильная универсальная модель для сложных запросов, текстов, "
+                "аналитики и аккуратных ответов."
+            ),
         },
     },
     {
@@ -75,7 +83,14 @@ MODEL_PRICES = [
         "display_name": "GPT Image 2 Medium",
         "generation_type": "image",
         "coins_cost": 6,
-        "config": {"provider_cost_amount": 4.5, "provider_cost_currency": "RUB"},
+        "config": {
+            "provider_cost_amount": 4.5,
+            "provider_cost_currency": "RUB",
+            "ui_description": (
+                "Генерирует изображения по описанию: от быстрых визуальных "
+                "идей до готовых иллюстраций."
+            ),
+        },
     },
     {
         "provider": "kling",
@@ -87,6 +102,10 @@ MODEL_PRICES = [
             "provider_cost_amount": 92,
             "provider_cost_currency": "RUB",
             "duration_seconds": 10,
+            "ui_description": (
+                "Создаёт короткие AI-видео по вашему описанию для роликов, "
+                "идей и визуальных сцен."
+            ),
         },
     },
     {
@@ -99,6 +118,10 @@ MODEL_PRICES = [
             "provider_cost_amount": 9,
             "provider_cost_currency": "RUB",
             "duration_seconds": 15,
+            "ui_description": (
+                "Превращает текст в озвучку: удобно для роликов, сообщений "
+                "и быстрых голосовых заготовок."
+            ),
         },
     },
 ]

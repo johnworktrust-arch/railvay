@@ -241,12 +241,17 @@ class MigrationAndUITest(unittest.TestCase):
     def test_ai_inner_keyboards_have_back_button_only(self) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        seed_source = Path("ceai/seed.py").read_text(encoding="utf-8")
 
         self.assertIn('BACK_TO_MENU_BUTTON = "⬅️ В меню"', keyboard_source)
         self.assertIn("def models_keyboard(", keyboard_source)
         self.assertIn('callback_data=f"model:{model[\'id\']}"', keyboard_source)
         self.assertIn("state=\"waiting_model_choice\"", handlers_source)
         self.assertIn("reply_markup=models_keyboard(models)", handlers_source)
+        self.assertIn("ui_description", handlers_source)
+        self.assertIn("ui_description", seed_source)
+        self.assertIn("Стоимость: {model['coins_cost']} coins за запрос.", handlers_source)
+        self.assertNotIn('lines = ["Выберите AI-инструмент:"]', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
