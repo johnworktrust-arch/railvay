@@ -14,6 +14,7 @@ from ceai.database import Database
 from ceai.health import start_health_server
 from ceai.internal_api import handle_provider_settings_request
 from ceai.public_offer import PUBLIC_OFFER_TEXT
+from ceai.runtime_diagnostics import snapshot as diagnostics_snapshot
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
 from ceai.bot.handlers import create_router
@@ -69,6 +70,7 @@ async def telegram_status(request: web.Request) -> web.Response:
                 "last_error_message": webhook_result.get("last_error_message"),
                 "allowed_updates": webhook_result.get("allowed_updates"),
             },
+            "diagnostics": diagnostics_snapshot(),
         }
     )
 

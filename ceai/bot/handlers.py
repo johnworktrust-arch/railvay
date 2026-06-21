@@ -7,6 +7,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
+    ErrorEvent,
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
@@ -45,6 +46,7 @@ from ceai.bot.keyboards import (
 from ceai.config import DEFAULT_PUBLIC_OFFER_URL
 from ceai.formatting import format_datetime_minute
 from ceai.json_utils import loads_dict
+from ceai.runtime_diagnostics import record_error, record_message
 from ceai.services.app import AppServices
 from ceai.services.exceptions import (
     BusinessRuleError,
@@ -667,6 +669,10 @@ def _is_blocked_regular_user(services: AppServices, user: Dict[str, Any]) -> boo
     return services.admin.is_blocked_regular_user(user)
 
 
+def _record_message(handler: str, message: Message) -> None:
+    record_message(handler=handler, message=message)
+
+
 async def _send_balance(
     message: Message,
     services: AppServices,
@@ -1164,8 +1170,13 @@ async def _handle_reply_menu(
 def create_router(services: AppServices) -> Router:
     router = Router()
 
+    @router.errors()
+    async def bot_error(event: ErrorEvent) -> None:
+        record_error(exception=event.exception, update=event.update)
+
     @router.message(Command("admin"))
     async def admin_command(message: Message) -> None:
+        _record_message("admin_command", message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         admin = services.admin.ensure_admin_access(user)
         if not admin:
@@ -1175,6 +1186,7 @@ def create_router(services: AppServices) -> Router:
 
     @router.message(CommandStart())
     async def start(message: Message) -> None:
+        _record_message("start", message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1186,6 +1198,7 @@ def create_router(services: AppServices) -> Router:
 
     @router.message(Command("help"))
     async def help_command(message: Message) -> None:
+        _record_message("help_command", message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1194,6 +1207,7 @@ def create_router(services: AppServices) -> Router:
 
     @router.message(Command("menu"))
     async def menu_command(message: Message) -> None:
+        _record_message("menu_command", message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1203,6 +1217,7 @@ def create_router(services: AppServices) -> Router:
 
     @router.message(Command("profile"))
     async def profile_command(message: Message) -> None:
+        _record_message("profile_command", message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1723,6 +1738,7 @@ def create_router(services: AppServices) -> Router:
 
     @router.message()
     async def prompt_or_fallback(message: Message) -> None:
+        _record_message("prompt_or_fallback", message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_start_text(message.text):
             if _is_blocked_regular_user(services, user):
