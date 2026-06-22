@@ -57,6 +57,11 @@ from ceai.services.exceptions import (
     NoActiveSubscriptionError,
     NotFoundError,
 )
+from ceai.services.referrals import (
+    REFERRAL_RATE_PERCENT,
+    REFERRAL_WITHDRAWAL_MIN_KOPECKS,
+    format_rubles_from_kopecks,
+)
 
 
 LAST_BOT_MESSAGE_ID = "last_bot_message_id"
@@ -419,10 +424,25 @@ def _referral_link(user: Dict[str, Any]) -> str:
     return f"https://t.me/aiceabot?start=ref_{referral_code}"
 
 
-def _format_referral_screen(user: Dict[str, Any], *, invited_users_count: int) -> str:
+def _format_referral_screen(
+    user: Dict[str, Any],
+    *,
+    invited_users_count: int,
+    balance_kopecks: int = 0,
+    withdrawal_method: str = "",
+    requisites: str = "",
+    rate_percent: int = REFERRAL_RATE_PERCENT,
+    withdrawal_min_kopecks: int = REFERRAL_WITHDRAWAL_MIN_KOPECKS,
+) -> str:
     referral_link = _referral_link(user)
+    withdrawal_method_text = withdrawal_method.strip() or "не задан"
+    requisites_text = requisites.strip() or "не указаны"
+    withdrawal_min_text = format_rubles_from_kopecks(withdrawal_min_kopecks).replace(
+        " ₽", "₽"
+    )
     return (
-        "👥 <b>Приглашайте друзей и зарабатывайте 30% с каждого пополнения!</b>\n\n"
+        "👥 <b>Приглашайте друзей и зарабатывайте "
+        f"{rate_percent}% с каждого пополнения!</b>\n\n"
         "Например:\n"
         "<blockquote>"
         "— Друзья перешли по вашей ссылке и потратили 1000₽\n"
@@ -431,12 +451,12 @@ def _format_referral_screen(user: Dict[str, Any], *, invited_users_count: int) -
         "📊 <b>Ваша статистика:</b>\n"
         "<blockquote>"
         f"— Приглашено: {invited_users_count}\n"
-        "— Баланс: 0 ₽\n"
-        "— Способ вывода: не задан\n"
-        "— Реквизиты: не указаны"
+        f"— Баланс: {escape(format_rubles_from_kopecks(balance_kopecks))}\n"
+        f"— Способ вывода: {escape(withdrawal_method_text)}\n"
+        f"— Реквизиты: {escape(requisites_text)}"
         "</blockquote>\n\n"
-        "% <b>Текущая ставка: 30%</b>\n"
-        "💼 Вывод доступен от 1000₽\n\n"
+        f"% <b>Текущая ставка: {rate_percent}%</b>\n"
+        f"💼 Вывод доступен от {escape(withdrawal_min_text)}\n\n"
         "🔗 <b>Пригласительная ссылка:</b>\n"
         f"<code>{escape(referral_link)}</code>\n\n"
         "📨 Нажмите на ссылку, чтобы скопировать и поделиться с друзьями!"
@@ -666,11 +686,11 @@ async def _send_main_menu(
 ) -> None:
     subscription = services.subscriptions.active_for_user(user_id)
     profile_user = services.users.get_by_id(user_id) or {"id": user_id}
-    invited_users_count = services.users.count_invited_users(user_id)
+    referral_stats = services.referrals.stats(user_id)
     text = _format_menu(
         profile_user,
         subscription,
-        invited_users_count=invited_users_count,
+        invited_users_count=referral_stats.invited_count,
     )
     if intro:
         text = f"{intro}\n\n{text}"
@@ -1271,6 +1291,10 @@ def create_router(services: AppServices) -> Router:
         _record_message("start", message)
         await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        services.referrals.apply_start_referral(
+            user_id=user["id"],
+            start_text=message.text,
+        )
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
             return
@@ -1823,14 +1847,19 @@ def create_router(services: AppServices) -> Router:
             await callback.answer()
             return
         if callback.message:
-            invited_users_count = services.users.count_invited_users(user["id"])
+            referral_stats = services.referrals.stats(user["id"])
             await _show_screen(
                 callback.message,
                 services,
                 user["id"],
                 _format_referral_screen(
                     user,
-                    invited_users_count=invited_users_count,
+                    invited_users_count=referral_stats.invited_count,
+                    balance_kopecks=referral_stats.balance_kopecks,
+                    withdrawal_method=referral_stats.withdrawal_method,
+                    requisites=referral_stats.requisites,
+                    rate_percent=referral_stats.rate_percent,
+                    withdrawal_min_kopecks=referral_stats.withdrawal_min_kopecks,
                 ),
                 reply_markup=inline_back_to_menu_keyboard(),
                 delete_current=True,

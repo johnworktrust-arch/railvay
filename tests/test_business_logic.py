@@ -89,6 +89,100 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(row["count"], 1)
         self.assertEqual(row["amount"], 100)
 
+    def test_start_referral_assigns_referrer_once_and_rejects_self(self) -> None:
+        friend = self.services.users.ensure_telegram_user(
+            telegram_id=2002,
+            username="friend",
+            first_name="Friend",
+            language_code="ru",
+        )
+        other = self.services.users.ensure_telegram_user(
+            telegram_id=3003,
+            username="other",
+            first_name="Other",
+            language_code="ru",
+        )
+
+        self.assertTrue(
+            self.services.referrals.apply_start_referral(
+                user_id=friend["id"],
+                start_text="/start ref_tg1001",
+            )
+        )
+        self.assertFalse(
+            self.services.referrals.apply_start_referral(
+                user_id=friend["id"],
+                start_text="/start ref_tg3003",
+            )
+        )
+        self.assertFalse(
+            self.services.referrals.apply_start_referral(
+                user_id=self.user["id"],
+                start_text="/start ref_tg1001",
+            )
+        )
+
+        with self.db.transaction() as conn:
+            friend_row = conn.execute(
+                "SELECT referred_by_user_id FROM users WHERE id = ?",
+                (friend["id"],),
+            ).fetchone()
+            other_row = conn.execute(
+                "SELECT referred_by_user_id FROM users WHERE id = ?",
+                (other["id"],),
+            ).fetchone()
+
+        self.assertEqual(friend_row["referred_by_user_id"], self.user["id"])
+        self.assertIsNone(other_row["referred_by_user_id"])
+        self.assertEqual(self.services.referrals.stats(self.user["id"]).invited_count, 1)
+
+    def test_referral_reward_from_paid_payment_is_credited_once(self) -> None:
+        friend = self.services.users.ensure_telegram_user(
+            telegram_id=2002,
+            username="friend",
+            first_name="Friend",
+            language_code="ru",
+        )
+        self.assertTrue(
+            self.services.referrals.apply_start_referral(
+                user_id=friend["id"],
+                start_text="/start ref_tg1001",
+            )
+        )
+
+        payment = self.services.payments.create_mock_payment(
+            user_id=friend["id"],
+            plan_code="start",
+        )
+        first = self.services.payments.process_mock_success_webhook_for_payment_id(
+            payment_id=payment["id"]
+        )
+        second = self.services.payments.process_mock_success_webhook_for_payment_id(
+            payment_id=payment["id"]
+        )
+
+        self.assertTrue(first.processed)
+        self.assertEqual(first.referral_reward_kopecks, 8970)
+        self.assertFalse(second.processed)
+        self.assertTrue(second.duplicate)
+
+        stats = self.services.referrals.stats(self.user["id"])
+        self.assertEqual(stats.invited_count, 1)
+        self.assertEqual(stats.balance_kopecks, 8970)
+
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count, COALESCE(SUM(amount_kopecks), 0) AS amount
+                FROM referral_transactions
+                WHERE payment_id = ? AND type = 'credit'
+                """,
+                (payment["id"],),
+            ).fetchone()
+
+        self.assertEqual(row["count"], 1)
+        self.assertEqual(row["amount"], 8970)
+
     def test_generation_charges_coins_after_success(self) -> None:
         self._buy_plan("start")
         model = self._model("deepseek-v4-flash")
@@ -262,6 +356,18 @@ class BusinessLogicTest(unittest.TestCase):
             referral,
         )
         self.assertNotIn("USDT", referral.upper())
+
+        referral_with_stats = _format_referral_screen(
+            self.user,
+            invited_users_count=2,
+            balance_kopecks=44370,
+            withdrawal_method="карта",
+            requisites="**** 1234",
+        )
+        self.assertIn("— Приглашено: 2", referral_with_stats)
+        self.assertIn("— Баланс: 443.70 ₽", referral_with_stats)
+        self.assertIn("— Способ вывода: карта", referral_with_stats)
+        self.assertIn("— Реквизиты: **** 1234", referral_with_stats)
 
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
@@ -470,7 +576,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('callback_data="menu:main"', keyboard_source)
         self.assertIn("reply_markup=profile_keyboard()", send_profile_source)
         self.assertIn("services.users.get_by_id", send_profile_source)
-        self.assertIn("services.users.count_invited_users", send_profile_source)
+        self.assertIn("services.referrals.stats", send_profile_source)
         self.assertIn('parse_mode="HTML"', send_profile_source)
         self.assertIn('href="tg://user?id={telegram_id}"', handlers_source)
         self.assertIn("👤 Профиль:", profile_format_source)
@@ -890,7 +996,7 @@ class MigrationAndUITest(unittest.TestCase):
                 row = conn.execute(
                     "SELECT COUNT(*) AS count FROM schema_migrations"
                 ).fetchone()
-            self.assertEqual(row["count"], 5)
+            self.assertEqual(row["count"], 6)
         finally:
             db.close()
 

@@ -11,6 +11,7 @@ from ceai.repositories.subscriptions import SubscriptionRepository
 from ceai.repositories.webhooks import WebhookLogRepository
 from ceai.services.coins import CoinService
 from ceai.services.exceptions import NotFoundError
+from ceai.services.referrals import ReferralService
 
 
 @dataclass(frozen=True)
@@ -21,10 +22,17 @@ class PaymentWebhookResult:
     subscription: Dict[str, Any] | None
     credited_coins: int
     message: str
+    referral_reward_kopecks: int = 0
 
 
 class PaymentService:
-    def __init__(self, db: Database, *, mock_payment_base_url: str) -> None:
+    def __init__(
+        self,
+        db: Database,
+        *,
+        mock_payment_base_url: str,
+        referrals: ReferralService | None = None,
+    ) -> None:
         self.db = db
         self.mock_payment_base_url = mock_payment_base_url.rstrip("/")
         self.plans = PlanRepository()
@@ -32,6 +40,7 @@ class PaymentService:
         self.subscriptions = SubscriptionRepository()
         self.webhooks = WebhookLogRepository()
         self.coins = CoinService()
+        self.referrals = referrals or ReferralService(db)
 
     def create_mock_payment(self, *, user_id: int, plan_code: str) -> Dict[str, Any]:
         with self.db.transaction() as conn:
@@ -136,6 +145,10 @@ class PaymentService:
                 amount=plan["coins_amount"],
                 external_id=external_id,
             )
+            referral_credit = self.referrals.credit_for_payment_in_transaction(
+                conn,
+                payment=payment,
+            )
             balance = self.coins.sync_subscription_cache(conn, subscription["id"])
             subscription = self.subscriptions.get_by_id(conn, subscription["id"])
             if subscription is not None:
@@ -149,6 +162,7 @@ class PaymentService:
                 subscription=subscription,
                 credited_coins=plan["coins_amount"],
                 message="Payment processed",
+                referral_reward_kopecks=referral_credit.amount_kopecks,
             )
 
     def process_mock_success_webhook_for_payment_id(

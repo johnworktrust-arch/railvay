@@ -19,27 +19,28 @@ class WebhookLogRepository:
         payload: Dict[str, Any],
     ) -> Tuple[Dict[str, Any], bool]:
         now = iso_now()
-        try:
-            cursor = conn.execute(
-                """
-                INSERT INTO webhook_logs (
-                    provider, external_id, event_type, payload, status, created_at
-                )
-                VALUES (?, ?, ?, ?::jsonb, 'received', ?)
-                RETURNING id
-                """,
-                (provider, external_id, event_type, dumps(payload), now),
+        cursor = conn.execute(
+            """
+            INSERT INTO webhook_logs (
+                provider, external_id, event_type, payload, status, created_at
             )
-            id_row = cursor.fetchone()
+            VALUES (?, ?, ?, ?::jsonb, 'received', ?)
+            ON CONFLICT(provider, external_id, event_type) DO NOTHING
+            RETURNING id
+            """,
+            (provider, external_id, event_type, dumps(payload), now),
+        )
+        id_row = cursor.fetchone()
+        if id_row is not None:
             row = self.get_by_id(conn, int(id_row["id"]))
             if row is None:
                 raise RuntimeError("Could not create webhook log")
             return row, True
-        except sqlite3.IntegrityError:
-            existing = self.get_by_key(conn, provider, external_id, event_type)
-            if existing is None:
-                raise
-            return existing, False
+
+        existing = self.get_by_key(conn, provider, external_id, event_type)
+        if existing is None:
+            raise RuntimeError("Could not load existing webhook log")
+        return existing, False
 
     def get_by_id(
         self, conn: sqlite3.Connection, webhook_id: int
