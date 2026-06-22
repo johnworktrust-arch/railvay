@@ -39,7 +39,7 @@ from ceai.bot.keyboards import (
     payment_keyboard,
     plans_keyboard,
     profile_keyboard,
-    text_chat_inline_keyboard,
+    text_chat_keyboard,
     text_chat_label,
     text_chat_prompt_keyboard,
 )
@@ -838,7 +838,7 @@ async def _send_text_chat_screen(
         services,
         user_id,
         _format_text_chat_list_screen(model, notice=notice),
-        reply_markup=text_chat_inline_keyboard(
+        reply_markup=text_chat_keyboard(
             chats,
             current_chat_id=int(current_chat["id"]) if current_chat else None,
         ),
@@ -1877,7 +1877,7 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 model=model,
                 current_chat_id=current_chat_id,
-                notice="Выберите чат кнопкой под сообщением.",
+                notice="Выберите чат на нижней клавиатуре.",
                 delete_current=True,
             )
             return
@@ -2009,7 +2009,7 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Выберите модель кнопкой под сообщением.",
+                "Выберите модель на нижней клавиатуре.",
                 reply_markup=models_keyboard(models) if models else main_menu_keyboard(),
                 delete_current=True,
             )

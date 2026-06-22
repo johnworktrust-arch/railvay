@@ -238,14 +238,23 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("DeepSeq", keyboard_source)
         self.assertNotIn("DeepSeak", keyboard_source)
 
-    def test_ai_inner_keyboards_have_back_button_only(self) -> None:
+    def test_ai_reply_keyboards_have_back_button_only(self) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         seed_source = Path("ceai/seed.py").read_text(encoding="utf-8")
+        model_keyboard_source = keyboard_source.split(
+            "def models_keyboard(", 1
+        )[1].split("def model_choice_label", 1)[0]
 
         self.assertIn('BACK_TO_MENU_BUTTON = "⬅️ Назад"', keyboard_source)
-        self.assertIn("def models_keyboard(", keyboard_source)
-        self.assertIn('callback_data=f"model:{model[\'id\']}"', keyboard_source)
+        self.assertIn(
+            "def models_keyboard(models: Iterable[Dict[str, Any]]) -> ReplyKeyboardMarkup",
+            keyboard_source,
+        )
+        self.assertIn("KeyboardButton(text=model_choice_label(model))", model_keyboard_source)
+        self.assertIn('input_field_placeholder="Выберите модель"', model_keyboard_source)
+        self.assertNotIn("InlineKeyboardButton", model_keyboard_source)
+        self.assertNotIn("callback_data", model_keyboard_source)
         self.assertIn("state=\"waiting_model_choice\"", handlers_source)
         self.assertIn("reply_markup=models_keyboard(models)", handlers_source)
         self.assertIn("ui_description", handlers_source)
@@ -253,8 +262,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Стоимость: {model['coins_cost']} coins за запрос.", handlers_source)
         self.assertNotIn('lines = ["Выберите AI-инструмент:"]', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
-        self.assertIn("def back_to_menu_keyboard() -> InlineKeyboardMarkup", keyboard_source)
-        self.assertIn('callback_data="menu:home"', keyboard_source)
+        self.assertIn("def back_to_menu_keyboard() -> ReplyKeyboardMarkup", keyboard_source)
+        self.assertIn("KeyboardButton(text=BACK_TO_MENU_BUTTON)", keyboard_source)
+        self.assertIn("Выберите модель на нижней клавиатуре.", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
         self.assertIn("_format_generation_result(generation.result)", handlers_source)
         self.assertNotIn("Баланс после генерации", handlers_source)
@@ -266,33 +276,40 @@ class MigrationAndUITest(unittest.TestCase):
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         chat_keyboard_source = keyboard_source.split(
-            "def text_chat_inline_keyboard(", 1
+            "def text_chat_keyboard(", 1
         )[1].split("def text_chat_prompt_keyboard", 1)[0]
+        prompt_keyboard_source = keyboard_source.split(
+            "def text_chat_prompt_keyboard(", 1
+        )[1].split("def admin_menu_keyboard", 1)[0]
 
         self.assertIn("Основной", chat_keyboard_source)
         self.assertIn("ADD_TEXT_CHAT_BUTTON", chat_keyboard_source)
         self.assertNotIn("DELETE_CURRENT_TEXT_CHAT_BUTTON", chat_keyboard_source)
         self.assertIn("BACK_TO_MENU_BUTTON", chat_keyboard_source)
-        self.assertIn('callback_data=f"text_chat:select:{chat[\'id\']}"', chat_keyboard_source)
-        self.assertIn('callback_data="text_chat:add"', chat_keyboard_source)
-        self.assertNotIn('callback_data="text_chat:delete"', chat_keyboard_source)
+        self.assertIn("KeyboardButton(text=text_chat_label", chat_keyboard_source)
+        self.assertIn("KeyboardButton(text=ADD_TEXT_CHAT_BUTTON)", chat_keyboard_source)
+        self.assertIn("KeyboardButton(text=BACK_TO_MENU_BUTTON)", chat_keyboard_source)
+        self.assertIn('input_field_placeholder="Выберите чат"', chat_keyboard_source)
+        self.assertNotIn("InlineKeyboardButton", chat_keyboard_source)
+        self.assertNotIn("callback_data", chat_keyboard_source)
         self.assertNotIn('TEXT_CHAT_LIST_BUTTON = "К чатам"', keyboard_source)
         self.assertNotIn('"К чатам"', keyboard_source)
         self.assertNotIn('"Текущий чат:', handlers_source)
         self.assertNotIn("Введите текст, что хотите спросить у нейросетки.", handlers_source)
         self.assertNotIn('prefix = "✓ "', keyboard_source)
-        self.assertIn("def text_chat_inline_keyboard(", keyboard_source)
+        self.assertIn("def text_chat_keyboard(", keyboard_source)
         self.assertIn("def text_chat_prompt_keyboard(", keyboard_source)
-        self.assertIn("def text_chat_prompt_keyboard() -> InlineKeyboardMarkup", keyboard_source)
-        self.assertIn("text=DELETE_CURRENT_TEXT_CHAT_BUTTON", keyboard_source)
-        self.assertIn('callback_data="text_chat:delete"', keyboard_source)
-        self.assertIn('callback_data="text_chat:back"', keyboard_source)
-        self.assertNotIn("KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)", keyboard_source)
-        self.assertNotIn("KeyboardButton(text=BACK_TO_MENU_BUTTON)", keyboard_source)
+        self.assertIn("def text_chat_prompt_keyboard() -> ReplyKeyboardMarkup", keyboard_source)
+        self.assertIn("KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)", prompt_keyboard_source)
+        self.assertIn("KeyboardButton(text=BACK_TO_MENU_BUTTON)", prompt_keyboard_source)
+        self.assertIn('input_field_placeholder="Введите вопрос"', prompt_keyboard_source)
+        self.assertNotIn("InlineKeyboardButton", prompt_keyboard_source)
+        self.assertNotIn("callback_data", prompt_keyboard_source)
         self.assertIn("state=\"waiting_text_chat_choice\"", handlers_source)
         self.assertIn('if action == "back":', handlers_source)
         self.assertIn("current_text_chat_id\": int(current_chat[\"id\"]) if current_chat else 0", handlers_source)
         self.assertIn('F.data.startswith("text_chat:")', handlers_source)
+        self.assertIn("Выберите чат на нижней клавиатуре.", handlers_source)
         self.assertIn("waiting_text_chat_prompt", handlers_source)
         self.assertIn("waiting_text_chat_name", handlers_source)
         self.assertIn("text_chat_id", handlers_source)

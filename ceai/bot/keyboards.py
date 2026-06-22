@@ -75,11 +75,11 @@ def profile_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def back_to_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
-        ]
+def back_to_menu_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],
+        resize_keyboard=True,
+        is_persistent=True,
     )
 
 
@@ -156,23 +156,20 @@ def _model_emoji(generation_type: str) -> str:
     }.get(generation_type, "✨")
 
 
-def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
+def models_keyboard(models: Iterable[Dict[str, Any]]) -> ReplyKeyboardMarkup:
     rows = [
         [
-            InlineKeyboardButton(
-                text=(
-                    f"{_model_emoji(model['generation_type'])} {model['display_name']} "
-                    f"({model['generation_type']}, {model['coins_cost']} coins)"
-                ),
-                callback_data=f"model:{model['id']}",
-            )
+            KeyboardButton(text=model_choice_label(model))
         ]
         for model in models
     ]
-    rows.append(
-        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
+    rows.append([KeyboardButton(text=BACK_TO_MENU_BUTTON)])
+    return ReplyKeyboardMarkup(
+        keyboard=rows,
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Выберите модель",
     )
-    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def model_choice_label(model: Dict[str, Any]) -> str:
@@ -186,17 +183,14 @@ def text_chat_label(chat: Dict[str, Any], *, current_chat_id: int | None) -> str
     return str(chat["title"])
 
 
-def text_chat_inline_keyboard(
+def text_chat_keyboard(
     chats: Iterable[Dict[str, Any]], *, current_chat_id: int | None
-) -> InlineKeyboardMarkup:
-    default_rows: list[list[InlineKeyboardButton]] = []
-    custom_rows: list[list[InlineKeyboardButton]] = []
-    default_buffer: list[InlineKeyboardButton] = []
+) -> ReplyKeyboardMarkup:
+    default_rows: list[list[KeyboardButton]] = []
+    custom_rows: list[list[KeyboardButton]] = []
+    default_buffer: list[KeyboardButton] = []
     for chat in chats:
-        button = InlineKeyboardButton(
-            text=text_chat_label(chat, current_chat_id=current_chat_id),
-            callback_data=f"text_chat:select:{chat['id']}",
-        )
+        button = KeyboardButton(text=text_chat_label(chat, current_chat_id=current_chat_id))
         if chat["is_default"]:
             if chat["title"] == "Основной":
                 default_rows.append([button])
@@ -210,31 +204,28 @@ def text_chat_inline_keyboard(
     if default_buffer:
         default_rows.append(default_buffer)
 
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+    return ReplyKeyboardMarkup(
+        keyboard=[
             *default_rows,
             *custom_rows,
-            [
-                InlineKeyboardButton(
-                    text=ADD_TEXT_CHAT_BUTTON, callback_data="text_chat:add"
-                )
-            ],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")],
-        ]
+            [KeyboardButton(text=ADD_TEXT_CHAT_BUTTON)],
+            [KeyboardButton(text=BACK_TO_MENU_BUTTON)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Выберите чат",
     )
 
 
-def text_chat_prompt_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=DELETE_CURRENT_TEXT_CHAT_BUTTON,
-                    callback_data="text_chat:delete",
-                )
-            ],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="text_chat:back")],
-        ]
+def text_chat_prompt_keyboard() -> ReplyKeyboardMarkup:
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)],
+            [KeyboardButton(text=BACK_TO_MENU_BUTTON)],
+        ],
+        resize_keyboard=True,
+        is_persistent=True,
+        input_field_placeholder="Введите вопрос",
     )
 
 
