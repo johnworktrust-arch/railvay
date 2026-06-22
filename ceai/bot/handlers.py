@@ -60,6 +60,7 @@ from ceai.services.exceptions import (
 from ceai.services.referrals import (
     REFERRAL_RATE_PERCENT,
     REFERRAL_WITHDRAWAL_MIN_KOPECKS,
+    ReferralApplyResult,
     format_rubles_from_kopecks,
 )
 
@@ -774,6 +775,32 @@ def _record_message(handler: str, message: Message) -> None:
     record_message(handler=handler, message=message)
 
 
+def _format_referral_join_notice(referred_telegram_id: int) -> str:
+    return (
+        "По вашей партнёрской ссылке пришел новый пользователь 🔥\n\n"
+        f"ℹ️ ID: {referred_telegram_id}"
+    )
+
+
+async def _send_referral_join_notice(
+    message: Message,
+    referral_result: ReferralApplyResult,
+) -> None:
+    if (
+        not referral_result.assigned
+        or not referral_result.referrer_telegram_id
+        or not referral_result.referred_telegram_id
+    ):
+        return
+    try:
+        await message.bot.send_message(
+            chat_id=referral_result.referrer_telegram_id,
+            text=_format_referral_join_notice(referral_result.referred_telegram_id),
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+
+
 async def _send_balance(
     message: Message,
     services: AppServices,
@@ -1291,10 +1318,11 @@ def create_router(services: AppServices) -> Router:
         _record_message("start", message)
         await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
-        services.referrals.apply_start_referral(
+        referral_result = services.referrals.apply_start_referral(
             user_id=user["id"],
             start_text=message.text,
         )
+        await _send_referral_join_notice(message, referral_result)
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
             return

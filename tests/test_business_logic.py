@@ -103,12 +103,15 @@ class BusinessLogicTest(unittest.TestCase):
             language_code="ru",
         )
 
-        self.assertTrue(
-            self.services.referrals.apply_start_referral(
-                user_id=friend["id"],
-                start_text="/start ref_tg1001",
-            )
+        assigned = self.services.referrals.apply_start_referral(
+            user_id=friend["id"],
+            start_text="/start ref_tg1001",
         )
+        self.assertTrue(assigned)
+        self.assertEqual(assigned.referrer_user_id, self.user["id"])
+        self.assertEqual(assigned.referrer_telegram_id, 1001)
+        self.assertEqual(assigned.referred_user_id, friend["id"])
+        self.assertEqual(assigned.referred_telegram_id, 2002)
         self.assertFalse(
             self.services.referrals.apply_start_referral(
                 user_id=friend["id"],
@@ -694,6 +697,12 @@ class MigrationAndUITest(unittest.TestCase):
         )[1]
 
         self.assertIn('START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}', handlers_source)
+        self.assertIn("_send_referral_join_notice", handlers_source)
+        self.assertIn(
+            "По вашей партнёрской ссылке пришел новый пользователь 🔥",
+            handlers_source,
+        )
+        self.assertIn("ℹ️ ID:", handlers_source)
         self.assertIn("if _is_start_text(message.text):", fallback_source)
         self.assertLess(
             fallback_source.index("if _is_start_text(message.text):"),

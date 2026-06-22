@@ -30,6 +30,18 @@ class ReferralCreditResult:
     amount_kopecks: int
 
 
+@dataclass(frozen=True)
+class ReferralApplyResult:
+    assigned: bool
+    referrer_user_id: int | None = None
+    referrer_telegram_id: int | None = None
+    referred_user_id: int | None = None
+    referred_telegram_id: int | None = None
+
+    def __bool__(self) -> bool:
+        return self.assigned
+
+
 class ReferralService:
     def __init__(self, db: Database) -> None:
         self.db = db
@@ -58,10 +70,10 @@ class ReferralService:
         *,
         user_id: int,
         start_text: str | None,
-    ) -> bool:
+    ) -> ReferralApplyResult:
         referral_code = self.referral_code_from_start_text(start_text)
         if not referral_code:
-            return False
+            return ReferralApplyResult(assigned=False)
         with self.db.transaction() as conn:
             return self.apply_referral_code(conn, user_id=user_id, referral_code=referral_code)
 
@@ -71,19 +83,28 @@ class ReferralService:
         *,
         user_id: int,
         referral_code: str,
-    ) -> bool:
+    ) -> ReferralApplyResult:
         user = self.users.get_by_id(conn, user_id)
         if user is None or user.get("referred_by_user_id"):
-            return False
+            return ReferralApplyResult(assigned=False)
 
         referrer = self.referrals.get_user_by_code(conn, referral_code)
         if referrer is None or int(referrer["id"]) == int(user_id):
-            return False
+            return ReferralApplyResult(assigned=False)
 
-        return self.referrals.assign_referrer(
+        assigned = self.referrals.assign_referrer(
             conn,
             user_id=user_id,
             referrer_user_id=int(referrer["id"]),
+        )
+        if not assigned:
+            return ReferralApplyResult(assigned=False)
+        return ReferralApplyResult(
+            assigned=True,
+            referrer_user_id=int(referrer["id"]),
+            referrer_telegram_id=int(referrer["telegram_id"]),
+            referred_user_id=int(user["id"]),
+            referred_telegram_id=int(user["telegram_id"]),
         )
 
     def credit_for_payment_in_transaction(
