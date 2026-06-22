@@ -8,7 +8,7 @@ from typing import Dict, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_PUBLIC_OFFER_URL = "https://ceaai-bot.onrender.com/public-offer"
-DEFAULT_INFO_CHANNEL_URL = "https://t.me/cea_family"
+DEFAULT_INFO_CHANNEL_URL = "https://t.me/ceafamily"
 
 
 def _load_dotenv(path: Path) -> Dict[str, str]:
@@ -23,6 +23,15 @@ def _load_dotenv(path: Path) -> Dict[str, str]:
         key, value = line.split("=", 1)
         values[key.strip()] = value.strip().strip('"').strip("'")
     return values
+
+
+def _normalize_telegram_url(value: str) -> str:
+    cleaned = value.strip()
+    if cleaned in {"https://t.me/cea_family", "http://t.me/cea_family", "@cea_family"}:
+        return DEFAULT_INFO_CHANNEL_URL
+    if cleaned.startswith("@"):
+        return f"https://t.me/{cleaned[1:]}"
+    return cleaned
 
 
 @dataclass(frozen=True)
@@ -86,7 +95,9 @@ def load_settings() -> Settings:
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
         public_offer_url=read("PUBLIC_OFFER_URL", DEFAULT_PUBLIC_OFFER_URL),
-        info_channel_url=read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL),
+        info_channel_url=_normalize_telegram_url(
+            read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL)
+        ),
         support_username=read("SUPPORT_USERNAME", "cea_help").strip().lstrip("@"),
         ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),
         ai_request_timeout_seconds=read_int("AI_REQUEST_TIMEOUT_SECONDS", 60),
