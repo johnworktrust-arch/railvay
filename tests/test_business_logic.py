@@ -482,6 +482,12 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("В двух словах об основных инструментах", handlers_source)
         self.assertIn("_format_main_menu()", handlers_source)
         self.assertIn("menu.message_id", handlers_source)
+        onboarding_followup_source = handlers_source.split(
+            "async def _show_onboarding_followup", 1
+        )[1].split("def _profile_link", 1)[0]
+        self.assertIn("LAST_BOT_MESSAGE_IDS: [menu.message_id]", onboarding_followup_source)
+        self.assertNotIn("hint.message_id", onboarding_followup_source)
+        self.assertNotIn("promo.message_id", onboarding_followup_source)
         self.assertIn('F.data == "onboarding:continue"', handlers_source)
         self.assertIn("last_bot_message_ids", handlers_source)
         self.assertNotIn(

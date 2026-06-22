@@ -380,11 +380,7 @@ async def _show_onboarding_followup(
         user_id,
         state="idle",
         payload={
-            LAST_BOT_MESSAGE_IDS: [
-                hint.message_id,
-                promo.message_id,
-                menu.message_id,
-            ],
+            LAST_BOT_MESSAGE_IDS: [menu.message_id],
             LAST_REPLY_KEYBOARD_SIGNATURE: _reply_keyboard_signature(
                 main_menu_keyboard()
             ),
