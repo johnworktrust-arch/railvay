@@ -32,6 +32,7 @@ from ceai.bot.keyboards import (
     admin_user_card_keyboard,
     admin_users_keyboard,
     back_to_menu_keyboard,
+    inline_back_to_menu_keyboard,
     main_menu_keyboard,
     model_choice_label,
     models_keyboard,
@@ -407,6 +408,38 @@ def _format_menu(
         f"{sub_line}\n"
         f"{expires_line}\n\n"
         f"{invited_line}"
+    )
+
+
+def _referral_link(user: Dict[str, Any]) -> str:
+    referral_code = str(
+        user.get("referral_code")
+        or f"tg{user.get('telegram_id') or user.get('id')}"
+    ).strip()
+    return f"https://t.me/aiceabot?start=ref_{referral_code}"
+
+
+def _format_referral_screen(user: Dict[str, Any], *, invited_users_count: int) -> str:
+    referral_link = _referral_link(user)
+    return (
+        "🧭 <b>Приглашайте друзей и зарабатывайте 30% с каждого пополнения!</b>\n\n"
+        "Например:\n"
+        "<blockquote>"
+        "— Друзья перешли по вашей ссылке и пополнили баланс на 1000₽\n"
+        "— Вы получаете 300₽."
+        "</blockquote>\n\n"
+        "🧭 <b>Ваша статистика:</b>\n"
+        "<blockquote>"
+        f"— Приглашено: {invited_users_count}\n"
+        "— Баланс: 0 ₽\n"
+        "— Способ вывода: не задан\n"
+        "— Реквизиты: не указаны"
+        "</blockquote>\n\n"
+        "🎯 <b>Текущая ставка: 30%</b>\n"
+        "Вывод доступен от 1000₽\n\n"
+        "🔗 <b>Пригласительная ссылка:</b>\n"
+        f"<code>{escape(referral_link)}</code>\n\n"
+        "🪁 Нажмите на ссылку, чтобы скопировать и поделиться с друзьями!"
     )
 
 
@@ -1790,13 +1823,18 @@ def create_router(services: AppServices) -> Router:
             await callback.answer()
             return
         if callback.message:
+            invited_users_count = services.users.count_invited_users(user["id"])
             await _show_screen(
                 callback.message,
                 services,
                 user["id"],
-                "🤝 Реферальная программа пока ещё не готова.",
-                reply_markup=profile_keyboard(),
+                _format_referral_screen(
+                    user,
+                    invited_users_count=invited_users_count,
+                ),
+                reply_markup=inline_back_to_menu_keyboard(),
                 delete_current=True,
+                parse_mode="HTML",
             )
         await callback.answer()
 

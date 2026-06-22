@@ -162,7 +162,7 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
     def test_profile_counts_invited_users_and_links_account_name(self) -> None:
-        from ceai.bot.handlers import _format_menu
+        from ceai.bot.handlers import _format_menu, _format_referral_screen
 
         with self.db.transaction() as conn:
             conn.execute(
@@ -239,6 +239,28 @@ class BusinessLogicTest(unittest.TestCase):
             zero_invites_profile,
         )
         self.assertNotIn("Получайте 2", zero_invites_profile)
+
+        referral = _format_referral_screen(self.user, invited_users_count=1)
+        self.assertIn("<blockquote>", referral)
+        self.assertIn("</blockquote>", referral)
+        self.assertIn(
+            "Приглашайте друзей и зарабатывайте 30% с каждого пополнения!",
+            referral,
+        )
+        self.assertIn("— Друзья перешли по вашей ссылке", referral)
+        self.assertIn("— Вы получаете 300₽.", referral)
+        self.assertIn("— Приглашено: 1", referral)
+        self.assertIn("— Баланс: 0 ₽", referral)
+        self.assertIn("— Способ вывода: не задан", referral)
+        self.assertIn("— Реквизиты: не указаны", referral)
+        self.assertIn("🎯 <b>Текущая ставка: 30%</b>", referral)
+        self.assertIn("Вывод доступен от 1000₽", referral)
+        self.assertIn(
+            "<code>https://t.me/aiceabot?start=ref_tg1001</code>",
+            referral,
+        )
+        self.assertNotIn("USDT", referral.upper())
+        self.assertNotIn("КАРТУ", referral.upper())
 
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
@@ -462,7 +484,12 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("async def _send_screen_message", handlers_source)
         self.assertNotIn("await _remove_reply_keyboard", send_profile_source)
         self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)
-        self.assertIn("Реферальная программа пока ещё не готова", handlers_source)
+        self.assertIn("def _format_referral_screen", handlers_source)
+        self.assertIn("<blockquote>", handlers_source)
+        self.assertIn("reply_markup=inline_back_to_menu_keyboard()", handlers_source)
+        self.assertIn('parse_mode="HTML"', handlers_source)
+        self.assertNotIn("Реферальная программа пока ещё не готова", handlers_source)
+        self.assertNotIn("USDT", handlers_source.upper())
 
     def test_bot_screens_edit_inline_messages_and_replace_bottom_keyboard(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
