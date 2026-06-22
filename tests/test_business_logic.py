@@ -194,10 +194,11 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(invited_count, 1)
         self.assertIn('👤 Профиль: <a href="tg://user?id=1001">@tester</a>', profile)
         self.assertIn("ℹ️ ID: 1001", profile)
-        self.assertIn("💎 Баланс: 0 coins", profile)
+        self.assertIn("💰 Баланс: 0 coins", profile)
         self.assertIn("⭐ Подписка: нет активной", profile)
+        self.assertIn("⭐ Подписка: нет активной\n\n👥 Приглашено: 1", profile)
         self.assertIn("👥 Приглашено: 1", profile)
-        self.assertNotIn("зарабатывайте 30%", profile)
+        self.assertNotIn("зарабатывайте 30%", profile.casefold())
 
         zero_invites_profile = _format_menu(
             {
@@ -215,7 +216,7 @@ class BusinessLogicTest(unittest.TestCase):
             zero_invites_profile,
         )
         self.assertIn(
-            "👥 Приглашено: 0 (приглашайте друзей, зарабатывайте 30% с каждого пополнения)",
+            "👥 Приглашено: 0 (Приглашайте друзей и зарабатывайте 30% с каждого пополнения!)",
             zero_invites_profile,
         )
         self.assertNotIn("Получайте 2", zero_invites_profile)
@@ -432,9 +433,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('href="tg://user?id={telegram_id}"', handlers_source)
         self.assertIn("👤 Профиль:", profile_format_source)
         self.assertIn("ℹ️ ID:", profile_format_source)
-        self.assertIn("💎 Баланс:", profile_format_source)
+        self.assertIn("💰 Баланс:", profile_format_source)
         self.assertIn("👥 Приглашено:", profile_format_source)
-        self.assertIn("приглашайте друзей, зарабатывайте 30% с каждого пополнения", profile_format_source)
+        self.assertIn("Приглашайте друзей и зарабатывайте 30% с каждого пополнения!", profile_format_source)
         self.assertNotIn("Приглашенные пользователи", profile_format_source)
         self.assertNotIn("Получайте 2", profile_format_source)
         self.assertIn("async def _send_screen_message", handlers_source)

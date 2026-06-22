@@ -423,13 +423,13 @@ def _format_menu(
     invited_line = f"👥 Приглашено: {invited_users_count}"
     if invited_users_count <= 0:
         invited_line += (
-            " (приглашайте друзей, зарабатывайте 30% с каждого пополнения)"
+            " (Приглашайте друзей и зарабатывайте 30% с каждого пополнения!)"
         )
     return (
         f"👤 Профиль: {_profile_link(user)}\n\n"
         f"ℹ️ ID: {user.get('telegram_id') or user.get('id')}\n"
-        f"💎 Баланс: {balance} coins\n"
-        f"{sub_line}\n"
+        f"💰 Баланс: {balance} coins\n"
+        f"{sub_line}\n\n"
         f"{invited_line}"
     )
 
