@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from html import escape
 from typing import Any, Dict
 
 from aiogram import F, Router
@@ -171,12 +172,14 @@ async def _edit_screen_message(
     message_id: int,
     text: str,
     reply_markup: Any | None,
+    parse_mode: str | None = None,
 ) -> Message | None:
     try:
         edited = await message.bot.edit_message_text(
             chat_id=message.chat.id,
             message_id=message_id,
             text=text,
+            parse_mode=parse_mode,
             reply_markup=(
                 reply_markup if isinstance(reply_markup, InlineKeyboardMarkup) else None
             ),
@@ -218,11 +221,13 @@ async def _send_screen_message(
     *,
     text: str,
     reply_markup: Any | None,
+    parse_mode: str | None = None,
 ) -> Message:
     if isinstance(reply_markup, InlineKeyboardMarkup) and _is_user_message(message):
         sent = await message.bot.send_message(
             chat_id=message.chat.id,
             text=text,
+            parse_mode=parse_mode,
             reply_markup=ReplyKeyboardRemove(),
         )
         try:
@@ -243,12 +248,14 @@ async def _send_screen_message(
             return await message.bot.send_message(
                 chat_id=message.chat.id,
                 text=text,
+                parse_mode=parse_mode,
                 reply_markup=reply_markup,
             )
 
     return await message.bot.send_message(
         chat_id=message.chat.id,
         text=text,
+        parse_mode=parse_mode,
         reply_markup=reply_markup,
     )
 
@@ -261,6 +268,7 @@ async def _show_screen(
     *,
     reply_markup: Any | None = None,
     delete_current: bool = False,
+    parse_mode: str | None = None,
 ) -> Message:
     state, payload = _session_state_payload(services, user_id)
     tracked_ids = _tracked_message_ids(payload)
@@ -278,6 +286,7 @@ async def _show_screen(
             message,
             text=text,
             reply_markup=reply_markup,
+            parse_mode=parse_mode,
         )
         _remember_screen_message(
             services,
@@ -295,6 +304,7 @@ async def _show_screen(
             message_id=last_message_id,
             text=text,
             reply_markup=reply_markup,
+            parse_mode=parse_mode,
         )
         if edited is not None:
             _remember_screen_message(
@@ -313,6 +323,7 @@ async def _show_screen(
         message,
         text=text,
         reply_markup=reply_markup,
+        parse_mode=parse_mode,
     )
     _remember_screen_message(
         services,
@@ -381,7 +392,30 @@ async def _show_onboarding_followup(
     )
 
 
-def _format_menu(subscription: Dict[str, Any] | None) -> str:
+def _profile_link(user: Dict[str, Any]) -> str:
+    username = str(user.get("username") or "").strip()
+    if username:
+        label = f"@{username}"
+    else:
+        label = " ".join(
+            part
+            for part in [user.get("first_name"), user.get("last_name")]
+            if part
+        ).strip()
+    if not label:
+        label = f"ID {user.get('telegram_id') or user.get('id')}"
+    telegram_id = int(user.get("telegram_id") or 0)
+    if telegram_id <= 0:
+        return escape(label)
+    return f'<a href="tg://user?id={telegram_id}">{escape(label)}</a>'
+
+
+def _format_menu(
+    user: Dict[str, Any],
+    subscription: Dict[str, Any] | None,
+    *,
+    invited_users_count: int = 0,
+) -> str:
     if subscription:
         balance = subscription["coins_balance_cache"]
         plan = subscription["plan_name"]
@@ -391,9 +425,10 @@ def _format_menu(subscription: Dict[str, Any] | None) -> str:
         balance = 0
         sub_line = "Подписка: нет активной"
     return (
-        "Профиль CeaAI\n\n"
+        f"👤 {_profile_link(user)}\n\n"
         f"Баланс: {balance} coins\n"
-        f"{sub_line}"
+        f"{sub_line}\n"
+        f"Приглашенные пользователи: {invited_users_count}"
     )
 
 
@@ -619,7 +654,13 @@ async def _send_main_menu(
     delete_current: bool = False,
 ) -> None:
     subscription = services.subscriptions.active_for_user(user_id)
-    text = _format_menu(subscription)
+    profile_user = services.users.get_by_id(user_id) or {"id": user_id}
+    invited_users_count = services.users.count_invited_users(user_id)
+    text = _format_menu(
+        profile_user,
+        subscription,
+        invited_users_count=invited_users_count,
+    )
     if intro:
         text = f"{intro}\n\n{text}"
     await _show_screen(
@@ -629,6 +670,7 @@ async def _send_main_menu(
         text,
         reply_markup=profile_keyboard(),
         delete_current=delete_current,
+        parse_mode="HTML",
     )
 
 

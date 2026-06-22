@@ -63,3 +63,10 @@ class UserRepository:
         return row_to_dict(
             conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
         )
+
+    def count_invited_users(self, conn: sqlite3.Connection, user_id: int) -> int:
+        row = conn.execute(
+            "SELECT COUNT(*) AS count FROM users WHERE referred_by_user_id = ?",
+            (user_id,),
+        ).fetchone()
+        return int(row["count"] if row else 0)

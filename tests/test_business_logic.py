@@ -161,6 +161,42 @@ class BusinessLogicTest(unittest.TestCase):
             history[0]["prompt_payload"]["text_chat_system_prompt"],
         )
 
+    def test_profile_counts_invited_users_and_links_account_name(self) -> None:
+        from ceai.bot.handlers import _format_menu
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                INSERT INTO users (
+                    telegram_id, username, first_name, referral_code,
+                    referred_by_user_id, created_at, last_seen_at
+                )
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    2002,
+                    "friend",
+                    "Friend",
+                    "tg2002",
+                    self.user["id"],
+                    iso_now(),
+                    iso_now(),
+                ),
+            )
+
+        invited_count = self.services.users.count_invited_users(self.user["id"])
+        profile = _format_menu(
+            self.user,
+            None,
+            invited_users_count=invited_count,
+        )
+
+        self.assertEqual(invited_count, 1)
+        self.assertIn('<a href="tg://user?id=1001">@tester</a>', profile)
+        self.assertIn("Баланс: 0 coins", profile)
+        self.assertIn("Подписка: нет активной", profile)
+        self.assertIn("Приглашенные пользователи: 1", profile)
+
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
         model = self._model("deepseek-v4-flash")
@@ -337,6 +373,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Command(\"menu\")", handlers_source)
 
     def test_profile_screen_has_inline_actions_and_no_bottom_prompt(self) -> None:
+        from ceai.bot.keyboards import profile_keyboard
+
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         profile_format_source = handlers_source.split(
@@ -347,6 +385,16 @@ class MigrationAndUITest(unittest.TestCase):
         )[1].split("async def _send_onboarding_greeting", 1)[0]
 
         self.assertIn("def profile_keyboard(", keyboard_source)
+        labels = [row[0].text for row in profile_keyboard().inline_keyboard]
+        self.assertEqual(
+            labels,
+            [
+                "🏠 Главное меню",
+                "💳 Подписка и тарифы",
+                "🤝 Реферальная программа",
+                "🆘 Поддержка",
+            ],
+        )
         self.assertIn("Подписка и тарифы", keyboard_source)
         self.assertIn("Главное меню", keyboard_source)
         self.assertIn("Поддержка", keyboard_source)
@@ -354,6 +402,11 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('callback_data="menu:referral"', keyboard_source)
         self.assertIn('callback_data="menu:main"', keyboard_source)
         self.assertIn("reply_markup=profile_keyboard()", send_profile_source)
+        self.assertIn("services.users.get_by_id", send_profile_source)
+        self.assertIn("services.users.count_invited_users", send_profile_source)
+        self.assertIn('parse_mode="HTML"', send_profile_source)
+        self.assertIn('href="tg://user?id={telegram_id}"', handlers_source)
+        self.assertIn("Приглашенные пользователи", profile_format_source)
         self.assertIn("async def _send_screen_message", handlers_source)
         self.assertNotIn("await _remove_reply_keyboard", send_profile_source)
         self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)

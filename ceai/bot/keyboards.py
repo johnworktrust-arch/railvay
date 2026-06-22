@@ -53,22 +53,22 @@ def profile_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💳 Подписка и тарифы", callback_data="menu:plans"
-                )
-            ],
-            [
-                InlineKeyboardButton(
                     text="🏠 Главное меню", callback_data="menu:main"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🆘 Поддержка", callback_data="menu:support"
+                    text="💳 Подписка и тарифы", callback_data="menu:plans"
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="🤝 Реферальная программа", callback_data="menu:referral"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🆘 Поддержка", callback_data="menu:support"
                 )
             ],
         ]
