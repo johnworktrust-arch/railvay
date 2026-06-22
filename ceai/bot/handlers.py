@@ -782,6 +782,13 @@ def _format_referral_join_notice(referred_telegram_id: int) -> str:
     )
 
 
+def _format_referral_already_registered_notice() -> str:
+    return (
+        "❌ Вы уже зарегистрированы в Cea AI.\n\n"
+        "Партнёрская ссылка действует только для новых пользователей."
+    )
+
+
 async def _send_referral_join_notice(
     message: Message,
     referral_result: ReferralApplyResult,
@@ -1317,15 +1324,28 @@ def create_router(services: AppServices) -> Router:
     async def start(message: Message) -> None:
         _record_message("start", message)
         await _delete_user_message(message)
+        existing_user = services.users.get_by_telegram_id(message.from_user.id)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
-        referral_result = services.referrals.apply_start_referral(
-            user_id=user["id"],
-            start_text=message.text,
-        )
-        await _send_referral_join_notice(message, referral_result)
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
             return
+        referral_result = services.referrals.apply_start_referral(
+            user_id=user["id"],
+            start_text=message.text,
+            user_was_registered=existing_user is not None,
+        )
+        if referral_result.already_registered:
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                _format_referral_already_registered_notice(),
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return
+        await _send_referral_join_notice(message, referral_result)
         _reset_dialog_state(services, user["id"])
         await _send_onboarding_greeting(
             message, services, user["id"], delete_current=True

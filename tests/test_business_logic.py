@@ -118,6 +118,13 @@ class BusinessLogicTest(unittest.TestCase):
                 start_text="/start ref_tg3003",
             )
         )
+        already_registered = self.services.referrals.apply_start_referral(
+            user_id=other["id"],
+            start_text="/start ref_tg1001",
+            user_was_registered=True,
+        )
+        self.assertFalse(already_registered)
+        self.assertTrue(already_registered.already_registered)
         self.assertFalse(
             self.services.referrals.apply_start_referral(
                 user_id=self.user["id"],
@@ -703,6 +710,12 @@ class MigrationAndUITest(unittest.TestCase):
             handlers_source,
         )
         self.assertIn("ℹ️ ID:", handlers_source)
+        self.assertIn("already_registered", handlers_source)
+        self.assertIn("❌ Вы уже зарегистрированы в Cea AI.", handlers_source)
+        self.assertIn(
+            "Партнёрская ссылка действует только для новых пользователей.",
+            handlers_source,
+        )
         self.assertIn("if _is_start_text(message.text):", fallback_source)
         self.assertLess(
             fallback_source.index("if _is_start_text(message.text):"),

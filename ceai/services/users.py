@@ -43,6 +43,10 @@ class UserService:
         with self.db.transaction() as conn:
             return self.users.get_by_id(conn, user_id)
 
+    def get_by_telegram_id(self, telegram_id: int) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            return self.users.get_by_telegram_id(conn, telegram_id)
+
     def count_invited_users(self, user_id: int) -> int:
         with self.db.transaction() as conn:
             return self.users.count_invited_users(conn, user_id)

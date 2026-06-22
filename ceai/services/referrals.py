@@ -33,6 +33,7 @@ class ReferralCreditResult:
 @dataclass(frozen=True)
 class ReferralApplyResult:
     assigned: bool
+    already_registered: bool = False
     referrer_user_id: int | None = None
     referrer_telegram_id: int | None = None
     referred_user_id: int | None = None
@@ -70,10 +71,13 @@ class ReferralService:
         *,
         user_id: int,
         start_text: str | None,
+        user_was_registered: bool = False,
     ) -> ReferralApplyResult:
         referral_code = self.referral_code_from_start_text(start_text)
         if not referral_code:
             return ReferralApplyResult(assigned=False)
+        if user_was_registered:
+            return ReferralApplyResult(assigned=False, already_registered=True)
         with self.db.transaction() as conn:
             return self.apply_referral_code(conn, user_id=user_id, referral_code=referral_code)
 
