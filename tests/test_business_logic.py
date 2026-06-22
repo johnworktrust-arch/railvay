@@ -682,7 +682,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("☝️ В двух словах об основных инструментах", handlers_source)
         self.assertIn("ONBOARDING_PROMO_IMAGE_PATH", handlers_source)
         self.assertIn("assets", handlers_source)
-        self.assertIn("onboarding_promo.png", handlers_source)
+        self.assertIn("onboarding_promo.jpeg", handlers_source)
         self.assertIn("FSInputFile(ONBOARDING_PROMO_IMAGE_PATH)", handlers_source)
         self.assertIn("send_photo", handlers_source)
         self.assertIn("caption=_format_onboarding_promo()", handlers_source)
@@ -690,7 +690,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("генерация фото, генерация видео", handlers_source)
         self.assertIn("Если возникнут вопросы", handlers_source)
         self.assertIn("обращайтесь в поддержку", handlers_source)
-        self.assertTrue(Path("ceai/assets/onboarding_promo.png").exists())
+        self.assertTrue(Path("ceai/assets/onboarding_promo.jpeg").exists())
         self.assertIn("_format_main_menu()", handlers_source)
         self.assertIn("menu.message_id", handlers_source)
         onboarding_followup_source = handlers_source.split(

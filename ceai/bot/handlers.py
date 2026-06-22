@@ -72,7 +72,7 @@ LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
 ONBOARDING_PROMO_IMAGE_PATH = (
-    Path(__file__).resolve().parents[1] / "assets" / "onboarding_promo.png"
+    Path(__file__).resolve().parents[1] / "assets" / "onboarding_promo.jpeg"
 )
 
 
