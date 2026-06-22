@@ -247,20 +247,21 @@ class BusinessLogicTest(unittest.TestCase):
             "Приглашайте друзей и зарабатывайте 30% с каждого пополнения!",
             referral,
         )
-        self.assertIn("— Друзья перешли по вашей ссылке", referral)
-        self.assertIn("— Вы получаете 300₽.", referral)
+        self.assertIn("— Друзья перешли по вашей ссылке и потратили 1000₽", referral)
+        self.assertIn("— Вы получаете 300.0₽ и выводите на КАРТУ!", referral)
         self.assertIn("— Приглашено: 1", referral)
         self.assertIn("— Баланс: 0 ₽", referral)
         self.assertIn("— Способ вывода: не задан", referral)
         self.assertIn("— Реквизиты: не указаны", referral)
-        self.assertIn("🎯 <b>Текущая ставка: 30%</b>", referral)
-        self.assertIn("Вывод доступен от 1000₽", referral)
+        self.assertIn("% <b>Текущая ставка: 30%</b>", referral)
+        self.assertIn("💼 Вывод доступен от 1000₽", referral)
+        self.assertIn("📨 Нажмите на ссылку", referral)
+        self.assertNotIn("🪁", referral)
         self.assertIn(
             "<code>https://t.me/aiceabot?start=ref_tg1001</code>",
             referral,
         )
         self.assertNotIn("USDT", referral.upper())
-        self.assertNotIn("КАРТУ", referral.upper())
 
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
@@ -490,6 +491,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('parse_mode="HTML"', handlers_source)
         self.assertNotIn("Реферальная программа пока ещё не готова", handlers_source)
         self.assertNotIn("USDT", handlers_source.upper())
+        self.assertNotIn("🪁", handlers_source)
 
     def test_bot_screens_edit_inline_messages_and_replace_bottom_keyboard(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
