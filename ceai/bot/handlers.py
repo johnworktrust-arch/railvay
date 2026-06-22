@@ -224,6 +224,18 @@ async def _delete_screen_messages(message: Message, message_ids: list[int]) -> N
             pass
 
 
+async def _delete_user_message(message: Message) -> None:
+    if not _is_user_message(message):
+        return
+    try:
+        await message.bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=message.message_id,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+
+
 async def _show_screen(
     message: Message,
     services: AppServices,
@@ -1189,6 +1201,7 @@ def create_router(services: AppServices) -> Router:
     @router.message(Command("admin"))
     async def admin_command(message: Message) -> None:
         _record_message("admin_command", message)
+        await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         admin = services.admin.ensure_admin_access(user)
         if not admin:
@@ -1199,6 +1212,7 @@ def create_router(services: AppServices) -> Router:
     @router.message(CommandStart())
     async def start(message: Message) -> None:
         _record_message("start", message)
+        await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1211,6 +1225,7 @@ def create_router(services: AppServices) -> Router:
     @router.message(Command("help"))
     async def help_command(message: Message) -> None:
         _record_message("help_command", message)
+        await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1220,6 +1235,7 @@ def create_router(services: AppServices) -> Router:
     @router.message(Command("menu"))
     async def menu_command(message: Message) -> None:
         _record_message("menu_command", message)
+        await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1230,6 +1246,7 @@ def create_router(services: AppServices) -> Router:
     @router.message(Command("profile"))
     async def profile_command(message: Message) -> None:
         _record_message("profile_command", message)
+        await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_blocked_regular_user(services, user):
             await _send_blocked_notice(message, services, user["id"])
@@ -1763,6 +1780,7 @@ def create_router(services: AppServices) -> Router:
     @router.message()
     async def prompt_or_fallback(message: Message) -> None:
         _record_message("prompt_or_fallback", message)
+        await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if _is_start_text(message.text):
             if _is_blocked_regular_user(services, user):

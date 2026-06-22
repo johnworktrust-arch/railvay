@@ -385,6 +385,30 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("await _refresh_reply_keyboard(message, reply_markup=reply_markup)", show_screen_source)
         self.assertIn("await message.bot.delete_message", handlers_source)
 
+    def test_user_messages_are_deleted_after_processing(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn("async def _delete_user_message", handlers_source)
+        self.assertIn("if not _is_user_message(message):", handlers_source)
+        self.assertIn("message_id=message.message_id", handlers_source)
+        self.assertIn("except (TelegramBadRequest, TelegramForbiddenError):", handlers_source)
+        for handler in (
+            "admin_command",
+            "start",
+            "help_command",
+            "menu_command",
+            "profile_command",
+            "prompt_or_fallback",
+        ):
+            handler_source = handlers_source.split(
+                f"async def {handler}(message: Message) -> None:", 1
+            )[1].split("@router.", 1)[0]
+            self.assertIn("await _delete_user_message(message)", handler_source)
+            self.assertLess(
+                handler_source.index("await _delete_user_message(message)"),
+                handler_source.index("services.users.ensure_telegram_user"),
+            )
+
     def test_start_onboarding_copy_and_continue_callback_are_present(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
