@@ -354,7 +354,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('callback_data="menu:referral"', keyboard_source)
         self.assertIn('callback_data="menu:main"', keyboard_source)
         self.assertIn("reply_markup=profile_keyboard()", send_profile_source)
-        self.assertIn("await _remove_reply_keyboard", send_profile_source)
+        self.assertIn("async def _send_screen_message", handlers_source)
+        self.assertNotIn("await _remove_reply_keyboard", send_profile_source)
         self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)
         self.assertIn("Реферальная программа пока ещё не готова", handlers_source)
 
@@ -365,9 +366,13 @@ class MigrationAndUITest(unittest.TestCase):
         )[0]
         show_screen_source = handlers_source.split(
             "async def _show_screen", 1
-        )[1].split("async def _remove_reply_keyboard", 1)[0]
+        )[1].split("async def _show_onboarding_followup", 1)[0]
+        send_screen_source = handlers_source.split(
+            "async def _send_screen_message", 1
+        )[1].split("async def _show_screen", 1)[0]
 
         self.assertIn("edit_message_text", handlers_source)
+        self.assertIn("edit_message_reply_markup", handlers_source)
         self.assertIn("message is not modified", handlers_source)
         self.assertIn("last_reply_keyboard_signature", handlers_source)
         self.assertIn("def _is_user_message", handlers_source)
@@ -375,14 +380,16 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Inline callback actions keep editing the message", handlers_source)
         self.assertIn("delete_current and _is_user_message(message)", show_screen_source)
         self.assertIn("async def _delete_screen_messages", regular_screen_source)
-        self.assertIn("async def _refresh_reply_keyboard", regular_screen_source)
-        self.assertIn("KEYBOARD_REFRESH_TEXT", regular_screen_source)
+        self.assertIn("reply_markup=ReplyKeyboardRemove()", send_screen_source)
+        self.assertIn("isinstance(reply_markup, InlineKeyboardMarkup)", send_screen_source)
+        self.assertNotIn("async def _refresh_reply_keyboard", handlers_source)
+        self.assertNotIn("KEYBOARD_REFRESH_TEXT", handlers_source)
+        self.assertNotIn("async def _remove_reply_keyboard", handlers_source)
         self.assertIn("await _delete_screen_messages(message, tracked_ids)", show_screen_source)
         self.assertLess(
             show_screen_source.index("await _delete_screen_messages(message, tracked_ids)"),
-            show_screen_source.index("edited = await _edit_screen_message"),
+            show_screen_source.index("sent = await _send_screen_message"),
         )
-        self.assertNotIn("await _refresh_reply_keyboard(message, reply_markup=reply_markup)", show_screen_source)
         self.assertIn("await message.bot.delete_message", handlers_source)
 
     def test_user_messages_are_deleted_after_processing(self) -> None:

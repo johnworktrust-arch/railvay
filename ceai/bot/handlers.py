@@ -60,7 +60,6 @@ from ceai.services.exceptions import (
 LAST_BOT_MESSAGE_ID = "last_bot_message_id"
 LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
-KEYBOARD_REFRESH_TEXT = "."
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
 
 
@@ -191,28 +190,6 @@ async def _edit_screen_message(
         return None
 
 
-async def _refresh_reply_keyboard(
-    message: Message, *, reply_markup: ReplyKeyboardMarkup | ReplyKeyboardRemove
-) -> None:
-    try:
-        carrier = await message.bot.send_message(
-            chat_id=message.chat.id,
-            text=KEYBOARD_REFRESH_TEXT,
-            reply_markup=reply_markup,
-            disable_notification=True,
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        return
-
-    try:
-        await message.bot.delete_message(
-            chat_id=message.chat.id,
-            message_id=carrier.message_id,
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
-
-
 async def _delete_screen_messages(message: Message, message_ids: list[int]) -> None:
     for message_id in message_ids:
         try:
@@ -236,6 +213,46 @@ async def _delete_user_message(message: Message) -> None:
         pass
 
 
+async def _send_screen_message(
+    message: Message,
+    *,
+    text: str,
+    reply_markup: Any | None,
+) -> Message:
+    if isinstance(reply_markup, InlineKeyboardMarkup) and _is_user_message(message):
+        sent = await message.bot.send_message(
+            chat_id=message.chat.id,
+            text=text,
+            reply_markup=ReplyKeyboardRemove(),
+        )
+        try:
+            edited = await message.bot.edit_message_reply_markup(
+                chat_id=message.chat.id,
+                message_id=sent.message_id,
+                reply_markup=reply_markup,
+            )
+            return edited if isinstance(edited, Message) else sent
+        except (TelegramBadRequest, TelegramForbiddenError):
+            try:
+                await message.bot.delete_message(
+                    chat_id=message.chat.id,
+                    message_id=sent.message_id,
+                )
+            except (TelegramBadRequest, TelegramForbiddenError):
+                pass
+            return await message.bot.send_message(
+                chat_id=message.chat.id,
+                text=text,
+                reply_markup=reply_markup,
+            )
+
+    return await message.bot.send_message(
+        chat_id=message.chat.id,
+        text=text,
+        reply_markup=reply_markup,
+    )
+
+
 async def _show_screen(
     message: Message,
     services: AppServices,
@@ -257,8 +274,8 @@ async def _show_screen(
     if replace_current:
         if tracked_ids:
             await _delete_screen_messages(message, tracked_ids)
-        sent = await message.bot.send_message(
-            chat_id=message.chat.id,
+        sent = await _send_screen_message(
+            message,
             text=text,
             reply_markup=reply_markup,
         )
@@ -292,8 +309,8 @@ async def _show_screen(
 
     # Inline keyboards are part of the message and can be edited with the text.
     # If editing fails, we send a fresh message as the fallback screen.
-    sent = await message.bot.send_message(
-        chat_id=message.chat.id,
+    sent = await _send_screen_message(
+        message,
         text=text,
         reply_markup=reply_markup,
     )
@@ -306,17 +323,6 @@ async def _show_screen(
         reply_markup=reply_markup,
     )
     return sent
-
-
-async def _remove_reply_keyboard(
-    message: Message, services: AppServices, user_id: int
-) -> None:
-    await _refresh_reply_keyboard(message, reply_markup=ReplyKeyboardRemove())
-    state, payload = _session_state_payload(services, user_id)
-    payload[LAST_REPLY_KEYBOARD_SIGNATURE] = _reply_keyboard_signature(
-        ReplyKeyboardRemove()
-    )
-    services.users.set_session(user_id, state=state, payload=payload)
 
 
 async def _show_onboarding_followup(
@@ -624,7 +630,6 @@ async def _send_main_menu(
         reply_markup=profile_keyboard(),
         delete_current=delete_current,
     )
-    await _remove_reply_keyboard(message, services, user_id)
 
 
 async def _send_onboarding_greeting(
@@ -643,7 +648,6 @@ async def _send_onboarding_greeting(
         reply_markup=onboarding_continue_keyboard(),
         delete_current=delete_current,
     )
-    await _remove_reply_keyboard(message, services, user_id)
 
 
 async def _send_admin_home(
@@ -1774,7 +1778,6 @@ def create_router(services: AppServices) -> Router:
                 reply_markup=profile_keyboard(),
                 delete_current=True,
             )
-            await _remove_reply_keyboard(callback.message, services, user["id"])
         await callback.answer()
 
     @router.message()
