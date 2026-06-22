@@ -679,6 +679,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("«Профиль».", handlers_source)
         self.assertNotIn("«Меню» снизу слева от поля ввода текста", handlers_source)
         self.assertIn("В двух словах об основных инструментах", handlers_source)
+        self.assertNotIn("☝️ В двух словах об основных инструментах", handlers_source)
         self.assertIn("ONBOARDING_PROMO_IMAGE_PATH", handlers_source)
         self.assertIn("assets", handlers_source)
         self.assertIn("onboarding_promo.png", handlers_source)
