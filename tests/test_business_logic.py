@@ -389,14 +389,15 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             labels,
             [
-                "🏠 Главное меню",
                 "💳 Подписка и тарифы",
                 "🤝 Реферальная программа",
                 "🆘 Поддержка",
+                "⬅️ Назад",
             ],
         )
         self.assertIn("Подписка и тарифы", keyboard_source)
-        self.assertIn("Главное меню", keyboard_source)
+        self.assertNotIn("🏠 Главное меню", keyboard_source)
+        self.assertIn("BACK_TO_MENU_BUTTON", keyboard_source)
         self.assertIn("Поддержка", keyboard_source)
         self.assertIn("Реферальная программа", keyboard_source)
         self.assertIn('callback_data="menu:referral"', keyboard_source)
