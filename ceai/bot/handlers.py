@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from html import escape
+from pathlib import Path
 from typing import Any, Dict
 
 from aiogram import F, Router
@@ -9,6 +10,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
     ErrorEvent,
+    FSInputFile,
     InlineKeyboardMarkup,
     Message,
     ReplyKeyboardMarkup,
@@ -69,6 +71,9 @@ LAST_BOT_MESSAGE_ID = "last_bot_message_id"
 LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
+ONBOARDING_PROMO_IMAGE_PATH = (
+    Path(__file__).resolve().parents[1] / "assets" / "onboarding_promo.png"
+)
 
 
 def _is_start_text(text: str | None) -> bool:
@@ -341,14 +346,23 @@ async def _show_onboarding_followup(
         chat_id=message.chat.id,
         text=_format_onboarding_hint(),
     )
-    promo = await message.bot.send_message(
-        chat_id=message.chat.id,
-        text=_format_onboarding_promo(),
-        reply_markup=onboarding_links_keyboard(
-            info_channel_url=services.settings.info_channel_url,
-            support_username=services.settings.support_username,
-        ),
+    promo_keyboard = onboarding_links_keyboard(
+        info_channel_url=services.settings.info_channel_url,
+        support_username=services.settings.support_username,
     )
+    try:
+        await message.bot.send_photo(
+            chat_id=message.chat.id,
+            photo=FSInputFile(ONBOARDING_PROMO_IMAGE_PATH),
+            caption=_format_onboarding_promo(),
+            reply_markup=promo_keyboard,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError, FileNotFoundError):
+        await message.bot.send_message(
+            chat_id=message.chat.id,
+            text=_format_onboarding_promo(),
+            reply_markup=promo_keyboard,
+        )
     menu = await message.bot.send_message(
         chat_id=message.chat.id,
         text=_format_main_menu(),
@@ -482,11 +496,13 @@ def _format_onboarding_hint() -> str:
 
 def _format_onboarding_promo() -> str:
     return (
-        "☝️ В двух словах об основных инструментах чат-бота.\n\n"
-        "Cea AI предоставляет доступ к актуальным AI-инструментам в одном "
-        "Telegram-боте: текстовые нейросети, фото с AI, видео с AI и "
-        "озвучка текста.\n\n"
-        "👇 Следите за обновлениями в канале или напишите в поддержку."
+        "☝️ В двух словах об основных инструментах чат-бота:\n\n"
+        "Cea AI предоставляет доступ к самым современным и мощным "
+        "AI-инструментам в одном Telegram-боте: текстовые нейросети, "
+        "генерация фото, генерация видео и озвучка текста передовыми "
+        "нейросетями.\n\n"
+        "👇 Следите за обновлениями в нашем канале. Если возникнут вопросы "
+        "или проблемы, обращайтесь в поддержку."
     )
 
 
