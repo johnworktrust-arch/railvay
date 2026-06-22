@@ -192,10 +192,33 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertEqual(invited_count, 1)
-        self.assertIn('<a href="tg://user?id=1001">@tester</a>', profile)
-        self.assertIn("Баланс: 0 coins", profile)
-        self.assertIn("Подписка: нет активной", profile)
-        self.assertIn("Приглашенные пользователи: 1", profile)
+        self.assertIn('👤 Профиль: <a href="tg://user?id=1001">@tester</a>', profile)
+        self.assertIn("ℹ️ ID: 1001", profile)
+        self.assertIn("💎 Баланс: 0 coins", profile)
+        self.assertIn("⭐ Подписка: нет активной", profile)
+        self.assertIn("👥 Приглашено: 1", profile)
+        self.assertNotIn("зарабатывайте 30%", profile)
+
+        zero_invites_profile = _format_menu(
+            {
+                "id": 3003,
+                "telegram_id": 3003,
+                "username": None,
+                "first_name": "No Username",
+                "last_name": "",
+            },
+            None,
+            invited_users_count=0,
+        )
+        self.assertIn(
+            '<a href="tg://user?id=3003">No Username</a>',
+            zero_invites_profile,
+        )
+        self.assertIn(
+            "👥 Приглашено: 0 (приглашайте друзей, зарабатывайте 30% с каждого пополнения)",
+            zero_invites_profile,
+        )
+        self.assertNotIn("Получайте 2", zero_invites_profile)
 
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
@@ -407,7 +430,13 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("services.users.count_invited_users", send_profile_source)
         self.assertIn('parse_mode="HTML"', send_profile_source)
         self.assertIn('href="tg://user?id={telegram_id}"', handlers_source)
-        self.assertIn("Приглашенные пользователи", profile_format_source)
+        self.assertIn("👤 Профиль:", profile_format_source)
+        self.assertIn("ℹ️ ID:", profile_format_source)
+        self.assertIn("💎 Баланс:", profile_format_source)
+        self.assertIn("👥 Приглашено:", profile_format_source)
+        self.assertIn("приглашайте друзей, зарабатывайте 30% с каждого пополнения", profile_format_source)
+        self.assertNotIn("Приглашенные пользователи", profile_format_source)
+        self.assertNotIn("Получайте 2", profile_format_source)
         self.assertIn("async def _send_screen_message", handlers_source)
         self.assertNotIn("await _remove_reply_keyboard", send_profile_source)
         self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)

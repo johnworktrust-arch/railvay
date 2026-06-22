@@ -416,15 +416,21 @@ def _format_menu(
         balance = subscription["coins_balance_cache"]
         plan = subscription["plan_name"]
         ends_at = subscription["ends_at"][:10]
-        sub_line = f"Подписка: {plan} до {ends_at}"
+        sub_line = f"⭐ Подписка: {escape(str(plan))} до {escape(str(ends_at))}"
     else:
         balance = 0
-        sub_line = "Подписка: нет активной"
+        sub_line = "⭐ Подписка: нет активной"
+    invited_line = f"👥 Приглашено: {invited_users_count}"
+    if invited_users_count <= 0:
+        invited_line += (
+            " (приглашайте друзей, зарабатывайте 30% с каждого пополнения)"
+        )
     return (
-        f"👤 {_profile_link(user)}\n\n"
-        f"Баланс: {balance} coins\n"
+        f"👤 Профиль: {_profile_link(user)}\n\n"
+        f"ℹ️ ID: {user.get('telegram_id') or user.get('id')}\n"
+        f"💎 Баланс: {balance} coins\n"
         f"{sub_line}\n"
-        f"Приглашенные пользователи: {invited_users_count}"
+        f"{invited_line}"
     )
 
 
