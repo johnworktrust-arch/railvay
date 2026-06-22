@@ -223,35 +223,6 @@ async def _send_screen_message(
     reply_markup: Any | None,
     parse_mode: str | None = None,
 ) -> Message:
-    if isinstance(reply_markup, InlineKeyboardMarkup) and _is_user_message(message):
-        sent = await message.bot.send_message(
-            chat_id=message.chat.id,
-            text=text,
-            parse_mode=parse_mode,
-            reply_markup=ReplyKeyboardRemove(),
-        )
-        try:
-            edited = await message.bot.edit_message_reply_markup(
-                chat_id=message.chat.id,
-                message_id=sent.message_id,
-                reply_markup=reply_markup,
-            )
-            return edited if isinstance(edited, Message) else sent
-        except (TelegramBadRequest, TelegramForbiddenError):
-            try:
-                await message.bot.delete_message(
-                    chat_id=message.chat.id,
-                    message_id=sent.message_id,
-                )
-            except (TelegramBadRequest, TelegramForbiddenError):
-                pass
-            return await message.bot.send_message(
-                chat_id=message.chat.id,
-                text=text,
-                parse_mode=parse_mode,
-                reply_markup=reply_markup,
-            )
-
     return await message.bot.send_message(
         chat_id=message.chat.id,
         text=text,
