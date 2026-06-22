@@ -711,11 +711,20 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertIn("ℹ️ ID:", handlers_source)
         self.assertIn("already_registered", handlers_source)
+        self.assertIn("_send_referral_already_registered_notice", handlers_source)
         self.assertIn("❌ Вы уже зарегистрированы в Cea AI.", handlers_source)
         self.assertIn(
             "Партнёрская ссылка действует только для новых пользователей.",
             handlers_source,
         )
+        already_registered_branch = handlers_source.split(
+            "if referral_result.already_registered:", 1
+        )[1].split("await _send_referral_join_notice", 1)[0]
+        self.assertIn(
+            "await _send_referral_already_registered_notice(message)",
+            already_registered_branch,
+        )
+        self.assertNotIn("_show_screen", already_registered_branch)
         self.assertIn("if _is_start_text(message.text):", fallback_source)
         self.assertLess(
             fallback_source.index("if _is_start_text(message.text):"),

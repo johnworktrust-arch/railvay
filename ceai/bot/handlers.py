@@ -808,6 +808,17 @@ async def _send_referral_join_notice(
         pass
 
 
+async def _send_referral_already_registered_notice(message: Message) -> None:
+    try:
+        await message.bot.send_message(
+            chat_id=message.chat.id,
+            text=_format_referral_already_registered_notice(),
+            reply_markup=main_menu_keyboard(),
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+
+
 async def _send_balance(
     message: Message,
     services: AppServices,
@@ -1336,14 +1347,7 @@ def create_router(services: AppServices) -> Router:
         )
         if referral_result.already_registered:
             _clear_dialog_state(services, user["id"])
-            await _show_screen(
-                message,
-                services,
-                user["id"],
-                _format_referral_already_registered_notice(),
-                reply_markup=main_menu_keyboard(),
-                delete_current=True,
-            )
+            await _send_referral_already_registered_notice(message)
             return
         await _send_referral_join_notice(message, referral_result)
         _reset_dialog_state(services, user["id"])
