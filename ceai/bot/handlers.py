@@ -45,7 +45,7 @@ from ceai.bot.keyboards import (
     text_chat_prompt_keyboard,
 )
 from ceai.config import DEFAULT_PUBLIC_OFFER_URL
-from ceai.formatting import format_datetime_minute
+from ceai.formatting import format_datetime_minute, format_datetime_russian_minute
 from ceai.json_utils import loads_dict
 from ceai.runtime_diagnostics import record_error, record_message
 from ceai.services.app import AppServices
@@ -415,11 +415,15 @@ def _format_menu(
     if subscription:
         balance = subscription["coins_balance_cache"]
         plan = subscription["plan_name"]
-        ends_at = subscription["ends_at"][:10]
-        sub_line = f"⭐ Подписка: {escape(str(plan))} до {escape(str(ends_at))}"
+        sub_line = f"⭐ Подписка: {escape(str(plan))}"
+        expires_line = (
+            "📅 Срок действия: "
+            f"{escape(format_datetime_russian_minute(subscription.get('ends_at')))}"
+        )
     else:
         balance = 0
         sub_line = "⭐ Подписка: нет активной"
+        expires_line = "📅 Срок действия: —"
     invited_line = f"👥 Приглашено: {invited_users_count}"
     if invited_users_count <= 0:
         invited_line += (
@@ -429,7 +433,8 @@ def _format_menu(
         f"👤 Профиль: {_profile_link(user)}\n\n"
         f"ℹ️ ID: {user.get('telegram_id') or user.get('id')}\n"
         f"💰 Баланс: {balance} coins\n"
-        f"{sub_line}\n\n"
+        f"{sub_line}\n"
+        f"{expires_line}\n\n"
         f"{invited_line}"
     )
 

@@ -196,9 +196,28 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("ℹ️ ID: 1001", profile)
         self.assertIn("💰 Баланс: 0 coins", profile)
         self.assertIn("⭐ Подписка: нет активной", profile)
-        self.assertIn("⭐ Подписка: нет активной\n\n👥 Приглашено: 1", profile)
+        self.assertIn("📅 Срок действия: —", profile)
+        self.assertIn(
+            "⭐ Подписка: нет активной\n📅 Срок действия: —\n\n👥 Приглашено: 1",
+            profile,
+        )
         self.assertIn("👥 Приглашено: 1", profile)
         self.assertNotIn("зарабатывайте 30%", profile.casefold())
+
+        active_profile = _format_menu(
+            self.user,
+            {
+                "coins_balance_cache": 42,
+                "plan_name": "Про",
+                "ends_at": "2026-06-24T17:16:00+00:00",
+            },
+            invited_users_count=2,
+        )
+        self.assertIn("💰 Баланс: 42 coins", active_profile)
+        self.assertIn("⭐ Подписка: Про", active_profile)
+        self.assertIn("📅 Срок действия: 24 июня 2026 года, 20:16", active_profile)
+        self.assertIn("👥 Приглашено: 2", active_profile)
+        self.assertNotIn("Про до", active_profile)
 
         zero_invites_profile = _format_menu(
             {
@@ -434,6 +453,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("👤 Профиль:", profile_format_source)
         self.assertIn("ℹ️ ID:", profile_format_source)
         self.assertIn("💰 Баланс:", profile_format_source)
+        self.assertIn("📅 Срок действия:", profile_format_source)
+        self.assertIn("format_datetime_russian_minute", handlers_source)
         self.assertIn("👥 Приглашено:", profile_format_source)
         self.assertIn("Приглашайте друзей и зарабатывайте 30% с каждого пополнения!", profile_format_source)
         self.assertNotIn("Приглашенные пользователи", profile_format_source)
@@ -812,13 +833,20 @@ class MigrationAndUITest(unittest.TestCase):
             db.close()
 
     def test_admin_user_card_formats_dates_without_iso_noise(self) -> None:
-        from ceai.formatting import format_datetime_minute
+        from ceai.formatting import (
+            format_datetime_minute,
+            format_datetime_russian_minute,
+        )
 
         registered_at = format_datetime_minute("2026-06-20T11:22:33.123456+00:00")
         last_seen_at = format_datetime_minute("2026-06-20T11:25:59+00:00")
+        subscription_ends_at = format_datetime_russian_minute(
+            "2026-06-24T17:16:00+00:00"
+        )
 
         self.assertEqual(registered_at, "20.06.2026 14:22")
         self.assertEqual(last_seen_at, "20.06.2026 14:25")
+        self.assertEqual(subscription_ends_at, "24 июня 2026 года, 20:16")
         self.assertNotIn("T11:22", registered_at)
         self.assertNotIn("+00:00", last_seen_at)
 
