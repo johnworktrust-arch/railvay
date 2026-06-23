@@ -9,6 +9,8 @@ from aiogram.types import (
     ReplyKeyboardMarkup,
 )
 
+from ceai.formatting import format_coin_amount
+
 
 PROFILE_BUTTON = "👤 Профиль"
 TEXT_AI_BUTTON = "🤖 Нейронки: ChatGPT, DeepSeek"
@@ -20,6 +22,7 @@ HISTORY_BUTTON = "🕘 История"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
 DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
+BUY_COINS_BUTTON = "💰 Купить монеты отдельно"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -116,16 +119,28 @@ def plans_keyboard(plans: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
-                text=f"💳 Выбрать {plan['name']}",
+                text=_plan_choice_label(plan),
                 callback_data=f"buy:{plan['code']}",
             )
         ]
         for plan in plans
     ]
     rows.append(
+        [InlineKeyboardButton(text=BUY_COINS_BUTTON, callback_data="coins:buy")]
+    )
+    rows.append(
         [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def _plan_choice_label(plan: Dict[str, Any]) -> str:
+    icon = {
+        "start": "⭐️",
+        "basic": "🔥",
+        "pro": "⚡️",
+    }.get(str(plan.get("code")), "💳")
+    return f"{icon} {plan['name']} - {plan['price_rub']}руб"
 
 
 def payment_keyboard(payment_id: int, payment_url: str) -> InlineKeyboardMarkup:
@@ -175,7 +190,7 @@ def models_keyboard(models: Iterable[Dict[str, Any]]) -> ReplyKeyboardMarkup:
 def model_choice_label(model: Dict[str, Any]) -> str:
     return (
         f"{_model_emoji(model['generation_type'])} {model['display_name']} · "
-        f"{model['coins_cost']} coins"
+        f"{format_coin_amount(model['coins_cost'])}"
     )
 
 
@@ -289,7 +304,7 @@ def admin_user_card_keyboard(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="➕ Начислить coins",
+                    text="➕ Начислить монеты",
                     callback_data=f"admin:credit:{user['id']}",
                 )
             ]

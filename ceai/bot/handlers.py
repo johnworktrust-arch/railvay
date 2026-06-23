@@ -20,6 +20,7 @@ from aiogram.types import (
 from ceai.bot.keyboards import (
     ADD_TEXT_CHAT_BUTTON,
     BACK_TO_MENU_BUTTON,
+    BUY_COINS_BUTTON,
     DELETE_CURRENT_TEXT_CHAT_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
@@ -48,7 +49,11 @@ from ceai.bot.keyboards import (
     text_chat_prompt_keyboard,
 )
 from ceai.config import DEFAULT_PUBLIC_OFFER_URL
-from ceai.formatting import format_datetime_minute, format_datetime_russian_minute
+from ceai.formatting import (
+    format_coin_amount,
+    format_datetime_minute,
+    format_datetime_russian_minute,
+)
 from ceai.json_utils import loads_dict
 from ceai.runtime_diagnostics import record_error, record_message
 from ceai.services.app import AppServices
@@ -424,7 +429,7 @@ def _format_menu(
     return (
         f"👤 Профиль: {_profile_link(user)}\n\n"
         f"ℹ️ ID: {user.get('telegram_id') or user.get('id')}\n"
-        f"💰 Баланс: {balance} coins\n"
+        f"💰 Баланс: {format_coin_amount(balance)}\n"
         f"{sub_line}\n"
         f"{expires_line}\n\n"
         f"{invited_line}"
@@ -511,12 +516,14 @@ def _format_main_menu() -> str:
 
 
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
-    lines = ["Тарифы CeaAI:"]
+    icon_by_code = {"start": "⭐️", "basic": "🔥", "pro": "⚡️"}
+    lines = ["💳 Выбрать тариф с подпиской:"]
     for plan in plans:
         lines.append(
-            f"{plan['name']}: {plan['price_rub']} руб. / "
-            f"{plan['coins_amount']} coins / {plan['duration_days']} дней"
+            f"{icon_by_code.get(str(plan.get('code')), '💳')} "
+            f"{plan['name']} - {plan['price_rub']}руб"
         )
+    lines.extend(["", BUY_COINS_BUTTON])
     return "\n".join(lines)
 
 
@@ -528,7 +535,7 @@ def _format_models(models: list[Dict[str, Any]]) -> str:
         lines.extend(
             [
                 f"🤖 {model['display_name']}",
-                f"Стоимость: {model['coins_cost']} coins за запрос.",
+                f"Стоимость: {format_coin_amount(model['coins_cost'])} за запрос.",
             ]
         )
         if description:
@@ -572,7 +579,7 @@ def _format_text_chat_list_screen(
         [
             f"🤖 {model['display_name']}",
             "",
-            f"Стоимость 1 запроса: {model['coins_cost']} coins",
+            f"Стоимость 1 запроса: {format_coin_amount(model['coins_cost'])}",
             "",
             "Выберите чат ниже:",
         ]
@@ -591,7 +598,7 @@ def _format_text_chat_prompt_screen(
             f"🤖 {model['display_name']}",
             f"Чат: {current_chat['title']}",
             "",
-            f"Стоимость 1 запроса: {model['coins_cost']} coins",
+            f"Стоимость 1 запроса: {format_coin_amount(model['coins_cost'])}",
             "Напишите вопрос сообщением ниже.",
         ]
     )
@@ -621,7 +628,7 @@ def _format_history(rows: list[Dict[str, Any]]) -> str:
             prompt = prompt[:57] + "..."
         lines.append(
             f"#{row['id']} {row['model_display_name']} — {row['status']} — "
-            f"{row['coins_charged']} coins — {prompt}"
+            f"{format_coin_amount(row['coins_charged'])} — {prompt}"
         )
     return "\n".join(lines)
 
@@ -635,7 +642,7 @@ def _format_admin_stats(stats: Dict[str, Any]) -> str:
         f"Paid-платежей: {stats['paid_payments']}\n"
         f"Mock-выручка: {stats['mock_revenue_rub']} руб.\n"
         f"Генераций: {stats['generations_total']}\n"
-        f"Баланс активных подписок: {stats['active_balance_total']} coins"
+        f"Баланс активных подписок: {format_coin_amount(stats['active_balance_total'])}"
     )
 
 
@@ -656,7 +663,9 @@ def _format_admin_users(
         blocked = "🚫 " if user["is_blocked"] else ""
         balance = user.get("coins_balance_cache")
         plan = user.get("plan_name") or "без тарифа"
-        balance_text = f"{balance} coins" if balance is not None else "0 coins"
+        balance_text = (
+            format_coin_amount(balance) if balance is not None else format_coin_amount(0)
+        )
         lines.append(
             f"{blocked}#{user['id']} {_telegram_profile(user)} · {plan} · {balance_text}"
         )
@@ -673,7 +682,7 @@ def _format_admin_user_card(card: Dict[str, Any]) -> str:
     if subscription:
         tariff = (
             f"{subscription['plan_name']} · {subscription['status']} · "
-            f"{subscription['coins_balance_cache']} coins"
+            f"{format_coin_amount(subscription['coins_balance_cache'])}"
         )
     else:
         tariff = "нет активной подписки"
@@ -689,7 +698,7 @@ def _format_admin_user_card(card: Dict[str, Any]) -> str:
         f"Платежи: {payments.get('paid_count', 0)} paid / "
         f"{payments.get('paid_amount_rub', 0)} руб.\n"
         f"Генерации: {generations.get('total', 0)}\n"
-        f"Потрачено: {generations.get('spent_coins', 0)} coins"
+        f"Потрачено: {format_coin_amount(generations.get('spent_coins', 0))}"
     )
 
 
@@ -845,7 +854,7 @@ async def _send_balance(
     subscription = services.subscriptions.active_for_user(user_id)
     if subscription:
         text = (
-            f"Баланс: {subscription['coins_balance_cache']} coins\n"
+            f"Баланс: {format_coin_amount(subscription['coins_balance_cache'])}\n"
             f"Подписка: {subscription['plan_name']} до {subscription['ends_at'][:10]}"
         )
     else:
@@ -1510,7 +1519,7 @@ def create_router(services: AppServices) -> Router:
                     callback.message,
                     services,
                     user["id"],
-                    "Введите положительное целое число coins для начисления.",
+                    "Введите положительное целое число монет для начисления.",
                     reply_markup=admin_back_keyboard(),
                     delete_current=True,
                 )
@@ -1645,6 +1654,25 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
+    @router.callback_query(F.data == "coins:buy")
+    async def buy_coins_placeholder(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if callback.message:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                "Покупка монет отдельно скоро будет доступна.",
+                reply_markup=inline_back_to_menu_keyboard(),
+                delete_current=True,
+            )
+        await callback.answer()
+
     @router.callback_query(F.data.startswith("pay:"))
     async def pay_mock(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
@@ -1661,8 +1689,9 @@ def create_router(services: AppServices) -> Router:
         if result.processed:
             text = (
                 "Оплата прошла успешно.\n"
-                f"Начислено: {result.credited_coins} coins.\n"
-                f"Текущий баланс: {result.subscription['coins_balance_cache']} coins."
+                f"Начислено: {format_coin_amount(result.credited_coins)}.\n"
+                "Текущий баланс: "
+                f"{format_coin_amount(result.subscription['coins_balance_cache'])}."
             )
         else:
             text = "Этот mock-webhook уже был обработан. Повторного начисления нет."
@@ -1996,7 +2025,8 @@ def create_router(services: AppServices) -> Router:
                     message,
                     services,
                     user["id"],
-                    f"Начислено {amount} coins. Новый баланс: {balance} coins.\n\n"
+                    f"Начислено {format_coin_amount(amount)}. "
+                    f"Новый баланс: {format_coin_amount(balance)}.\n\n"
                     f"{_format_admin_user_card(card)}",
                     reply_markup=admin_user_card_keyboard(
                         card, can_manage=services.admin.can_manage(admin)
@@ -2139,7 +2169,7 @@ def create_router(services: AppServices) -> Router:
                     message,
                     services,
                     user["id"],
-                    "Недостаточно coins для этой модели. Выберите тариф или модель дешевле.",
+                    "Недостаточно монет для этой модели. Выберите тариф или модель дешевле.",
                     reply_markup=main_menu_keyboard(),
                 )
                 return
@@ -2148,7 +2178,7 @@ def create_router(services: AppServices) -> Router:
                     message,
                     services,
                     user["id"],
-                    "Не получилось выполнить генерацию. Coins возвращены.",
+                    "Не получилось выполнить генерацию. Монеты возвращены.",
                     reply_markup=chat_keyboard,
                 )
                 return
@@ -2246,7 +2276,7 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Недостаточно coins для этой модели. Выберите тариф или модель дешевле.",
+                "Недостаточно монет для этой модели. Выберите тариф или модель дешевле.",
                 reply_markup=back_to_menu_keyboard(),
             )
             return
@@ -2256,7 +2286,7 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Не получилось выполнить генерацию. Coins возвращены.",
+                "Не получилось выполнить генерацию. Монеты возвращены.",
                 reply_markup=back_to_menu_keyboard(),
             )
             return

@@ -10,7 +10,7 @@ PLANS = [
     {
         "code": "start",
         "name": "Старт",
-        "price_rub": 299,
+        "price_rub": 449,
         "duration_days": 30,
         "coins_amount": 100,
         "features": {
@@ -21,7 +21,7 @@ PLANS = [
     {
         "code": "basic",
         "name": "Базовый",
-        "price_rub": 699,
+        "price_rub": 890,
         "duration_days": 30,
         "coins_amount": 300,
         "features": {
@@ -32,7 +32,7 @@ PLANS = [
     {
         "code": "pro",
         "name": "Про",
-        "price_rub": 1490,
+        "price_rub": 1990,
         "duration_days": 30,
         "coins_amount": 800,
         "features": {

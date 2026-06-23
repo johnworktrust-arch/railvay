@@ -91,7 +91,7 @@ class GenerationService:
                         error_message="Insufficient coins",
                     )
                     business_error = InsufficientCoinsError(
-                        "Недостаточно coins", generation_id=generation["id"]
+                        "Недостаточно монет", generation_id=generation["id"]
                     )
                 else:
                     self.coins.reserve_generation(

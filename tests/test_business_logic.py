@@ -172,13 +172,13 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.referral_reward_kopecks, 8970)
+        self.assertEqual(first.referral_reward_kopecks, 13470)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
 
         stats = self.services.referrals.stats(self.user["id"])
         self.assertEqual(stats.invited_count, 1)
-        self.assertEqual(stats.balance_kopecks, 8970)
+        self.assertEqual(stats.balance_kopecks, 13470)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -191,7 +191,7 @@ class BusinessLogicTest(unittest.TestCase):
             ).fetchone()
 
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 8970)
+        self.assertEqual(row["amount"], 13470)
 
     def test_generation_charges_coins_after_success(self) -> None:
         self._buy_plan("start")
@@ -298,7 +298,7 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(invited_count, 1)
         self.assertIn('👤 Профиль: <a href="tg://user?id=1001">@tester</a>', profile)
         self.assertIn("ℹ️ ID: 1001", profile)
-        self.assertIn("💰 Баланс: 0 coins", profile)
+        self.assertIn("💰 Баланс: 0 монет", profile)
         self.assertIn("⭐ Подписка: нет активной", profile)
         self.assertIn("📅 Срок действия: —", profile)
         self.assertIn(
@@ -317,7 +317,7 @@ class BusinessLogicTest(unittest.TestCase):
             },
             invited_users_count=2,
         )
-        self.assertIn("💰 Баланс: 42 coins", active_profile)
+        self.assertIn("💰 Баланс: 42 монеты", active_profile)
         self.assertIn("⭐ Подписка: Про", active_profile)
         self.assertIn("📅 Срок действия: 24 июня 2026 года, 20:16", active_profile)
         self.assertIn("👥 Приглашено: 2", active_profile)
@@ -477,7 +477,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("reply_markup=models_keyboard(models)", handlers_source)
         self.assertIn("ui_description", handlers_source)
         self.assertIn("ui_description", seed_source)
-        self.assertIn("Стоимость: {model['coins_cost']} coins за запрос.", handlers_source)
+        self.assertIn(
+            "Стоимость: {format_coin_amount(model['coins_cost'])} за запрос.",
+            handlers_source,
+        )
         self.assertNotIn('lines = ["Выберите AI-инструмент:"]', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
         self.assertIn("def back_to_menu_keyboard() -> ReplyKeyboardMarkup", keyboard_source)
@@ -487,6 +490,32 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("_format_generation_result(generation.result)", handlers_source)
         self.assertNotIn("Баланс после генерации", handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
+
+    def test_plan_screen_uses_new_prices_and_coins_are_called_monety(self) -> None:
+        from ceai.bot.handlers import _format_plans
+        from ceai.bot.keyboards import plans_keyboard
+        from ceai.seed import PLANS
+
+        text = _format_plans(PLANS)
+        labels = [row[0].text for row in plans_keyboard(PLANS).inline_keyboard]
+        callbacks = [
+            row[0].callback_data for row in plans_keyboard(PLANS).inline_keyboard
+        ]
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn("💳 Выбрать тариф с подпиской:", text)
+        self.assertIn("⭐️ Старт - 449руб", text)
+        self.assertIn("🔥 Базовый - 890руб", text)
+        self.assertIn("⚡️ Про - 1990руб", text)
+        self.assertIn("💰 Купить монеты отдельно", text)
+        self.assertNotIn("coins", text.casefold())
+        self.assertIn("⭐️ Старт - 449руб", labels)
+        self.assertIn("🔥 Базовый - 890руб", labels)
+        self.assertIn("⚡️ Про - 1990руб", labels)
+        self.assertIn("💰 Купить монеты отдельно", labels)
+        self.assertIn("coins:buy", callbacks)
+        self.assertIn('F.data == "coins:buy"', handlers_source)
+        self.assertIn("Покупка монет отдельно скоро будет доступна.", handlers_source)
 
     def test_text_chat_navigation_has_back_and_no_premature_current_chat(
         self,
@@ -1246,7 +1275,7 @@ class AdminLogicTest(unittest.TestCase):
 
         self.assertEqual(card["subscription"]["coins_balance_cache"], 99)
         self.assertEqual(card["payments"]["paid_count"], 1)
-        self.assertEqual(card["payments"]["paid_amount_rub"], 299)
+        self.assertEqual(card["payments"]["paid_amount_rub"], 449)
         self.assertEqual(card["generations"]["total"], 1)
         self.assertEqual(card["generations"]["spent_coins"], 1)
 
