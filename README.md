@@ -14,7 +14,8 @@
 - `migrations/postgres/001_init.sql` — та же схема для Postgres.
 - `ceai/seed.py` — стартовые тарифы и цены моделей.
 - `tests/test_business_logic.py` — минимальная проверка ключевых правил.
-- `Dockerfile` — production-образ для Northflank/Docker-хостинга.
+- `Dockerfile` — production-образ для Railway/Docker-хостинга.
+- `railway.json` — настройки Railway build/deploy и healthcheck.
 
 ### Локальный запуск
 
@@ -52,15 +53,14 @@ python -m ceai.main
 
 При старте бот также автоматически применяет миграции и seed-данные.
 
-### Деплой на Northflank
+### Деплой на Railway
 
-Текущая production-схема рассчитана на polling-бота и Postgres.
+Railway использует `Dockerfile` и `railway.json`. В проде бот работает через Telegram webhook, поэтому у сервиса должен быть публичный домен.
 
-1. Создайте проект в Northflank.
-2. Создайте бесплатную Postgres database.
-3. Создайте service из GitHub-репозитория проекта.
-4. Выберите Dockerfile build.
-5. Укажите переменные окружения:
+1. Создайте проект Railway из GitHub-репозитория.
+2. В сервисе откройте `Settings -> Networking` и нажмите `Generate Domain`.
+3. Добавьте Postgres в Railway и подключите `DATABASE_URL` к сервису. Для быстрого теста SQLite тоже запустится, но данные могут пропасть при пересборке.
+4. Укажите переменные окружения:
 
 ```bash
 TELEGRAM_BOT_TOKEN=your-botfather-token
@@ -70,44 +70,26 @@ MOCK_PAYMENT_BASE_URL=https://mock-payments.local/pay
 AI_PROVIDER_MODE=auto
 DEEPSEEK_API_KEY=your-deepseek-api-key
 OPENAI_API_KEY=your-openai-api-key
+ADMIN_TELEGRAM_USERNAMES=samescam
+SUPPORT_USERNAME=cea_help
 ```
 
-6. Healthcheck:
+`APP_BASE_URL` можно не задавать: Railway сам отдаёт `RAILWAY_PUBLIC_DOMAIN`, а приложение превращает его в `https://...` и ставит webhook. Если нужно указать домен вручную:
+
+```bash
+APP_BASE_URL=https://your-service.up.railway.app
+TELEGRAM_WEBHOOK_PATH=/telegram/webhook
+TELEGRAM_WEBHOOK_SECRET=change-me
+```
+
+5. После деплоя проверьте:
 
 ```text
-Path: /healthz
-Port: $PORT
+https://your-service.up.railway.app/healthz
+https://your-service.up.railway.app/telegram/status
 ```
 
-Northflank передает `PORT` автоматически. Если переменная `PORT` задана, приложение параллельно с Telegram polling поднимает HTTP endpoint `/healthz`.
-
-Важно: на бесплатном плане Northflank может попросить добавить банковскую карту для верификации даже без списаний. Если карта не подходит, используйте Render fallback ниже.
-
-### Бесплатный fallback на Render
-
-В репозитории есть `render.yaml` для Blueprint-деплоя:
-
-- free Docker web service;
-- free Render Postgres;
-- healthcheck `/healthz`;
-- Telegram webhook `/telegram/webhook`;
-- `TELEGRAM_BOT_TOKEN`, `DEEPSEEK_API_KEY` и `OPENAI_API_KEY` вводятся вручную в Render как secrets.
-
-Render-деплой использует webhook-режим, потому что polling-бот на Render Free засыпает и не просыпается от Telegram-сообщений.
-
-Ограничения Render free:
-
-- web service может засыпать после периода без входящих HTTP-запросов;
-- первый ответ после сна может быть медленным, но Telegram webhook сможет разбудить сервис;
-- free Postgres подходит для MVP/демо, но не для продакшена.
-
-Шаги:
-
-1. Откройте Render Dashboard.
-2. Создайте Blueprint из GitHub-репозитория.
-3. Выберите этот repo.
-4. Укажите `TELEGRAM_BOT_TOKEN` в env.
-5. После деплоя проверьте `/healthz` и Telegram `/start`.
+В `/telegram/status` видно, какой webhook реально установлен в Telegram и есть ли последняя ошибка доставки.
 
 ### Проверка сценария в Telegram
 

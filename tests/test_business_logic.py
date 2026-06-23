@@ -788,6 +788,48 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.public_offer_url, DEFAULT_PUBLIC_OFFER_URL)
         self.assertEqual(settings.info_channel_url, DEFAULT_INFO_CHANNEL_URL)
 
+        with (
+            patch("ceai.config._load_dotenv", return_value={}),
+            patch.dict(
+                "os.environ",
+                {
+                    "TELEGRAM_BOT_TOKEN": "test",
+                    "RAILWAY_PUBLIC_DOMAIN": "cea-ai-production.up.railway.app",
+                },
+                clear=True,
+            ),
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.app_base_url, "https://cea-ai-production.up.railway.app")
+        self.assertEqual(
+            settings.public_offer_url,
+            "https://cea-ai-production.up.railway.app/public-offer",
+        )
+
+        with (
+            patch("ceai.config._load_dotenv", return_value={}),
+            patch.dict(
+                "os.environ",
+                {
+                    "TELEGRAM_BOT_TOKEN": "test",
+                    "APP_BASE_URL": "https://custom.example/",
+                    "RAILWAY_PUBLIC_DOMAIN": "cea-ai-production.up.railway.app",
+                },
+                clear=True,
+            ),
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.app_base_url, "https://custom.example")
+
+    def test_railway_deploy_config_uses_dockerfile_and_healthcheck(self) -> None:
+        railway_config = loads(Path("railway.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(railway_config["build"]["builder"], "DOCKERFILE")
+        self.assertEqual(railway_config["build"]["dockerfilePath"], "Dockerfile")
+        self.assertEqual(railway_config["deploy"]["healthcheckPath"], "/healthz")
+
     def test_ai_provider_env_settings_are_read(self) -> None:
         from ceai.config import load_settings
 

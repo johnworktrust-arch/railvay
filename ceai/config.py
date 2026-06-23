@@ -7,7 +7,7 @@ from typing import Dict, Tuple
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_PUBLIC_OFFER_URL = "https://ceaai-bot.onrender.com/public-offer"
+DEFAULT_PUBLIC_OFFER_URL = "https://cea.ai/public-offer"
 DEFAULT_INFO_CHANNEL_URL = "https://t.me/ceafamily"
 
 
@@ -32,6 +32,15 @@ def _normalize_telegram_url(value: str) -> str:
     if cleaned.startswith("@"):
         return f"https://t.me/{cleaned[1:]}"
     return cleaned
+
+
+def _normalize_base_url(value: str) -> str:
+    cleaned = value.strip().rstrip("/")
+    if not cleaned:
+        return ""
+    if cleaned.startswith("http://") or cleaned.startswith("https://"):
+        return cleaned
+    return f"https://{cleaned}"
 
 
 @dataclass(frozen=True)
@@ -82,6 +91,13 @@ def load_settings() -> Settings:
         raw = read(name, str(default)).strip()
         return int(raw) if raw else default
 
+    app_base_url = _normalize_base_url(
+        read("APP_BASE_URL") or read("RAILWAY_PUBLIC_DOMAIN")
+    )
+    public_offer_default = (
+        f"{app_base_url}/public-offer" if app_base_url else DEFAULT_PUBLIC_OFFER_URL
+    )
+
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
         database_url=read("DATABASE_URL", "sqlite:///./data/ceai.sqlite3"),
@@ -89,12 +105,12 @@ def load_settings() -> Settings:
         mock_payment_base_url=read(
             "MOCK_PAYMENT_BASE_URL", "https://mock-payments.local/pay"
         ),
-        app_base_url=read("APP_BASE_URL"),
+        app_base_url=app_base_url,
         telegram_webhook_path=read("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook"),
         telegram_webhook_secret=read("TELEGRAM_WEBHOOK_SECRET"),
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
-        public_offer_url=read("PUBLIC_OFFER_URL", DEFAULT_PUBLIC_OFFER_URL),
+        public_offer_url=read("PUBLIC_OFFER_URL", public_offer_default),
         info_channel_url=_normalize_telegram_url(
             read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL)
         ),
