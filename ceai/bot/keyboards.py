@@ -134,6 +134,31 @@ def plans_keyboard(plans: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
+def payment_methods_keyboard(plan_code: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🏦 СБП", callback_data=f"pay_method:{plan_code}:sbp"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💵 USDT TRC20",
+                    callback_data=f"pay_method:{plan_code}:usdt_trc20",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⭐️ Telegram Stars",
+                    callback_data=f"pay_method:{plan_code}:telegram_stars",
+                )
+            ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:plans")],
+        ]
+    )
+
+
 def _plan_choice_label(plan: Dict[str, Any]) -> str:
     icon = {
         "start": "⭐️",

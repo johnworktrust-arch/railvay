@@ -493,7 +493,7 @@ class MigrationAndUITest(unittest.TestCase):
 
     def test_plan_screen_uses_new_prices_and_coins_are_called_monety(self) -> None:
         from ceai.bot.handlers import _format_plans
-        from ceai.bot.keyboards import plans_keyboard
+        from ceai.bot.keyboards import payment_methods_keyboard, plans_keyboard
         from ceai.seed import PLANS
 
         text = _format_plans(PLANS)
@@ -501,19 +501,36 @@ class MigrationAndUITest(unittest.TestCase):
         callbacks = [
             row[0].callback_data for row in plans_keyboard(PLANS).inline_keyboard
         ]
+        payment_method_labels = [
+            row[0].text for row in payment_methods_keyboard("start").inline_keyboard
+        ]
+        payment_method_callbacks = [
+            row[0].callback_data
+            for row in payment_methods_keyboard("start").inline_keyboard
+        ]
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
-        self.assertIn("💳 Выбрать тариф с подпиской:", text)
-        self.assertIn("⭐️ Старт - 449руб", text)
-        self.assertIn("🔥 Базовый - 890руб", text)
-        self.assertIn("⚡️ Про - 1990руб", text)
-        self.assertIn("💰 Купить монеты отдельно", text)
+        self.assertEqual(text, "💳 Выбрать тариф с подпиской:")
+        self.assertNotIn("Старт", text)
+        self.assertNotIn("Базовый", text)
+        self.assertNotIn("Про", text)
+        self.assertNotIn("Купить монеты отдельно", text)
         self.assertNotIn("coins", text.casefold())
         self.assertIn("⭐️ Старт - 449руб", labels)
         self.assertIn("🔥 Базовый - 890руб", labels)
         self.assertIn("⚡️ Про - 1990руб", labels)
         self.assertIn("💰 Купить монеты отдельно", labels)
         self.assertIn("coins:buy", callbacks)
+        self.assertEqual(
+            payment_method_labels[:3],
+            ["🏦 СБП", "💵 USDT TRC20", "⭐️ Telegram Stars"],
+        )
+        self.assertIn("pay_method:start:sbp", payment_method_callbacks)
+        self.assertIn("pay_method:start:usdt_trc20", payment_method_callbacks)
+        self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
+        self.assertIn("💳 Выберите способ оплаты:", handlers_source)
+        self.assertIn('state="waiting_payment_method"', handlers_source)
+        self.assertIn('F.data.startswith("pay_method:")', handlers_source)
         self.assertIn('F.data == "coins:buy"', handlers_source)
         self.assertIn("Покупка монет отдельно скоро будет доступна.", handlers_source)
 
@@ -591,6 +608,9 @@ class MigrationAndUITest(unittest.TestCase):
         profile_format_source = handlers_source.split(
             "def _format_menu(", 1
         )[1].split("def _format_onboarding_greeting", 1)[0]
+        referral_source = handlers_source.split(
+            "def _format_referral_screen", 1
+        )[1].split("def _format_onboarding_greeting", 1)[0]
         send_profile_source = handlers_source.split(
             "async def _send_main_menu(", 1
         )[1].split("async def _send_onboarding_greeting", 1)[0]
@@ -635,7 +655,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("reply_markup=inline_back_to_menu_keyboard()", handlers_source)
         self.assertIn('parse_mode="HTML"', handlers_source)
         self.assertNotIn("Реферальная программа пока ещё не готова", handlers_source)
-        self.assertNotIn("USDT", handlers_source.upper())
+        self.assertNotIn("USDT", referral_source.upper())
         self.assertNotIn("🪁", handlers_source)
 
     def test_bot_screens_edit_inline_messages_and_replace_bottom_keyboard(self) -> None:

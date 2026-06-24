@@ -42,6 +42,7 @@ from ceai.bot.keyboards import (
     onboarding_continue_keyboard,
     onboarding_links_keyboard,
     payment_keyboard,
+    payment_methods_keyboard,
     plans_keyboard,
     profile_keyboard,
     text_chat_keyboard,
@@ -516,15 +517,19 @@ def _format_main_menu() -> str:
 
 
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
-    icon_by_code = {"start": "⭐️", "basic": "🔥", "pro": "⚡️"}
-    lines = ["💳 Выбрать тариф с подпиской:"]
-    for plan in plans:
-        lines.append(
-            f"{icon_by_code.get(str(plan.get('code')), '💳')} "
-            f"{plan['name']} - {plan['price_rub']}руб"
-        )
-    lines.extend(["", BUY_COINS_BUTTON])
-    return "\n".join(lines)
+    return "💳 Выбрать тариф с подпиской:"
+
+
+def _format_payment_methods() -> str:
+    return "💳 Выберите способ оплаты:"
+
+
+def _payment_method_label(payment_method: str) -> str:
+    return {
+        "sbp": "🏦 СБП",
+        "usdt_trc20": "💵 USDT TRC20",
+        "telegram_stars": "⭐️ Telegram Stars",
+    }.get(payment_method, "тестовая оплата")
 
 
 def _format_models(models: list[Dict[str, Any]]) -> str:
@@ -1619,6 +1624,55 @@ def create_router(services: AppServices) -> Router:
             await callback.answer()
             return
         plan_code = callback.data.split(":", 1)[1] if callback.data else ""
+        plan = next(
+            (
+                candidate
+                for candidate in services.catalog.list_plans()
+                if candidate["code"] == plan_code
+            ),
+            None,
+        )
+        if plan is None:
+            if callback.message:
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    "Тариф не найден",
+                    reply_markup=inline_back_to_menu_keyboard(),
+                    delete_current=True,
+                )
+            await callback.answer()
+            return
+
+        _set_dialog_state(
+            services,
+            user["id"],
+            state="waiting_payment_method",
+            payload={"plan_code": plan_code},
+        )
+        if callback.message:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                _format_payment_methods(),
+                reply_markup=payment_methods_keyboard(plan_code),
+                delete_current=True,
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("pay_method:"))
+    async def choose_payment_method(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        parts = callback.data.split(":", 2) if callback.data else []
+        plan_code = parts[1] if len(parts) >= 2 else ""
+        payment_method = parts[2] if len(parts) >= 3 else ""
         try:
             payment = services.payments.create_mock_payment(
                 user_id=user["id"], plan_code=plan_code
@@ -1640,13 +1694,14 @@ def create_router(services: AppServices) -> Router:
             services,
             user["id"],
             state="waiting_mock_payment",
-            payload={"payment_id": payment["id"]},
+            payload={"payment_id": payment["id"], "payment_method": payment_method},
         )
         if callback.message:
             await _show_screen(
                 callback.message,
                 services,
                 user["id"],
+                f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
                 "Тестовый платеж создан со статусом pending.\n"
                 "Нажмите кнопку ниже, чтобы имитировать успешный webhook.",
                 reply_markup=payment_keyboard(payment["id"], payment["payment_url"]),
