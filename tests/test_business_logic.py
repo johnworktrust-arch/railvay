@@ -492,11 +492,20 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
 
     def test_plan_screen_uses_new_prices_and_coins_are_called_monety(self) -> None:
-        from ceai.bot.handlers import _format_plan_details, _format_plans
-        from ceai.bot.keyboards import payment_methods_keyboard, plans_keyboard
+        from ceai.bot.handlers import (
+            _format_crystal_packages,
+            _format_plan_details,
+            _format_plans,
+        )
+        from ceai.bot.keyboards import (
+            crystal_packages_keyboard,
+            payment_methods_keyboard,
+            plans_keyboard,
+        )
         from ceai.seed import PLANS
 
         text = _format_plans(PLANS)
+        crystal_text = _format_crystal_packages()
         start_plan = next(plan for plan in PLANS if plan["code"] == "start")
         basic_plan = next(plan for plan in PLANS if plan["code"] == "basic")
         pro_plan = next(plan for plan in PLANS if plan["code"] == "pro")
@@ -506,6 +515,13 @@ class MigrationAndUITest(unittest.TestCase):
         labels = [row[0].text for row in plans_keyboard(PLANS).inline_keyboard]
         callbacks = [
             row[0].callback_data for row in plans_keyboard(PLANS).inline_keyboard
+        ]
+        crystal_labels = [
+            row[0].text for row in crystal_packages_keyboard().inline_keyboard
+        ]
+        crystal_callbacks = [
+            row[0].callback_data
+            for row in crystal_packages_keyboard().inline_keyboard
         ]
         payment_method_labels = [
             row[0].text for row in payment_methods_keyboard("start").inline_keyboard
@@ -522,10 +538,27 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("Про", text)
         self.assertNotIn("Купить монеты отдельно", text)
         self.assertNotIn("coins", text.casefold())
+        self.assertEqual(
+            crystal_text,
+            "💳 Выберите количество кристаллов для покупки:",
+        )
         self.assertIn("⭐️ Старт - 449руб", labels)
         self.assertIn("🔥 Базовый - 890руб", labels)
         self.assertIn("⚡️ Про - 1990руб", labels)
-        self.assertIn("💰 Купить монеты отдельно", labels)
+        self.assertIn("💎 Купить кристаллы отдельно", labels)
+        self.assertEqual(
+            crystal_labels,
+            [
+                "S - 139₽ - 30 💎",
+                "🔥M - 499₽ - 110 💎  (-2%)",
+                "L - 999₽ - 260 💎  (-17%)",
+                "XL - 2990₽ - 1198 💎  (-45%)",
+                "⚡XXL - 9000₽ - 4300 💎  (-55%)",
+                "↩ Назад",
+            ],
+        )
+        self.assertIn("crystals:s", crystal_callbacks)
+        self.assertIn("crystals:xxl", crystal_callbacks)
         self.assertIn("⭐️ Старт — 449 ₽", start_details)
         self.assertIn("➕ 60 монет", start_details)
         self.assertIn("➕ До 60 запросов DeepSeek", start_details)
@@ -554,7 +587,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
         self.assertIn('F.data == "coins:buy"', handlers_source)
-        self.assertIn("Покупка монет отдельно скоро будет доступна.", handlers_source)
+        self.assertIn('F.data.startswith("crystals:")', handlers_source)
+        self.assertIn("_format_crystal_packages()", handlers_source)
+        self.assertIn("Покупка кристаллов скоро будет доступна.", handlers_source)
 
     def test_text_chat_navigation_has_back_and_no_premature_current_chat(
         self,

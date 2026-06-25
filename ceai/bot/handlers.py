@@ -20,7 +20,6 @@ from aiogram.types import (
 from ceai.bot.keyboards import (
     ADD_TEXT_CHAT_BUTTON,
     BACK_TO_MENU_BUTTON,
-    BUY_COINS_BUTTON,
     DELETE_CURRENT_TEXT_CHAT_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
@@ -35,6 +34,7 @@ from ceai.bot.keyboards import (
     admin_user_card_keyboard,
     admin_users_keyboard,
     back_to_menu_keyboard,
+    crystal_packages_keyboard,
     inline_back_to_menu_keyboard,
     main_menu_keyboard,
     model_choice_label,
@@ -518,6 +518,10 @@ def _format_main_menu() -> str:
 
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
     return "💳 Выбрать тариф с подпиской:"
+
+
+def _format_crystal_packages() -> str:
+    return "💳 Выберите количество кристаллов для покупки:"
 
 
 def _format_payment_methods() -> str:
@@ -1769,8 +1773,27 @@ def create_router(services: AppServices) -> Router:
                 callback.message,
                 services,
                 user["id"],
-                "Покупка монет отдельно скоро будет доступна.",
-                reply_markup=inline_back_to_menu_keyboard(),
+                _format_crystal_packages(),
+                reply_markup=crystal_packages_keyboard(),
+                delete_current=True,
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("crystals:"))
+    async def buy_crystals_placeholder(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if callback.message:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                "Покупка кристаллов скоро будет доступна.",
+                reply_markup=crystal_packages_keyboard(),
                 delete_current=True,
             )
         await callback.answer()

@@ -22,7 +22,7 @@ HISTORY_BUTTON = "🕘 История"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
 DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
-BUY_COINS_BUTTON = "💰 Купить монеты отдельно"
+BUY_CRYSTALS_BUTTON = "💎 Купить кристаллы отдельно"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -126,7 +126,7 @@ def plans_keyboard(plans: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
         for plan in plans
     ]
     rows.append(
-        [InlineKeyboardButton(text=BUY_COINS_BUTTON, callback_data="coins:buy")]
+        [InlineKeyboardButton(text=BUY_CRYSTALS_BUTTON, callback_data="coins:buy")]
     )
     rows.append(
         [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
@@ -155,6 +155,41 @@ def payment_methods_keyboard(plan_code: str) -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:plans")],
+        ]
+    )
+
+
+def crystal_packages_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="S - 139₽ - 30 💎", callback_data="crystals:s"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔥M - 499₽ - 110 💎  (-2%)", callback_data="crystals:m"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="L - 999₽ - 260 💎  (-17%)", callback_data="crystals:l"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="XL - 2990₽ - 1198 💎  (-45%)",
+                    callback_data="crystals:xl",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⚡XXL - 9000₽ - 4300 💎  (-55%)",
+                    callback_data="crystals:xxl",
+                )
+            ],
+            [InlineKeyboardButton(text="↩ Назад", callback_data="menu:plans")],
         ]
     )
 
