@@ -847,13 +847,12 @@ class MigrationAndUITest(unittest.TestCase):
             for row in payment_keyboard(1, "https://pay.example").inline_keyboard
         ]
 
-        self.assertEqual(labels, ["💳 Подписка", "📋 Тарифы"])
-        self.assertEqual(callbacks, ["menu:subscription", "menu:plans"])
+        self.assertEqual(labels, ["💳 Подписка и тарифы"])
+        self.assertEqual(callbacks, ["menu:plans"])
         self.assertEqual(
             _subscription_required_message(),
             "Нужна активная подписка. Откройте тарифы и выберите подписку.",
         )
-        self.assertIn('F.data == "menu:subscription"', handlers_source)
         self.assertIn("reply_markup=subscription_required_keyboard()", handlers_source)
         self.assertNotIn("оплатите тестово", handlers_source.casefold())
         self.assertNotIn("Оплатить тестово", payment_labels)

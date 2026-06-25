@@ -83,12 +83,7 @@ def subscription_required_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💳 Подписка", callback_data="menu:subscription"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="📋 Тарифы", callback_data="menu:plans"
+                    text="💳 Подписка и тарифы", callback_data="menu:plans"
                 )
             ],
         ]
