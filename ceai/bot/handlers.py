@@ -49,6 +49,7 @@ from ceai.bot.keyboards import (
     payment_methods_keyboard,
     plans_keyboard,
     profile_keyboard,
+    subscription_required_keyboard,
     text_chat_keyboard,
     text_chat_label,
     text_chat_prompt_keyboard,
@@ -585,7 +586,11 @@ def _payment_method_label(payment_method: str) -> str:
         "sbp": "💳 Карта / СБП",
         "usdt_trc20": "💵 Крипта USDT TRC20",
         "telegram_stars": "⭐️ Telegram Stars",
-    }.get(payment_method, "тестовая оплата")
+    }.get(payment_method, "оплата")
+
+
+def _subscription_required_message() -> str:
+    return "Нужна активная подписка. Откройте тарифы и выберите подписку."
 
 
 def _format_models(models: list[Dict[str, Any]]) -> str:
@@ -983,13 +988,15 @@ async def _send_balance(
             f"Подписка: {subscription['plan_name']} до {subscription['ends_at'][:10]}"
         )
     else:
-        text = "Активной подписки нет. Выберите тариф и оплатите тестово."
+        text = "Активной подписки нет. Выберите тариф и оформите подписку."
     await _show_screen(
         message,
         services,
         user_id,
         text,
-        reply_markup=main_menu_keyboard(),
+        reply_markup=(
+            main_menu_keyboard() if subscription else subscription_required_keyboard()
+        ),
         delete_current=delete_current,
     )
 
@@ -1740,6 +1747,20 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
+    @router.callback_query(F.data == "menu:subscription")
+    async def menu_subscription(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if callback.message:
+            await _send_main_menu(
+                callback.message, services, user["id"], delete_current=True
+            )
+        await callback.answer()
+
     @router.callback_query(F.data == "menu:plans")
     async def menu_plans(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
@@ -1858,8 +1879,8 @@ def create_router(services: AppServices) -> Router:
         if payment["provider"] == "mock":
             payment_text = (
                 f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
-                "Тестовый платеж создан со статусом pending.\n"
-                "Нажмите кнопку ниже, чтобы имитировать успешный webhook."
+                "Платёж создан со статусом pending.\n"
+                "Нажмите кнопку ниже, чтобы подтвердить оплату."
             )
         else:
             payment_text = (
@@ -1941,7 +1962,7 @@ def create_router(services: AppServices) -> Router:
                 f"{format_coin_amount(result.subscription['coins_balance_cache'])}."
             )
         else:
-            text = "Этот mock-webhook уже был обработан. Повторного начисления нет."
+            text = "Этот платёж уже был обработан. Повторного начисления нет."
         if callback.message:
             await _show_screen(
                 callback.message,
@@ -2406,8 +2427,8 @@ def create_router(services: AppServices) -> Router:
                     message,
                     services,
                     user["id"],
-                    "Нужна активная подписка. Откройте тарифы и оплатите тестово.",
-                    reply_markup=main_menu_keyboard(),
+                    _subscription_required_message(),
+                    reply_markup=subscription_required_keyboard(),
                 )
                 return
             except InsufficientCoinsError:
@@ -2513,8 +2534,8 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Нужна активная подписка. Откройте тарифы и оплатите тестово.",
-                reply_markup=back_to_menu_keyboard(),
+                _subscription_required_message(),
+                reply_markup=subscription_required_keyboard(),
             )
             return
         except InsufficientCoinsError:

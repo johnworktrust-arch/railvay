@@ -78,6 +78,23 @@ def profile_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def subscription_required_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💳 Подписка", callback_data="menu:subscription"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="📋 Тарифы", callback_data="menu:plans"
+                )
+            ],
+        ]
+    )
+
+
 def back_to_menu_keyboard() -> ReplyKeyboardMarkup:
     return ReplyKeyboardMarkup(
         keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],
@@ -216,12 +233,12 @@ def payment_keyboard(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="✅ Оплатить тестово", callback_data=f"pay:{payment_id}"
+                    text="✅ Оплатить", callback_data=f"pay:{payment_id}"
                 )
             ]
         )
         rows.append(
-            [InlineKeyboardButton(text="🔗 Тестовая ссылка оплаты", url=payment_url)]
+            [InlineKeyboardButton(text="🔗 Ссылка оплаты", url=payment_url)]
         )
     else:
         rows.append([InlineKeyboardButton(text="💳 Перейти к оплате", url=payment_url)])

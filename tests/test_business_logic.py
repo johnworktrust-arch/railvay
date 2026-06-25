@@ -834,6 +834,31 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("USDT", referral_source.upper())
         self.assertNotIn("🪁", handlers_source)
 
+    def test_subscription_required_message_has_plan_buttons_without_test_copy(self) -> None:
+        from ceai.bot.handlers import _subscription_required_message
+        from ceai.bot.keyboards import payment_keyboard, subscription_required_keyboard
+
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        keyboard = subscription_required_keyboard()
+        labels = [row[0].text for row in keyboard.inline_keyboard]
+        callbacks = [row[0].callback_data for row in keyboard.inline_keyboard]
+        payment_labels = [
+            row[0].text
+            for row in payment_keyboard(1, "https://pay.example").inline_keyboard
+        ]
+
+        self.assertEqual(labels, ["💳 Подписка", "📋 Тарифы"])
+        self.assertEqual(callbacks, ["menu:subscription", "menu:plans"])
+        self.assertEqual(
+            _subscription_required_message(),
+            "Нужна активная подписка. Откройте тарифы и выберите подписку.",
+        )
+        self.assertIn('F.data == "menu:subscription"', handlers_source)
+        self.assertIn("reply_markup=subscription_required_keyboard()", handlers_source)
+        self.assertNotIn("оплатите тестово", handlers_source.casefold())
+        self.assertNotIn("Оплатить тестово", payment_labels)
+        self.assertNotIn("Тестовая ссылка оплаты", payment_labels)
+
     def test_bot_screens_edit_inline_messages_and_replace_bottom_keyboard(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         regular_screen_source = handlers_source.split(
