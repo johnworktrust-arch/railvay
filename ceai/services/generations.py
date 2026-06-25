@@ -151,7 +151,7 @@ class GenerationService:
             generation = self.generations.mark_completed(
                 conn,
                 generation_id=generation["id"],
-                result=provider_result.result,
+                result=_result_for_storage(provider_result.result),
                 provider_job_id=provider_result.provider_job_id,
                 coins_charged=cost,
                 provider_cost_amount=provider_result.provider_cost_amount,
@@ -175,3 +175,12 @@ class GenerationService:
                 row["prompt_payload"] = loads_dict(row.get("prompt"))
                 row["result_payload"] = loads_dict(row.get("result"))
             return rows
+
+
+def _result_for_storage(result: Dict[str, Any]) -> Dict[str, Any]:
+    if result.get("kind") != "image" or "image_b64" not in result:
+        return result
+    stored = dict(result)
+    stored.pop("image_b64", None)
+    stored["image_data_saved"] = False
+    return stored

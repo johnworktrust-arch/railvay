@@ -89,6 +89,121 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(row["count"], 1)
         self.assertEqual(row["amount"], 60)
 
+    def test_yookassa_payment_creation_uses_redirect_checkout(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            payment_provider="yookassa",
+            app_base_url="https://bot.example",
+            yookassa_shop_id="shop-test",
+            yookassa_secret_key="secret-test",
+        )
+        services = build_services(self.db, settings)
+
+        with patch.object(
+            services.payments,
+            "_yookassa_request",
+            return_value={
+                "id": "yk_payment_1",
+                "status": "pending",
+                "confirmation": {
+                    "type": "redirect",
+                    "confirmation_url": "https://yookassa.test/pay/1",
+                },
+            },
+        ) as api:
+            payment = services.payments.create_payment(
+                user_id=self.user["id"],
+                plan_code="start",
+                payment_method="yookassa",
+            )
+
+        self.assertEqual(payment["provider"], "yookassa")
+        self.assertEqual(payment["external_id"], "yk_payment_1")
+        self.assertEqual(payment["payment_url"], "https://yookassa.test/pay/1")
+        self.assertEqual(payment["amount_rub"], 449)
+
+        args, kwargs = api.call_args
+        self.assertEqual(args, ("POST", "/payments"))
+        payload = kwargs["payload"]
+        self.assertEqual(payload["amount"], {"value": "449.00", "currency": "RUB"})
+        self.assertTrue(payload["capture"])
+        self.assertEqual(payload["confirmation"]["type"], "redirect")
+        self.assertEqual(
+            payload["confirmation"]["return_url"],
+            "https://bot.example/payments/yookassa/return",
+        )
+        self.assertEqual(payload["metadata"]["plan_code"], "start")
+
+    def test_successful_yookassa_webhook_credits_coins_once(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            payment_provider="yookassa",
+            app_base_url="https://bot.example",
+            yookassa_shop_id="shop-test",
+            yookassa_secret_key="secret-test",
+        )
+        services = build_services(self.db, settings)
+
+        with patch.object(
+            services.payments,
+            "_yookassa_request",
+            return_value={
+                "id": "yk_payment_2",
+                "status": "pending",
+                "confirmation": {
+                    "type": "redirect",
+                    "confirmation_url": "https://yookassa.test/pay/2",
+                },
+            },
+        ):
+            payment = services.payments.create_payment(
+                user_id=self.user["id"],
+                plan_code="start",
+                payment_method="yookassa",
+            )
+
+        payload = {
+            "type": "notification",
+            "event": "payment.succeeded",
+            "object": {
+                "id": "yk_payment_2",
+                "status": "succeeded",
+                "paid": True,
+            },
+        }
+        with patch.object(
+            services.payments,
+            "_fetch_yookassa_payment",
+            return_value={"id": "yk_payment_2", "status": "succeeded", "paid": True},
+        ) as fetch:
+            first = services.payments.process_yookassa_webhook(payload=payload)
+            second = services.payments.process_yookassa_webhook(payload=payload)
+
+        self.assertTrue(first.processed)
+        self.assertEqual(first.credited_coins, 60)
+        self.assertFalse(second.processed)
+        self.assertTrue(second.duplicate)
+        self.assertEqual(fetch.call_count, 1)
+        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 60)
+
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
+                FROM coin_transactions
+                WHERE payment_id = ? AND type = 'credit'
+                """,
+                (payment["id"],),
+            ).fetchone()
+        self.assertEqual(row["count"], 1)
+        self.assertEqual(row["amount"], 60)
+
     def test_start_referral_assigns_referrer_once_and_rejects_self(self) -> None:
         friend = self.services.users.ensure_telegram_user(
             telegram_id=2002,
@@ -487,7 +602,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("KeyboardButton(text=BACK_TO_MENU_BUTTON)", keyboard_source)
         self.assertIn("Выберите модель на нижней клавиатуре.", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
-        self.assertIn("_format_generation_result(generation.result)", handlers_source)
+        self.assertIn("_show_generation_result(", handlers_source)
+        self.assertIn("BufferedInputFile", handlers_source)
         self.assertNotIn("Баланс после генерации", handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
 
@@ -554,7 +670,7 @@ class MigrationAndUITest(unittest.TestCase):
                 "L - 999₽ - 260 💎  (-17%)",
                 "XL - 2990₽ - 1198 💎  (-45%)",
                 "⚡XXL - 9000₽ - 4300 💎  (-55%)",
-                "↩ Назад",
+                "⬅️ Назад",
             ],
         )
         self.assertIn("crystals:s", crystal_callbacks)
@@ -576,12 +692,10 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertIn("coins:buy", callbacks)
         self.assertEqual(
-            payment_method_labels[:3],
-            ["🏦 СБП", "💵 USDT TRC20", "⭐️ Telegram Stars"],
+            payment_method_labels[:1],
+            ["💳 ЮKassa: карта / СБП"],
         )
-        self.assertIn("pay_method:start:sbp", payment_method_callbacks)
-        self.assertIn("pay_method:start:usdt_trc20", payment_method_callbacks)
-        self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
+        self.assertIn("pay_method:start:yookassa", payment_method_callbacks)
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
         self.assertIn("_format_plan_details(plan)", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
@@ -948,7 +1062,14 @@ class MigrationAndUITest(unittest.TestCase):
                 "DEEPSEEK_API_KEY": "deepseek-test",
                 "DEEPSEEK_BASE_URL": "https://deepseek.test",
                 "OPENAI_API_KEY": "openai-test",
+                "OPENAI_IMAGE_API_KEY": "openai-image-test",
                 "OPENAI_BASE_URL": "https://openai.test/v1",
+                "PAYMENT_PROVIDER": "yookassa",
+                "YOOKASSA_SHOP_ID": "shop-test",
+                "YOOKASSA_SECRET_KEY": "secret-test",
+                "YOOKASSA_WEBHOOK_PATH": "/yk/webhook",
+                "YOOKASSA_RETURN_PATH": "/yk/return",
+                "YOOKASSA_REQUEST_TIMEOUT_SECONDS": "9",
             },
         ):
             settings = load_settings()
@@ -958,9 +1079,16 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.deepseek_api_key, "deepseek-test")
         self.assertEqual(settings.deepseek_base_url, "https://deepseek.test")
         self.assertEqual(settings.openai_api_key, "openai-test")
+        self.assertEqual(settings.openai_image_api_key, "openai-image-test")
         self.assertEqual(settings.openai_base_url, "https://openai.test/v1")
+        self.assertEqual(settings.payment_provider, "yookassa")
+        self.assertEqual(settings.yookassa_shop_id, "shop-test")
+        self.assertEqual(settings.yookassa_secret_key, "secret-test")
+        self.assertEqual(settings.yookassa_webhook_path, "/yk/webhook")
+        self.assertEqual(settings.yookassa_return_path, "/yk/return")
+        self.assertEqual(settings.yookassa_request_timeout_seconds, 9)
 
-    def test_seed_text_models_are_configured_for_real_api(self) -> None:
+    def test_seed_openai_models_are_configured_for_real_api(self) -> None:
         db = Database("sqlite:///:memory:")
         try:
             db.migrate()
@@ -974,6 +1102,10 @@ class MigrationAndUITest(unittest.TestCase):
                     "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
                     ("openai", "gpt-4o-mini"),
                 ).fetchone()
+                image = conn.execute(
+                    "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
+                    ("openai", "gpt-image-2-medium"),
+                ).fetchone()
 
             self.assertEqual(
                 loads_dict(deepseek["config"])["api_model"], "deepseek-v4-flash"
@@ -985,6 +1117,11 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(openai["coins_cost"], 3)
             self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
             self.assertEqual(loads_dict(openai["config"])["reasoning_effort"], "low")
+            image_config = loads_dict(image["config"])
+            self.assertEqual(image_config["api_model"], "gpt-image-2")
+            self.assertEqual(image_config["quality"], "medium")
+            self.assertEqual(image_config["size"], "1024x1024")
+            self.assertEqual(image_config["output_format"], "png")
         finally:
             db.close()
 
@@ -1028,6 +1165,12 @@ class MigrationAndUITest(unittest.TestCase):
                     value="saved-openai-key",
                     is_secret=True,
                 )
+                repo.upsert(
+                    conn,
+                    key="OPENAI_IMAGE_API_KEY",
+                    value="saved-openai-image-key",
+                    is_secret=True,
+                )
 
             settings = Settings(
                 telegram_bot_token="test",
@@ -1040,6 +1183,8 @@ class MigrationAndUITest(unittest.TestCase):
 
             self.assertIsNotNone(router.deepseek)
             self.assertIsNotNone(router.openai)
+            self.assertIsNotNone(router.openai_image)
+            self.assertEqual(router.openai_image.api_key, "saved-openai-image-key")
         finally:
             db.close()
 
@@ -1057,6 +1202,7 @@ class MigrationAndUITest(unittest.TestCase):
             router = AIProviderRouter(settings, db)
             self.assertIsNone(router.deepseek)
             self.assertIsNone(router.openai)
+            self.assertIsNone(router.openai_image)
 
             with db.transaction() as conn:
                 repo = AppSettingsRepository()
@@ -1076,6 +1222,7 @@ class MigrationAndUITest(unittest.TestCase):
 
             self.assertIsNotNone(router.deepseek)
             self.assertIsNotNone(router.openai)
+            self.assertIsNotNone(router.openai_image)
         finally:
             db.close()
 
@@ -1122,6 +1269,7 @@ class MigrationAndUITest(unittest.TestCase):
                             "AI_PROVIDER_MODE": "auto",
                             "DEEPSEEK_API_KEY": "deepseek-test",
                             "OPENAI_API_KEY": "openai-test",
+                            "OPENAI_IMAGE_API_KEY": "openai-image-test",
                         }
                     }
                 ).encode("utf-8"),
@@ -1132,10 +1280,16 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertTrue(loads(body)["ok"])
             with db.transaction() as conn:
                 saved = AppSettingsRepository().get_many(
-                    conn, ("DEEPSEEK_API_KEY", "OPENAI_API_KEY")
+                    conn,
+                    (
+                        "DEEPSEEK_API_KEY",
+                        "OPENAI_API_KEY",
+                        "OPENAI_IMAGE_API_KEY",
+                    ),
                 )
             self.assertEqual(saved["DEEPSEEK_API_KEY"], "deepseek-test")
             self.assertEqual(saved["OPENAI_API_KEY"], "openai-test")
+            self.assertEqual(saved["OPENAI_IMAGE_API_KEY"], "openai-image-test")
         finally:
             db.close()
 

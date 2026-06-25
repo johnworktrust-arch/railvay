@@ -7,6 +7,7 @@ from ceai.database import Database
 from ceai.providers.base import AIProvider, ProviderError, ProviderResult
 from ceai.providers.deepseek import DeepSeekProvider
 from ceai.providers.mock import MockAIProvider
+from ceai.providers.openai_image import OpenAIImageProvider
 from ceai.providers.openai_text import OpenAITextProvider
 from ceai.repositories.app_settings import AppSettingsRepository
 
@@ -17,6 +18,7 @@ PROVIDER_SETTING_KEYS = (
     "DEEPSEEK_API_KEY",
     "DEEPSEEK_BASE_URL",
     "OPENAI_API_KEY",
+    "OPENAI_IMAGE_API_KEY",
     "OPENAI_BASE_URL",
 )
 
@@ -29,6 +31,7 @@ class AIProviderRouter:
         self.ai_provider_mode = settings.ai_provider_mode
         self.deepseek: AIProvider | None = None
         self.openai: AIProvider | None = None
+        self.openai_image: AIProvider | None = None
         self.reload_settings()
 
     def reload_settings(self) -> None:
@@ -45,6 +48,11 @@ class AIProviderRouter:
         )
         openai_api_key = self.settings.openai_api_key or saved_settings.get(
             "OPENAI_API_KEY", ""
+        )
+        openai_image_api_key = (
+            self.settings.openai_image_api_key
+            or saved_settings.get("OPENAI_IMAGE_API_KEY", "")
+            or openai_api_key
         )
         openai_base_url = (
             saved_settings.get("OPENAI_BASE_URL") or self.settings.openai_base_url
@@ -65,6 +73,15 @@ class AIProviderRouter:
                 timeout_seconds=timeout_seconds,
             )
             if openai_api_key
+            else None
+        )
+        self.openai_image = (
+            OpenAIImageProvider(
+                api_key=openai_image_api_key,
+                base_url=openai_base_url,
+                timeout_seconds=timeout_seconds,
+            )
+            if openai_image_api_key
             else None
         )
 
@@ -96,6 +113,8 @@ class AIProviderRouter:
             real_provider = self.deepseek
         elif provider_key == "openai" and generation_type == "text":
             real_provider = self.openai
+        elif provider_key == "openai" and generation_type == "image":
+            real_provider = self.openai_image
 
         if real_provider is not None:
             return real_provider

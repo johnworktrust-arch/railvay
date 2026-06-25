@@ -49,6 +49,7 @@ class Settings:
     database_url: str
     app_env: str
     mock_payment_base_url: str
+    payment_provider: str = "mock"
     app_base_url: str = ""
     telegram_webhook_path: str = "/telegram/webhook"
     telegram_webhook_secret: str = ""
@@ -62,7 +63,14 @@ class Settings:
     deepseek_api_key: str = ""
     deepseek_base_url: str = "https://api.deepseek.com"
     openai_api_key: str = ""
+    openai_image_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
+    yookassa_shop_id: str = ""
+    yookassa_secret_key: str = ""
+    yookassa_api_base_url: str = "https://api.yookassa.ru/v3"
+    yookassa_webhook_path: str = "/payments/yookassa/webhook"
+    yookassa_return_path: str = "/payments/yookassa/return"
+    yookassa_request_timeout_seconds: int = 15
 
 
 def load_settings() -> Settings:
@@ -105,6 +113,7 @@ def load_settings() -> Settings:
         mock_payment_base_url=read(
             "MOCK_PAYMENT_BASE_URL", "https://mock-payments.local/pay"
         ),
+        payment_provider=read("PAYMENT_PROVIDER", "mock").strip().lower(),
         app_base_url=app_base_url,
         telegram_webhook_path=read("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook"),
         telegram_webhook_secret=read("TELEGRAM_WEBHOOK_SECRET"),
@@ -120,5 +129,20 @@ def load_settings() -> Settings:
         deepseek_api_key=read("DEEPSEEK_API_KEY"),
         deepseek_base_url=read("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
         openai_api_key=read("OPENAI_API_KEY"),
+        openai_image_api_key=read("OPENAI_IMAGE_API_KEY"),
         openai_base_url=read("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        yookassa_shop_id=read("YOOKASSA_SHOP_ID"),
+        yookassa_secret_key=read("YOOKASSA_SECRET_KEY"),
+        yookassa_api_base_url=read(
+            "YOOKASSA_API_BASE_URL", "https://api.yookassa.ru/v3"
+        ).rstrip("/"),
+        yookassa_webhook_path=read(
+            "YOOKASSA_WEBHOOK_PATH", "/payments/yookassa/webhook"
+        ),
+        yookassa_return_path=read(
+            "YOOKASSA_RETURN_PATH", "/payments/yookassa/return"
+        ),
+        yookassa_request_timeout_seconds=read_int(
+            "YOOKASSA_REQUEST_TIMEOUT_SECONDS", 15
+        ),
     )

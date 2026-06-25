@@ -2,14 +2,14 @@
 
 ## Быстрый запуск технического MVP
 
-В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами, реальными текстовыми AI-провайдерами DeepSeek/OpenAI и mock-заглушками для остальных типов генераций.
+В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами для локальной разработки, YooKassa-платежами для прода, реальными AI-провайдерами DeepSeek/OpenAI для текста и OpenAI GPT Image для картинок, а также mock-заглушками для остальных типов генераций.
 
 ### Что внутри
 
 - `ceai/bot` — команды, меню и callback handlers Telegram-бота.
 - `ceai/services` — бизнес-логика пользователей, подписок, платежей, coins и генераций.
 - `ceai/repositories` — доступ к SQLite-таблицам из модели данных.
-- `ceai/providers` — реальные text-провайдеры DeepSeek/OpenAI и mock-заглушки image/video/tts.
+- `ceai/providers` — реальные провайдеры DeepSeek/OpenAI для текста, OpenAI GPT Image для картинок и mock-заглушки video/tts.
 - `migrations/001_init.sql` — схема БД из `Документация.md`.
 - `migrations/postgres/001_init.sql` — та же схема для Postgres.
 - `ceai/seed.py` — стартовые тарифы и цены моделей.
@@ -32,12 +32,14 @@ cp .env.example .env
 TELEGRAM_BOT_TOKEN=put-your-telegram-bot-token-here
 DATABASE_URL=sqlite:///./data/ceai.sqlite3
 MOCK_PAYMENT_BASE_URL=https://mock-payments.local/pay
+PAYMENT_PROVIDER=mock
 AI_PROVIDER_MODE=auto
 DEEPSEEK_API_KEY=your-deepseek-api-key
 OPENAI_API_KEY=your-openai-api-key
+OPENAI_IMAGE_API_KEY=your-openai-image-api-key
 ```
 
-`AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI текст работают через реальные API при наличии ключей, а неподключенные типы генераций остаются на mock-заглушках. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
+`OPENAI_API_KEY` используется для ChatGPT-текста, `OPENAI_IMAGE_API_KEY` — для GPT Image. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI работают через реальные API при наличии ключей, а неподключенные типы генераций остаются на mock-заглушках. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
 
 Создать БД и заполнить тарифы/модели можно отдельно:
 
@@ -67,9 +69,16 @@ TELEGRAM_BOT_TOKEN=your-botfather-token
 DATABASE_URL=postgresql://user:password@host:5432/dbname
 APP_ENV=production
 MOCK_PAYMENT_BASE_URL=https://mock-payments.local/pay
+PAYMENT_PROVIDER=yookassa
+YOOKASSA_SHOP_ID=your-yookassa-shop-id
+YOOKASSA_SECRET_KEY=your-yookassa-secret-key
+YOOKASSA_API_BASE_URL=https://api.yookassa.ru/v3
+YOOKASSA_WEBHOOK_PATH=/payments/yookassa/webhook
+YOOKASSA_RETURN_PATH=/payments/yookassa/return
 AI_PROVIDER_MODE=auto
 DEEPSEEK_API_KEY=your-deepseek-api-key
 OPENAI_API_KEY=your-openai-api-key
+OPENAI_IMAGE_API_KEY=your-openai-image-api-key
 ADMIN_TELEGRAM_USERNAMES=samescam
 SUPPORT_USERNAME=cea_help
 ```
@@ -87,9 +96,42 @@ TELEGRAM_WEBHOOK_SECRET=change-me
 ```text
 https://your-service.up.railway.app/healthz
 https://your-service.up.railway.app/telegram/status
+https://your-service.up.railway.app/payments/yookassa/return
 ```
 
 В `/telegram/status` видно, какой webhook реально установлен в Telegram и есть ли последняя ошибка доставки.
+
+### Реальная оплата через YooKassa
+
+Для реальной оплаты используется redirect-сценарий YooKassa:
+
+```text
+Бот создает payment в YooKassa
+-> пользователь открывает confirmation_url
+-> YooKassa присылает webhook payment.succeeded
+-> backend проверяет payment через YooKassa API
+-> backend начисляет монеты один раз
+```
+
+Что нужно указать на хостинге:
+
+```bash
+PAYMENT_PROVIDER=yookassa
+APP_BASE_URL=https://your-service.up.railway.app
+YOOKASSA_SHOP_ID=your-shop-id
+YOOKASSA_SECRET_KEY=your-secret-key
+YOOKASSA_WEBHOOK_PATH=/payments/yookassa/webhook
+YOOKASSA_RETURN_PATH=/payments/yookassa/return
+```
+
+В личном кабинете YooKassa добавьте входящее уведомление:
+
+```text
+Event: payment.succeeded
+URL: https://your-service.up.railway.app/payments/yookassa/webhook
+```
+
+`/payments/yookassa/return` нужен только как страница возврата пользователя после оплаты. Монеты там не начисляются; начисление идет только после webhook и проверки статуса платежа через API YooKassa.
 
 ### Проверка сценария в Telegram
 
@@ -97,7 +139,7 @@ https://your-service.up.railway.app/telegram/status
 /start
 -> Тарифы
 -> выбрать Старт / Базовый / Про
--> Оплатить тестово
+-> Перейти к оплате
 -> AI-инструменты
 -> выбрать модель
 -> отправить prompt

@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import base64
+import binascii
 from html import escape
 from pathlib import Path
 from typing import Any, Dict
@@ -9,6 +12,7 @@ from aiogram.exceptions import TelegramBadRequest, TelegramForbiddenError
 from aiogram.filters import Command, CommandStart
 from aiogram.types import (
     CallbackQuery,
+    BufferedInputFile,
     ErrorEvent,
     FSInputFile,
     InlineKeyboardMarkup,
@@ -577,9 +581,7 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
 
 def _payment_method_label(payment_method: str) -> str:
     return {
-        "sbp": "🏦 СБП",
-        "usdt_trc20": "💵 USDT TRC20",
-        "telegram_stars": "⭐️ Telegram Stars",
+        "yookassa": "💳 ЮKassa",
     }.get(payment_method, "тестовая оплата")
 
 
@@ -672,6 +674,57 @@ def _format_generation_result(result: Dict[str, Any]) -> str:
     else:
         body = str(result)
     return body
+
+
+def _telegram_caption(text: str, *, limit: int = 1024) -> str:
+    if len(text) <= limit:
+        return text
+    return text[: limit - 3].rstrip() + "..."
+
+
+async def _show_generation_result(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    result: Dict[str, Any],
+    *,
+    reply_markup: Any | None = None,
+) -> Message:
+    if result.get("kind") == "image" and result.get("image_b64"):
+        state, payload = _session_state_payload(services, user_id)
+        tracked_ids = _tracked_message_ids(payload)
+        if tracked_ids:
+            await _delete_screen_messages(message, tracked_ids)
+        try:
+            image_bytes = base64.b64decode(str(result["image_b64"]), validate=True)
+            sent = await message.bot.send_photo(
+                chat_id=message.chat.id,
+                photo=BufferedInputFile(
+                    image_bytes,
+                    filename=str(result.get("file_name") or "cea-ai.png"),
+                ),
+                caption=_telegram_caption(str(result.get("caption") or "Готово.")),
+                reply_markup=reply_markup,
+            )
+            _remember_screen_message(
+                services,
+                user_id,
+                state=state,
+                payload=payload,
+                message_id=sent.message_id,
+                reply_markup=reply_markup,
+            )
+            return sent
+        except (binascii.Error, TelegramBadRequest, TelegramForbiddenError, ValueError):
+            pass
+
+    return await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_generation_result(result),
+        reply_markup=reply_markup,
+    )
 
 
 def _format_history(rows: list[Dict[str, Any]]) -> str:
@@ -1725,10 +1778,13 @@ def create_router(services: AppServices) -> Router:
         plan_code = parts[1] if len(parts) >= 2 else ""
         payment_method = parts[2] if len(parts) >= 3 else ""
         try:
-            payment = services.payments.create_mock_payment(
-                user_id=user["id"], plan_code=plan_code
+            payment = await asyncio.to_thread(
+                services.payments.create_payment,
+                user_id=user["id"],
+                plan_code=plan_code,
+                payment_method=payment_method,
             )
-        except NotFoundError as exc:
+        except (BusinessRuleError, NotFoundError) as exc:
             if callback.message:
                 await _show_screen(
                     callback.message,
@@ -1744,18 +1800,32 @@ def create_router(services: AppServices) -> Router:
         _set_dialog_state(
             services,
             user["id"],
-            state="waiting_mock_payment",
+            state="waiting_payment",
             payload={"payment_id": payment["id"], "payment_method": payment_method},
         )
+        if payment["provider"] == "mock":
+            payment_text = (
+                f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
+                "Тестовый платеж создан со статусом pending.\n"
+                "Нажмите кнопку ниже, чтобы имитировать успешный webhook."
+            )
+        else:
+            payment_text = (
+                f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
+                "Платёж создан. Нажмите кнопку ниже и оплатите на странице ЮKassa.\n"
+                "Монеты начислятся автоматически после подтверждения платежа."
+            )
         if callback.message:
             await _show_screen(
                 callback.message,
                 services,
                 user["id"],
-                f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
-                "Тестовый платеж создан со статусом pending.\n"
-                "Нажмите кнопку ниже, чтобы имитировать успешный webhook.",
-                reply_markup=payment_keyboard(payment["id"], payment["payment_url"]),
+                payment_text,
+                reply_markup=payment_keyboard(
+                    payment["id"],
+                    payment["payment_url"],
+                    provider=str(payment["provider"]),
+                ),
                 delete_current=True,
             )
         await callback.answer()
@@ -2318,11 +2388,11 @@ def create_router(services: AppServices) -> Router:
                 )
                 return
 
-            await _show_screen(
+            await _show_generation_result(
                 message,
                 services,
                 user["id"],
-                _format_generation_result(generation.result),
+                generation.result,
                 reply_markup=chat_keyboard,
             )
             return
@@ -2426,11 +2496,11 @@ def create_router(services: AppServices) -> Router:
             )
             return
 
-        await _show_screen(
+        await _show_generation_result(
             message,
             services,
             user["id"],
-            _format_generation_result(generation.result),
+            generation.result,
             reply_markup=back_to_menu_keyboard(),
         )
 

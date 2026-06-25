@@ -19,6 +19,7 @@ class PaymentRepository:
         external_id: str,
         payment_url: str,
         provider: str = "mock",
+        meta: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
         now = iso_now()
         cursor = conn.execute(
@@ -37,7 +38,7 @@ class PaymentRepository:
                 external_id,
                 amount_rub,
                 payment_url,
-                dumps({"kind": "mock_payment"}),
+                dumps(meta or {"kind": f"{provider}_payment"}),
                 now,
             ),
         )

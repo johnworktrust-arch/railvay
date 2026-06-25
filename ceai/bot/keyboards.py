@@ -139,22 +139,15 @@ def payment_methods_keyboard(plan_code: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🏦 СБП", callback_data=f"pay_method:{plan_code}:sbp"
+                    text="💳 ЮKassa: карта / СБП",
+                    callback_data=f"pay_method:{plan_code}:yookassa",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="💵 USDT TRC20",
-                    callback_data=f"pay_method:{plan_code}:usdt_trc20",
+                    text=BACK_TO_MENU_BUTTON, callback_data="menu:plans"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="⭐️ Telegram Stars",
-                    callback_data=f"pay_method:{plan_code}:telegram_stars",
-                )
-            ],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:plans")],
         ]
     )
 
@@ -189,7 +182,7 @@ def crystal_packages_keyboard() -> InlineKeyboardMarkup:
                     callback_data="crystals:xxl",
                 )
             ],
-            [InlineKeyboardButton(text="↩ Назад", callback_data="menu:plans")],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:plans")],
         ]
     )
 
@@ -203,22 +196,27 @@ def _plan_choice_label(plan: Dict[str, Any]) -> str:
     return f"{icon} {plan['name']} - {plan['price_rub']}руб"
 
 
-def payment_keyboard(payment_id: int, payment_url: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def payment_keyboard(
+    payment_id: int, payment_url: str, *, provider: str = "mock"
+) -> InlineKeyboardMarkup:
+    rows = []
+    if provider == "mock":
+        rows.append(
             [
                 InlineKeyboardButton(
                     text="✅ Оплатить тестово", callback_data=f"pay:{payment_id}"
                 )
-            ],
-            [InlineKeyboardButton(text="🔗 Тестовая ссылка оплаты", url=payment_url)],
-            [
-                InlineKeyboardButton(
-                    text=BACK_TO_MENU_BUTTON, callback_data="menu:home"
-                )
-            ],
-        ]
+            ]
+        )
+        rows.append(
+            [InlineKeyboardButton(text="🔗 Тестовая ссылка оплаты", url=payment_url)]
+        )
+    else:
+        rows.append([InlineKeyboardButton(text="💳 Перейти к оплате", url=payment_url)])
+    rows.append(
+        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def _model_emoji(generation_type: str) -> str:

@@ -41,6 +41,15 @@ def build_services(db: Database, settings: Settings) -> AppServices:
         payments=PaymentService(
             db,
             mock_payment_base_url=settings.mock_payment_base_url,
+            payment_provider=settings.payment_provider,
+            app_base_url=settings.app_base_url,
+            yookassa_shop_id=settings.yookassa_shop_id,
+            yookassa_secret_key=settings.yookassa_secret_key,
+            yookassa_api_base_url=settings.yookassa_api_base_url,
+            yookassa_return_path=settings.yookassa_return_path,
+            yookassa_request_timeout_seconds=(
+                settings.yookassa_request_timeout_seconds
+            ),
             referrals=referrals,
         ),
         generations=GenerationService(db, provider),

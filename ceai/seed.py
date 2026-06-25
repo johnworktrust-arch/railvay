@@ -84,6 +84,10 @@ MODEL_PRICES = [
         "generation_type": "image",
         "coins_cost": 6,
         "config": {
+            "api_model": "gpt-image-2",
+            "quality": "medium",
+            "size": "1024x1024",
+            "output_format": "png",
             "provider_cost_amount": 4.5,
             "provider_cost_currency": "RUB",
             "ui_description": (

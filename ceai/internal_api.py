@@ -13,7 +13,7 @@ from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.repositories.model_prices import ModelPriceRepository
 
 
-SECRET_SETTING_KEYS = {"DEEPSEEK_API_KEY", "OPENAI_API_KEY"}
+SECRET_SETTING_KEYS = {"DEEPSEEK_API_KEY", "OPENAI_API_KEY", "OPENAI_IMAGE_API_KEY"}
 TEXT_PROVIDER_MODELS = (
     ("deepseek", "deepseek-v4-flash"),
     ("openai", "gpt-4o-mini"),

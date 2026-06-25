@@ -19,7 +19,8 @@ from ceai.runtime_diagnostics import (
     snapshot as diagnostics_snapshot,
 )
 from ceai.seed import seed_reference_data
-from ceai.services.app import build_services
+from ceai.services.app import AppServices, build_services
+from ceai.services.exceptions import BusinessRuleError
 from ceai.bot.handlers import create_router
 
 
@@ -35,6 +36,21 @@ async def health(request: web.Request) -> web.Response:
 
 async def public_offer(request: web.Request) -> web.Response:
     return web.Response(text=PUBLIC_OFFER_TEXT, content_type="text/plain")
+
+
+async def payment_return(request: web.Request) -> web.Response:
+    return web.Response(
+        text=(
+            "<!doctype html><html lang=\"ru\"><meta charset=\"utf-8\">"
+            "<title>CeaAI payment</title>"
+            "<body style=\"font-family: system-ui, sans-serif; padding: 32px;\">"
+            "<h1>Оплата обрабатывается</h1>"
+            "<p>Вернитесь в Telegram-бота CeaAI. Монеты начислятся "
+            "автоматически после подтверждения платежа.</p>"
+            "</body></html>"
+        ),
+        content_type="text/html",
+    )
 
 
 async def telegram_status(request: web.Request) -> web.Response:
@@ -84,6 +100,7 @@ async def run_webhook(
     dispatcher: Dispatcher,
     settings,
     db: Database,
+    services: AppServices,
     webhook_url: str,
     webhook_path: str,
     webhook_secret: str,
@@ -105,6 +122,13 @@ async def run_webhook(
     app["settings"] = settings
     app.router.add_get("/healthz", health)
     app.router.add_get("/public-offer", public_offer)
+    yookassa_return_path = settings.yookassa_return_path
+    if not yookassa_return_path.startswith("/"):
+        yookassa_return_path = "/" + yookassa_return_path
+    yookassa_webhook_path = settings.yookassa_webhook_path
+    if not yookassa_webhook_path.startswith("/"):
+        yookassa_webhook_path = "/" + yookassa_webhook_path
+    app.router.add_get(yookassa_return_path, payment_return)
     app.router.add_get("/telegram/status", telegram_status)
 
     async def provider_settings(request: web.Request) -> web.Response:
@@ -119,6 +143,39 @@ async def run_webhook(
         return web.Response(status=status, text=response, content_type=content_type)
 
     app.router.add_post("/internal/provider-settings", provider_settings)
+
+    async def yookassa_webhook(request: web.Request) -> web.Response:
+        try:
+            payload = await request.json()
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response(
+                {"ok": False, "error": "invalid_payload"}, status=400
+            )
+        try:
+            result = await asyncio.to_thread(
+                services.payments.process_yookassa_webhook,
+                payload=payload,
+            )
+        except BusinessRuleError as exc:
+            logging.warning("YooKassa webhook rejected: %s", exc)
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+        except Exception:
+            logging.exception("YooKassa webhook failed")
+            return web.json_response(
+                {"ok": False, "error": "webhook_failed"}, status=502
+            )
+        return web.json_response(
+            {
+                "ok": True,
+                "processed": result.processed,
+                "duplicate": result.duplicate,
+                "credited_coins": result.credited_coins,
+            }
+        )
+
+    app.router.add_post(yookassa_webhook_path, yookassa_webhook)
     SimpleRequestHandler(
         dispatcher=dispatcher,
         bot=bot,
@@ -174,6 +231,7 @@ async def main() -> None:
                 dispatcher=dispatcher,
                 settings=settings,
                 db=db,
+                services=services,
                 webhook_url=webhook_url,
                 webhook_path=webhook_path,
                 webhook_secret=settings.telegram_webhook_secret,

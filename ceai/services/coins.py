@@ -35,6 +35,7 @@ class CoinService:
         payment_id: int,
         amount: int,
         external_id: str,
+        provider: str = "mock",
     ) -> Dict[str, Any]:
         transaction, _ = self.transactions.create(
             conn,
@@ -45,7 +46,7 @@ class CoinService:
             type_="credit",
             status="completed",
             reason="subscription_grant",
-            idempotency_key=f"payment:mock:{external_id}:credit",
+            idempotency_key=f"payment:{provider}:{external_id}:credit",
         )
         self.sync_subscription_cache(conn, subscription_id)
         return transaction
