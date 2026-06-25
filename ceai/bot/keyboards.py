@@ -22,7 +22,7 @@ HISTORY_BUTTON = "🕘 История"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
 DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
-BUY_CRYSTALS_BUTTON = "💎 Купить кристаллы отдельно"
+BUY_CRYSTALS_BUTTON = "Купить монеты отдельно"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,

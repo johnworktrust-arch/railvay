@@ -9,7 +9,7 @@ from aiogram.types import BotCommand
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import ClientSession, ClientTimeout, web
 
-from ceai.config import load_settings
+from ceai.config import Settings, load_settings
 from ceai.database import Database
 from ceai.health import start_health_server
 from ceai.internal_api import handle_provider_settings_request
@@ -208,6 +208,7 @@ async def main() -> None:
     settings = load_settings()
     if not settings.telegram_bot_token:
         raise SystemExit("TELEGRAM_BOT_TOKEN is required. Copy .env.example to .env.")
+    _ensure_persistent_database(settings)
 
     db = Database(settings.database_url)
     db.migrate()
@@ -246,6 +247,27 @@ async def main() -> None:
             await health_server.wait_closed()
         await bot.session.close()
         db.close()
+
+
+def _ensure_persistent_database(settings: Settings) -> None:
+    managed_runtime = (
+        settings.app_env.strip().lower() in {"prod", "production"}
+        or bool(os.getenv("RAILWAY_ENVIRONMENT"))
+        or bool(os.getenv("RAILWAY_PUBLIC_DOMAIN"))
+        or bool(os.getenv("RAILWAY_SERVICE_ID"))
+    )
+    if (
+        managed_runtime
+        and settings.database_url.startswith("sqlite:///")
+        and not settings.allow_ephemeral_sqlite
+    ):
+        raise SystemExit(
+            "Refusing to start with SQLite in production/Railway. "
+            "SQLite inside the deploy container can be recreated on deploy and users "
+            "can lose subscriptions, payments, and coin balances. "
+            "Attach Railway Postgres and set DATABASE_URL=postgresql://... "
+            "Only set CEAI_ALLOW_EPHEMERAL_SQLITE=1 for disposable test bots."
+        )
 
 
 if __name__ == "__main__":

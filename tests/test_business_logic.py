@@ -746,7 +746,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("⭐️ Старт - 449руб", labels)
         self.assertIn("🔥 Базовый - 890руб", labels)
         self.assertIn("⚡️ Про - 1990руб", labels)
-        self.assertIn("💎 Купить кристаллы отдельно", labels)
+        self.assertIn("Купить монеты отдельно", labels)
         self.assertEqual(
             crystal_labels,
             [
@@ -1162,6 +1162,36 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(railway_config["build"]["dockerfilePath"], "Dockerfile")
         self.assertEqual(railway_config["deploy"]["healthcheckPath"], "/healthz")
 
+    def test_production_refuses_ephemeral_sqlite(self) -> None:
+        from ceai.main import _ensure_persistent_database
+
+        sqlite_settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///./data/ceai.sqlite3",
+            app_env="production",
+            mock_payment_base_url="https://mock-payments.test/pay",
+        )
+        with self.assertRaisesRegex(SystemExit, "Refusing to start with SQLite"):
+            _ensure_persistent_database(sqlite_settings)
+
+        _ensure_persistent_database(
+            Settings(
+                telegram_bot_token="test",
+                database_url="postgresql://user:password@host:5432/dbname",
+                app_env="production",
+                mock_payment_base_url="https://mock-payments.test/pay",
+            )
+        )
+        _ensure_persistent_database(
+            Settings(
+                telegram_bot_token="test",
+                database_url="sqlite:///./data/ceai.sqlite3",
+                app_env="production",
+                mock_payment_base_url="https://mock-payments.test/pay",
+                allow_ephemeral_sqlite=True,
+            )
+        )
+
     def test_ai_provider_env_settings_are_read(self) -> None:
         from ceai.config import load_settings
 
@@ -1182,6 +1212,7 @@ class MigrationAndUITest(unittest.TestCase):
                 "YOOKASSA_WEBHOOK_PATH": "/yk/webhook",
                 "YOOKASSA_RETURN_PATH": "/yk/return",
                 "YOOKASSA_REQUEST_TIMEOUT_SECONDS": "9",
+                "CEAI_ALLOW_EPHEMERAL_SQLITE": "true",
             },
         ):
             settings = load_settings()
@@ -1199,6 +1230,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.yookassa_webhook_path, "/yk/webhook")
         self.assertEqual(settings.yookassa_return_path, "/yk/return")
         self.assertEqual(settings.yookassa_request_timeout_seconds, 9)
+        self.assertTrue(settings.allow_ephemeral_sqlite)
 
     def test_seed_openai_models_are_configured_for_real_api(self) -> None:
         db = Database("sqlite:///:memory:")

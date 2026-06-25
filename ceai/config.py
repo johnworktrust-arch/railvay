@@ -71,6 +71,7 @@ class Settings:
     yookassa_webhook_path: str = "/payments/yookassa/webhook"
     yookassa_return_path: str = "/payments/yookassa/return"
     yookassa_request_timeout_seconds: int = 15
+    allow_ephemeral_sqlite: bool = False
 
 
 def load_settings() -> Settings:
@@ -98,6 +99,10 @@ def load_settings() -> Settings:
     def read_int(name: str, default: int) -> int:
         raw = read(name, str(default)).strip()
         return int(raw) if raw else default
+
+    def read_bool(name: str, default: bool = False) -> bool:
+        raw = read(name, "1" if default else "0").strip().lower()
+        return raw in {"1", "true", "yes", "on"}
 
     app_base_url = _normalize_base_url(
         read("APP_BASE_URL") or read("RAILWAY_PUBLIC_DOMAIN")
@@ -145,4 +150,5 @@ def load_settings() -> Settings:
         yookassa_request_timeout_seconds=read_int(
             "YOOKASSA_REQUEST_TIMEOUT_SECONDS", 15
         ),
+        allow_ephemeral_sqlite=read_bool("CEAI_ALLOW_EPHEMERAL_SQLITE"),
     )
