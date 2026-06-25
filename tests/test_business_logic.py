@@ -692,14 +692,17 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertIn("coins:buy", callbacks)
         self.assertEqual(
-            payment_method_labels[:1],
-            ["💳 ЮKassa: карта / СБП"],
+            payment_method_labels[:3],
+            ["💳 Карта / СБП", "💵 Крипта USDT TRC20", "⭐️ Telegram Stars"],
         )
-        self.assertIn("pay_method:start:yookassa", payment_method_callbacks)
+        self.assertIn("pay_method:start:card_sbp", payment_method_callbacks)
+        self.assertIn("pay_method:start:usdt_trc20", payment_method_callbacks)
+        self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
         self.assertIn("_format_plan_details(plan)", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
+        self.assertIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
         self.assertIn('F.data == "coins:buy"', handlers_source)
         self.assertIn('F.data.startswith("crystals:")', handlers_source)
         self.assertIn("_format_crystal_packages()", handlers_source)

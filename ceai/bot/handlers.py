@@ -581,7 +581,10 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
 
 def _payment_method_label(payment_method: str) -> str:
     return {
-        "yookassa": "💳 ЮKassa",
+        "card_sbp": "💳 Карта / СБП",
+        "sbp": "💳 Карта / СБП",
+        "usdt_trc20": "💵 Крипта USDT TRC20",
+        "telegram_stars": "⭐️ Telegram Stars",
     }.get(payment_method, "тестовая оплата")
 
 
@@ -1777,6 +1780,23 @@ def create_router(services: AppServices) -> Router:
         parts = callback.data.split(":", 2) if callback.data else []
         plan_code = parts[1] if len(parts) >= 2 else ""
         payment_method = parts[2] if len(parts) >= 3 else ""
+        if (
+            payment_method in {"usdt_trc20", "telegram_stars"}
+            and services.payments.payment_provider != "mock"
+        ):
+            if callback.message:
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
+                    "Этот способ оплаты скоро будет подключён.",
+                    reply_markup=payment_methods_keyboard(plan_code),
+                    delete_current=True,
+                )
+            await callback.answer()
+            return
+
         try:
             payment = await asyncio.to_thread(
                 services.payments.create_payment,
@@ -1812,7 +1832,7 @@ def create_router(services: AppServices) -> Router:
         else:
             payment_text = (
                 f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
-                "Платёж создан. Нажмите кнопку ниже и оплатите на странице ЮKassa.\n"
+                "Платёж создан. Нажмите кнопку ниже и завершите оплату.\n"
                 "Монеты начислятся автоматически после подтверждения платежа."
             )
         if callback.message:

@@ -139,8 +139,20 @@ def payment_methods_keyboard(plan_code: str) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💳 ЮKassa: карта / СБП",
-                    callback_data=f"pay_method:{plan_code}:yookassa",
+                    text="💳 Карта / СБП",
+                    callback_data=f"pay_method:{plan_code}:card_sbp",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="💵 Крипта USDT TRC20",
+                    callback_data=f"pay_method:{plan_code}:usdt_trc20",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="⭐️ Telegram Stars",
+                    callback_data=f"pay_method:{plan_code}:telegram_stars",
                 )
             ],
             [
