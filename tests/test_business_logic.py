@@ -492,11 +492,17 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
 
     def test_plan_screen_uses_new_prices_and_coins_are_called_monety(self) -> None:
-        from ceai.bot.handlers import _format_plans
+        from ceai.bot.handlers import _format_plan_details, _format_plans
         from ceai.bot.keyboards import payment_methods_keyboard, plans_keyboard
         from ceai.seed import PLANS
 
         text = _format_plans(PLANS)
+        start_plan = next(plan for plan in PLANS if plan["code"] == "start")
+        basic_plan = next(plan for plan in PLANS if plan["code"] == "basic")
+        pro_plan = next(plan for plan in PLANS if plan["code"] == "pro")
+        start_details = _format_plan_details(start_plan)
+        basic_details = _format_plan_details(basic_plan)
+        pro_details = _format_plan_details(pro_plan)
         labels = [row[0].text for row in plans_keyboard(PLANS).inline_keyboard]
         callbacks = [
             row[0].callback_data for row in plans_keyboard(PLANS).inline_keyboard
@@ -520,6 +526,17 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("🔥 Базовый - 890руб", labels)
         self.assertIn("⚡️ Про - 1990руб", labels)
         self.assertIn("💰 Купить монеты отдельно", labels)
+        self.assertIn("⭐️ Старт — 449 ₽", start_details)
+        self.assertIn("➕ 60 монет", start_details)
+        self.assertIn("➕ До 60 запросов DeepSeek", start_details)
+        self.assertIn("➕ До 20 запросов ChatGPT", start_details)
+        self.assertIn("💳 Выберите способ оплаты:", start_details)
+        self.assertIn("🔥 Базовый — 890 ₽", basic_details)
+        self.assertIn("➕ 150 монет", basic_details)
+        self.assertIn("➕ До 50 запросов ChatGPT", basic_details)
+        self.assertIn("⚡️ Про — 1990 ₽", pro_details)
+        self.assertIn("➕ 360 монет", pro_details)
+        self.assertIn("➕ До 120 запросов ChatGPT", pro_details)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 60, "basic": 150, "pro": 360},
@@ -533,6 +550,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("pay_method:start:usdt_trc20", payment_method_callbacks)
         self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
+        self.assertIn("_format_plan_details(plan)", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
         self.assertIn('F.data == "coins:buy"', handlers_source)

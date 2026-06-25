@@ -524,6 +524,53 @@ def _format_payment_methods() -> str:
     return "💳 Выберите способ оплаты:"
 
 
+def _format_plan_details(plan: Dict[str, Any]) -> str:
+    code = str(plan.get("code") or "")
+    coins = int(plan.get("coins_amount") or 0)
+    price = int(plan.get("price_rub") or 0)
+    chatgpt_requests = coins // 3
+    deepseek_requests = coins
+    meta = {
+        "start": {
+            "icon": "⭐️",
+            "label": "Старт",
+            "tag": "для знакомства",
+            "extra": "➕ Подходит, чтобы спокойно попробовать Cea AI",
+        },
+        "basic": {
+            "icon": "🔥",
+            "label": "Базовый",
+            "tag": "популярный",
+            "extra": "➕ Лучший вариант для регулярного общения с нейросетями",
+        },
+        "pro": {
+            "icon": "⚡️",
+            "label": "Про",
+            "tag": "максимум",
+            "extra": "➕ Больше всего монет и запас для активной работы",
+        },
+    }.get(
+        code,
+        {
+            "icon": "💳",
+            "label": str(plan.get("name") or "Тариф"),
+            "tag": "30 дней",
+            "extra": "➕ Доступ к текстовым нейросетям Cea AI",
+        },
+    )
+    return (
+        f"{meta['icon']} {meta['label']} — {price} ₽\n"
+        f"({meta['tag']})\n\n"
+        "➕ Доступ к текстовым нейросетям\n"
+        f"➕ {format_coin_amount(coins)}\n"
+        f"➕ До {deepseek_requests} запросов DeepSeek\n"
+        f"➕ До {chatgpt_requests} запросов ChatGPT\n"
+        "➕ Срок действия — 30 дней\n"
+        f"{meta['extra']}\n\n"
+        f"{_format_payment_methods()}"
+    )
+
+
 def _payment_method_label(payment_method: str) -> str:
     return {
         "sbp": "🏦 СБП",
@@ -1656,7 +1703,7 @@ def create_router(services: AppServices) -> Router:
                 callback.message,
                 services,
                 user["id"],
-                _format_payment_methods(),
+                _format_plan_details(plan),
                 reply_markup=payment_methods_keyboard(plan_code),
                 delete_current=True,
             )
