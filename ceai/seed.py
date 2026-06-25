@@ -12,7 +12,7 @@ PLANS = [
         "name": "Старт",
         "price_rub": 449,
         "duration_days": 30,
-        "coins_amount": 100,
+        "coins_amount": 60,
         "features": {
             "description": "Для первого знакомства с CeaAI",
             "video_limit": 0,
@@ -23,7 +23,7 @@ PLANS = [
         "name": "Базовый",
         "price_rub": 890,
         "duration_days": 30,
-        "coins_amount": 300,
+        "coins_amount": 150,
         "features": {
             "description": "Для регулярной работы с текстом, картинками и озвучкой",
             "video_limit": 1,
@@ -34,7 +34,7 @@ PLANS = [
         "name": "Про",
         "price_rub": 1990,
         "duration_days": 30,
-        "coins_amount": 800,
+        "coins_amount": 360,
         "features": {
             "description": "Для активной генерации контента",
             "video_limit": 5,
@@ -52,7 +52,7 @@ MODEL_PRICES = [
         "config": {
             "api_model": "deepseek-v4-flash",
             "thinking_type": "disabled",
-            "provider_cost_amount": 0.03,
+            "provider_cost_amount": 0.05,
             "provider_cost_currency": "RUB",
             "ui_description": (
                 "Быстрая и экономная нейросетка для повседневных вопросов, "
@@ -65,11 +65,11 @@ MODEL_PRICES = [
         "model_key": "gpt-4o-mini",
         "display_name": "ChatGPT GPT-5.5",
         "generation_type": "text",
-        "coins_cost": 2,
+        "coins_cost": 3,
         "config": {
             "api_model": "gpt-5.5",
             "reasoning_effort": "low",
-            "provider_cost_amount": 0.2,
+            "provider_cost_amount": 7.5,
             "provider_cost_currency": "RUB",
             "ui_description": (
                 "Сильная универсальная модель для сложных запросов, текстов, "

@@ -67,15 +67,15 @@ class BusinessLogicTest(unittest.TestCase):
     def test_successful_mock_payment_credits_coins_once(self) -> None:
         payment, first = self._buy_plan("start")
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 100)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(first.credited_coins, 60)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
 
         second = self.services.payments.process_mock_success_webhook_for_payment_id(
             payment_id=payment["id"]
         )
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -87,7 +87,7 @@ class BusinessLogicTest(unittest.TestCase):
                 (payment["id"],),
             ).fetchone()
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 100)
+        self.assertEqual(row["amount"], 60)
 
     def test_start_referral_assigns_referrer_once_and_rejects_self(self) -> None:
         friend = self.services.users.ensure_telegram_user(
@@ -206,8 +206,8 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.generation["status"], "completed")
         self.assertEqual(result.generation["coins_reserved"], 1)
         self.assertEqual(result.generation["coins_charged"], 1)
-        self.assertEqual(result.balance_after, 99)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 99)
+        self.assertEqual(result.balance_after, 59)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 59)
 
     def test_text_chats_have_defaults_custom_delete_and_protect_defaults(self) -> None:
         model = self._model("deepseek-v4-flash")
@@ -390,7 +390,7 @@ class BusinessLogicTest(unittest.TestCase):
                 prompt_text="mock_error",
             )
 
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
         history = self.services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["status"], "failed")
 
@@ -423,13 +423,13 @@ class BusinessLogicTest(unittest.TestCase):
         self._buy_plan("start")
         model = self._model("kling-3")
 
-        for index in range(4):
+        for index in range(2):
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
                 prompt_text=f"Видео {index}",
             )
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
 
         with self.assertRaises(InsufficientCoinsError):
             self.services.generations.generate(
@@ -438,7 +438,7 @@ class BusinessLogicTest(unittest.TestCase):
                 prompt_text="Еще одно видео",
             )
 
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
 
 
 class MigrationAndUITest(unittest.TestCase):
@@ -520,6 +520,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("🔥 Базовый - 890руб", labels)
         self.assertIn("⚡️ Про - 1990руб", labels)
         self.assertIn("💰 Купить монеты отдельно", labels)
+        self.assertEqual(
+            {plan["code"]: plan["coins_amount"] for plan in PLANS},
+            {"start": 60, "basic": 150, "pro": 360},
+        )
         self.assertIn("coins:buy", callbacks)
         self.assertEqual(
             payment_method_labels[:3],
@@ -925,6 +929,7 @@ class MigrationAndUITest(unittest.TestCase):
                 loads_dict(deepseek["config"])["thinking_type"], "disabled"
             )
             self.assertEqual(openai["display_name"], "ChatGPT GPT-5.5")
+            self.assertEqual(openai["coins_cost"], 3)
             self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
             self.assertEqual(loads_dict(openai["config"])["reasoning_effort"], "low")
         finally:
@@ -1293,7 +1298,7 @@ class AdminLogicTest(unittest.TestCase):
 
         card = self.services.admin.user_card(target["id"])
 
-        self.assertEqual(card["subscription"]["coins_balance_cache"], 99)
+        self.assertEqual(card["subscription"]["coins_balance_cache"], 59)
         self.assertEqual(card["payments"]["paid_count"], 1)
         self.assertEqual(card["payments"]["paid_amount_rub"], 449)
         self.assertEqual(card["generations"]["total"], 1)
@@ -1326,7 +1331,7 @@ class AdminLogicTest(unittest.TestCase):
             admin=self.admin, target_user_id=target["id"], amount=25
         )
 
-        self.assertEqual(balance, 125)
+        self.assertEqual(balance, 85)
         with self.db.transaction() as conn:
             transaction = conn.execute(
                 """
