@@ -39,7 +39,7 @@ OPENAI_API_KEY=your-openai-api-key
 OPENAI_IMAGE_API_KEY=your-openai-image-api-key
 ```
 
-`OPENAI_API_KEY` используется для ChatGPT-текста, `OPENAI_IMAGE_API_KEY` — для GPT Image. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI работают через реальные API при наличии ключей, а неподключенные типы генераций остаются на mock-заглушках. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
+`OPENAI_API_KEY` используется для ChatGPT-текста, `OPENAI_IMAGE_API_KEY` — для GPT Image. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI работают через реальные API при наличии ключей, а неподключенные типы генераций остаются на mock-заглушках. OpenAI GPT Image без ключа не отдаёт mock-картинку, а завершает генерацию ошибкой с возвратом монет. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
 
 Создать БД и заполнить тарифы/модели можно отдельно:
 

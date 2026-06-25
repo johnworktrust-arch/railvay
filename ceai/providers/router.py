@@ -118,6 +118,11 @@ class AIProviderRouter:
 
         if real_provider is not None:
             return real_provider
+        if provider_key == "openai" and generation_type == "image":
+            raise ProviderError(
+                "OpenAI Image provider is not configured. "
+                "Set OPENAI_IMAGE_API_KEY or OPENAI_API_KEY."
+            )
         if mode == "real":
             raise ProviderError(
                 f"Real provider is not configured for {provider_key}/{generation_type}"

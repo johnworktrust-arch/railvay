@@ -607,6 +607,19 @@ def _format_models(models: list[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
+def _format_direct_prompt_screen(model: Dict[str, Any]) -> str:
+    prompt_copy = {
+        "image": "Опишите фото, которое хотите получить.",
+        "video": "Опишите видео, которое хотите получить.",
+        "tts": "Отправьте текст для озвучки.",
+    }.get(str(model["generation_type"]), "Отправьте prompt для выбранной модели.")
+    return (
+        f"{model['display_name']}\n\n"
+        f"Стоимость: {format_coin_amount(model['coins_cost'])} за запрос.\n\n"
+        f"{prompt_copy}"
+    )
+
+
 def _model_choice_payload(models: list[Dict[str, Any]]) -> Dict[str, Any]:
     return {
         "model_choices": {
@@ -1045,6 +1058,7 @@ async def _send_models_for_types(
     *,
     generation_types: set[str],
     title: str,
+    skip_single_model_choice: bool = False,
     delete_current: bool = False,
 ) -> None:
     models = [
@@ -1059,6 +1073,23 @@ async def _send_models_for_types(
             user_id,
             "Для этого раздела пока нет активных моделей.",
             reply_markup=main_menu_keyboard(),
+            delete_current=delete_current,
+        )
+        return
+    if skip_single_model_choice and len(models) == 1:
+        model = models[0]
+        _set_dialog_state(
+            services,
+            user_id,
+            state="waiting_prompt",
+            payload={"model_price_id": int(model["id"])},
+        )
+        await _show_screen(
+            message,
+            services,
+            user_id,
+            _format_direct_prompt_screen(model),
+            reply_markup=back_to_menu_keyboard(),
             delete_current=delete_current,
         )
         return
@@ -1417,6 +1448,7 @@ async def _handle_reply_menu(
             user["id"],
             generation_types={"image"},
             title="Выберите модель для фото с AI.",
+            skip_single_model_choice=True,
             delete_current=True,
         )
         return True

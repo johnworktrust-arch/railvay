@@ -601,6 +601,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("def back_to_menu_keyboard() -> ReplyKeyboardMarkup", keyboard_source)
         self.assertIn("KeyboardButton(text=BACK_TO_MENU_BUTTON)", keyboard_source)
         self.assertIn("Выберите модель на нижней клавиатуре.", handlers_source)
+        self.assertIn("skip_single_model_choice=True", handlers_source)
+        self.assertIn("Опишите фото, которое хотите получить.", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
         self.assertIn("_show_generation_result(", handlers_source)
         self.assertIn("BufferedInputFile", handlers_source)
@@ -1148,6 +1150,28 @@ class MigrationAndUITest(unittest.TestCase):
                     "config": "{}",
                 },
                 prompt_text="Привет",
+            )
+
+    def test_openai_image_does_not_fall_back_to_mock_without_key(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            ai_provider_mode="auto",
+        )
+        router = AIProviderRouter(settings)
+
+        with self.assertRaisesRegex(ProviderError, "OPENAI_IMAGE_API_KEY"):
+            router.generate(
+                model={
+                    "provider": "openai",
+                    "model_key": "gpt-image-2-medium",
+                    "display_name": "GPT Image 2 Medium",
+                    "generation_type": "image",
+                    "config": "{}",
+                },
+                prompt_text="Нарисуй кота",
             )
 
     def test_ai_provider_router_uses_saved_provider_keys(self) -> None:
