@@ -16,6 +16,9 @@ from ceai.services.exceptions import (
     NoActiveSubscriptionError,
     NotFoundError,
 )
+from ceai.services.subscription_recovery import (
+    recover_active_subscription_from_paid_payment,
+)
 
 
 @dataclass(frozen=True)
@@ -68,6 +71,13 @@ class GenerationService:
                 prompt=prompt_payload,
             )
             subscription = self.subscriptions.get_active_for_user(conn, user_id)
+            if subscription is None:
+                subscription = recover_active_subscription_from_paid_payment(
+                    conn,
+                    user_id=user_id,
+                    subscriptions=self.subscriptions,
+                    coins=self.coins,
+                )
             if subscription is None:
                 self.generations.mark_failed(
                     conn,

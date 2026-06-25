@@ -5,6 +5,9 @@ from typing import Any, Dict
 from ceai.database import Database
 from ceai.repositories.coins import CoinTransactionRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
+from ceai.services.subscription_recovery import (
+    recover_active_subscription_from_paid_payment,
+)
 
 
 class SubscriptionService:
@@ -16,6 +19,10 @@ class SubscriptionService:
     def active_for_user(self, user_id: int) -> Dict[str, Any] | None:
         with self.db.transaction() as conn:
             subscription = self.subscriptions.get_active_for_user(conn, user_id)
+            if subscription is None:
+                subscription = recover_active_subscription_from_paid_payment(
+                    conn, user_id=user_id, subscriptions=self.subscriptions
+                )
             if subscription:
                 balance = self.coins.balance_for_subscription(conn, subscription["id"])
                 self.subscriptions.set_balance_cache(

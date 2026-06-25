@@ -324,6 +324,47 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.balance_after, 59)
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 59)
 
+    def test_generation_recovers_active_subscription_from_paid_payment(self) -> None:
+        payment = self.services.payments.create_mock_payment(
+            user_id=self.user["id"], plan_code="start"
+        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE payments
+                SET status = 'paid', paid_at = created_at, subscription_id = NULL
+                WHERE id = ?
+                """,
+                (payment["id"],),
+            )
+
+        model = self._model("deepseek-v4-flash")
+        result = self.services.generations.generate(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            prompt_text="Проверь подписку",
+        )
+
+        self.assertEqual(result.generation["status"], "completed")
+        self.assertEqual(result.balance_after, 59)
+        subscription = self.services.subscriptions.active_for_user(self.user["id"])
+        self.assertIsNotNone(subscription)
+        self.assertEqual(subscription["coins_balance_cache"], 59)
+        with self.db.transaction() as conn:
+            recovered_payment = conn.execute(
+                "SELECT subscription_id FROM payments WHERE id = ?", (payment["id"],)
+            ).fetchone()
+            credit_count = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM coin_transactions
+                WHERE payment_id = ? AND type = 'credit'
+                """,
+                (payment["id"],),
+            ).fetchone()
+        self.assertIsNotNone(recovered_payment["subscription_id"])
+        self.assertEqual(credit_count["count"], 1)
+
     def test_text_chats_have_defaults_custom_delete_and_protect_defaults(self) -> None:
         model = self._model("deepseek-v4-flash")
 

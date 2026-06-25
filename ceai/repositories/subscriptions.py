@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
 from ceai.repositories.base import row_to_dict
@@ -84,6 +84,61 @@ class SubscriptionRepository:
         created = self.get_by_id(conn, int(row["id"]))
         if created is None:
             raise RuntimeError("Could not create subscription")
+        return created
+
+    def restore_paid_period(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        user_id: int,
+        plan_id: int,
+        starts_at: datetime,
+        duration_days: int,
+        preferred_subscription_id: int | None = None,
+    ) -> Dict[str, Any] | None:
+        self.expire_stale_for_user(conn, user_id)
+        if starts_at.tzinfo is None:
+            starts_at = starts_at.replace(tzinfo=timezone.utc)
+        ends_at = starts_at + timedelta(days=duration_days)
+        if ends_at <= utcnow():
+            return None
+
+        now = iso_now()
+        starts = starts_at.isoformat()
+        ends = ends_at.isoformat()
+        if preferred_subscription_id:
+            existing = self.get_by_id(conn, preferred_subscription_id)
+            if existing and int(existing["user_id"]) == user_id:
+                conn.execute(
+                    """
+                    UPDATE subscriptions
+                    SET plan_id = ?, status = 'active', starts_at = ?,
+                        ends_at = ?, updated_at = ?
+                    WHERE id = ?
+                    """,
+                    (plan_id, starts, ends, now, preferred_subscription_id),
+                )
+                return self.get_by_id(conn, preferred_subscription_id)
+
+        active = self.get_active_for_user(conn, user_id)
+        if active:
+            return active
+
+        cursor = conn.execute(
+            """
+            INSERT INTO subscriptions (
+                user_id, plan_id, status, coins_balance_cache, auto_renew,
+                starts_at, ends_at, created_at, updated_at
+            )
+            VALUES (?, ?, 'active', 0, FALSE, ?, ?, ?, ?)
+            RETURNING id
+            """,
+            (user_id, plan_id, starts, ends, now, now),
+        )
+        row = cursor.fetchone()
+        created = self.get_by_id(conn, int(row["id"]))
+        if created is None:
+            raise RuntimeError("Could not restore subscription")
         return created
 
     def get_by_id(

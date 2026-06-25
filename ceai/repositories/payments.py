@@ -63,6 +63,41 @@ class PaymentRepository:
             ).fetchone()
         )
 
+    def latest_paid_with_plan_for_user(
+        self, conn: sqlite3.Connection, user_id: int
+    ) -> Dict[str, Any] | None:
+        return row_to_dict(
+            conn.execute(
+                """
+                SELECT
+                    pay.id,
+                    pay.user_id,
+                    pay.plan_id,
+                    pay.subscription_id,
+                    pay.promocode_id,
+                    pay.provider,
+                    pay.external_id,
+                    pay.status,
+                    pay.amount_rub,
+                    pay.discount_rub,
+                    pay.payment_url,
+                    pay.meta,
+                    pay.created_at,
+                    pay.paid_at,
+                    p.duration_days AS plan_duration_days,
+                    p.coins_amount AS plan_coins_amount,
+                    p.name AS plan_name,
+                    p.code AS plan_code
+                FROM payments pay
+                JOIN plans p ON p.id = pay.plan_id
+                WHERE pay.user_id = ? AND pay.status = 'paid'
+                ORDER BY COALESCE(pay.paid_at, pay.created_at) DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone()
+        )
+
     def mark_paid(
         self,
         conn: sqlite3.Connection,
@@ -83,4 +118,20 @@ class PaymentRepository:
         payment = self.get_by_id(conn, payment_id)
         if payment is None:
             raise RuntimeError("Could not mark payment paid")
+        return payment
+
+    def set_subscription_id(
+        self, conn: sqlite3.Connection, *, payment_id: int, subscription_id: int
+    ) -> Dict[str, Any]:
+        conn.execute(
+            """
+            UPDATE payments
+            SET subscription_id = ?
+            WHERE id = ?
+            """,
+            (subscription_id, payment_id),
+        )
+        payment = self.get_by_id(conn, payment_id)
+        if payment is None:
+            raise RuntimeError("Could not update payment subscription")
         return payment
