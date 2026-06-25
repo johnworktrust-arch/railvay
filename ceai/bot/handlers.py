@@ -2441,12 +2441,12 @@ def create_router(services: AppServices) -> Router:
                     reply_markup=main_menu_keyboard(),
                 )
                 return
-            except GenerationProviderFailedError:
+            except GenerationProviderFailedError as exc:
                 await _show_screen(
                     message,
                     services,
                     user["id"],
-                    "Не получилось выполнить генерацию. Монеты возвращены.",
+                    str(exc),
                     reply_markup=chat_keyboard,
                 )
                 return
@@ -2548,13 +2548,13 @@ def create_router(services: AppServices) -> Router:
                 reply_markup=back_to_menu_keyboard(),
             )
             return
-        except GenerationProviderFailedError:
+        except GenerationProviderFailedError as exc:
             _clear_dialog_state(services, user["id"])
             await _show_screen(
                 message,
                 services,
                 user["id"],
-                "Не получилось выполнить генерацию. Монеты возвращены.",
+                str(exc),
                 reply_markup=back_to_menu_keyboard(),
             )
             return

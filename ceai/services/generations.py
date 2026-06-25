@@ -9,6 +9,7 @@ from ceai.providers.base import AIProvider, ProviderError
 from ceai.repositories.generations import GenerationRepository
 from ceai.repositories.model_prices import ModelPriceRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
+from ceai.runtime_diagnostics import record_error
 from ceai.services.coins import CoinService
 from ceai.services.exceptions import (
     GenerationProviderFailedError,
@@ -128,6 +129,7 @@ class GenerationService:
                 system_prompt=text_chat_system_prompt,
             )
         except ProviderError as exc:
+            record_error(exception=exc)
             with self.db.transaction() as conn:
                 self.generations.mark_failed(
                     conn,
@@ -146,7 +148,10 @@ class GenerationService:
                     conn, subscription["id"]
                 )
             raise GenerationProviderFailedError(
-                "AI provider error, coins refunded",
+                _provider_error_message(
+                    provider_error=str(exc),
+                    generation_type=str(model["generation_type"]),
+                ),
                 generation_id=generation["id"],
             ) from exc
 
@@ -194,3 +199,37 @@ def _result_for_storage(result: Dict[str, Any]) -> Dict[str, Any]:
     stored.pop("image_b64", None)
     stored["image_data_saved"] = False
     return stored
+
+
+def _provider_error_message(*, provider_error: str, generation_type: str) -> str:
+    normalized = provider_error.casefold()
+    suffix = "Монеты возвращены."
+    if generation_type == "image":
+        if "openai_image_api_key" in normalized or "not configured" in normalized:
+            return (
+                "Генерация фото сейчас не настроена: не задан ключ OpenAI Image. "
+                f"{suffix}"
+            )
+        if "http 401" in normalized:
+            return (
+                "OpenAI не принял API-ключ для генерации фото. "
+                f"{suffix}"
+            )
+        if (
+            "http 403" in normalized
+            or "organization verification" in normalized
+            or "verify" in normalized
+        ):
+            return (
+                "OpenAI не дал доступ к GPT Image для этого аккаунта. "
+                "Проверьте доступ к модели и Organization Verification. "
+                f"{suffix}"
+            )
+        if "http 400" in normalized and ("model" in normalized or "parameter" in normalized):
+            return (
+                "OpenAI не принял модель или параметры GPT Image. "
+                f"{suffix}"
+            )
+        if "openai image api" in normalized:
+            return f"OpenAI Image сейчас не смог создать фото. {suffix}"
+    return f"Не получилось выполнить генерацию. {suffix}"

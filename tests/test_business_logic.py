@@ -539,13 +539,14 @@ class BusinessLogicTest(unittest.TestCase):
         self._buy_plan("start")
         model = self._model("deepseek-v4-flash")
 
-        with self.assertRaises(GenerationProviderFailedError):
+        with self.assertRaises(GenerationProviderFailedError) as raised:
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
                 prompt_text="mock_error",
             )
 
+        self.assertIn("Монеты возвращены", str(raised.exception))
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
         history = self.services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["status"], "failed")
@@ -560,6 +561,47 @@ class BusinessLogicTest(unittest.TestCase):
                 (history[0]["id"],),
             ).fetchone()
         self.assertEqual(row["amount"], 0)
+
+    def test_image_provider_errors_are_user_readable(self) -> None:
+        from ceai.services.generations import _provider_error_message
+
+        self.assertIn(
+            "не задан ключ OpenAI Image",
+            _provider_error_message(
+                provider_error=(
+                    "OpenAI Image provider is not configured. "
+                    "Set OPENAI_IMAGE_API_KEY or OPENAI_API_KEY."
+                ),
+                generation_type="image",
+            ),
+        )
+        self.assertIn(
+            "OpenAI не принял API-ключ",
+            _provider_error_message(
+                provider_error="OpenAI Image API returned HTTP 401: invalid key",
+                generation_type="image",
+            ),
+        )
+        self.assertIn(
+            "Organization Verification",
+            _provider_error_message(
+                provider_error=(
+                    "OpenAI Image API returned HTTP 403: "
+                    "organization verification required"
+                ),
+                generation_type="image",
+            ),
+        )
+
+    def test_handlers_show_provider_failure_text(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn("except GenerationProviderFailedError as exc", handlers_source)
+        self.assertIn("str(exc)", handlers_source)
+        self.assertNotIn(
+            '"Не получилось выполнить генерацию. Монеты возвращены.",',
+            handlers_source,
+        )
 
     def test_cannot_generate_without_active_subscription(self) -> None:
         model = self._model("deepseek-v4-flash")
