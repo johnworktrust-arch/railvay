@@ -186,6 +186,8 @@ def _remember_screen_message(
     reply_signature = _reply_keyboard_signature(reply_markup)
     if reply_signature is not None:
         payload[LAST_REPLY_KEYBOARD_SIGNATURE] = reply_signature
+    else:
+        payload.pop(LAST_REPLY_KEYBOARD_SIGNATURE, None)
     services.users.set_session(user_id, state=state, payload=payload)
 
 
@@ -254,6 +256,32 @@ async def _send_screen_message(
     )
 
 
+async def _remove_legacy_reply_keyboard(
+    message: Message, payload: Dict[str, Any], reply_markup: Any | None
+) -> None:
+    if LAST_REPLY_KEYBOARD_SIGNATURE not in payload:
+        return
+    if isinstance(reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove)):
+        return
+    try:
+        sent = await message.bot.send_message(
+            chat_id=message.chat.id,
+            text="Клавиатура обновлена.",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        payload.pop(LAST_REPLY_KEYBOARD_SIGNATURE, None)
+        return
+    try:
+        await message.bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=sent.message_id,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+    payload.pop(LAST_REPLY_KEYBOARD_SIGNATURE, None)
+
+
 async def _show_screen(
     message: Message,
     services: AppServices,
@@ -267,6 +295,7 @@ async def _show_screen(
     state, payload = _session_state_payload(services, user_id)
     tracked_ids = _tracked_message_ids(payload)
     last_message_id = tracked_ids[-1] if tracked_ids else None
+    await _remove_legacy_reply_keyboard(message, payload, reply_markup)
     replace_current = isinstance(
         reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove)
     ) or (delete_current and _is_user_message(message))
@@ -382,12 +411,7 @@ async def _show_onboarding_followup(
     services.users.set_session(
         user_id,
         state="idle",
-        payload={
-            LAST_BOT_MESSAGE_IDS: [menu.message_id],
-            LAST_REPLY_KEYBOARD_SIGNATURE: _reply_keyboard_signature(
-                main_menu_keyboard()
-            ),
-        },
+        payload={LAST_BOT_MESSAGE_IDS: [menu.message_id]},
     )
 
 
@@ -1307,7 +1331,7 @@ async def _handle_reply_menu(
                 services,
                 user["id"],
                 str(exc),
-                reply_markup=ReplyKeyboardRemove(),
+                reply_markup=inline_back_to_menu_keyboard(),
                 delete_current=True,
             )
         return True
@@ -1343,7 +1367,7 @@ async def _handle_reply_menu(
                 services,
                 user["id"],
                 "Введите название нового чата.",
-                reply_markup=ReplyKeyboardRemove(),
+                reply_markup=inline_back_to_menu_keyboard(),
                 delete_current=True,
             )
             return True
@@ -1594,9 +1618,7 @@ def create_router(services: AppServices) -> Router:
         try:
             if action == "home":
                 _clear_dialog_state(services, user["id"])
-                await _send_admin_home(
-                    callback.message, services, user["id"], delete_current=True
-                )
+                await _send_admin_home(callback.message, services, user["id"])
             elif action == "stats":
                 stats = services.admin.stats()
                 await _show_screen(
@@ -1605,7 +1627,6 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     _format_admin_stats(stats),
                     reply_markup=admin_back_keyboard(),
-                    delete_current=True,
                 )
             elif action == "users":
                 page = int(parts[2]) if len(parts) > 2 else 1
@@ -1623,7 +1644,6 @@ def create_router(services: AppServices) -> Router:
                     reply_markup=admin_users_keyboard(
                         data["users"], page=data["page"], pages=data["pages"]
                     ),
-                    delete_current=True,
                 )
             elif action == "user":
                 target_user_id = int(parts[2])
@@ -1636,7 +1656,6 @@ def create_router(services: AppServices) -> Router:
                     reply_markup=admin_user_card_keyboard(
                         card, can_manage=services.admin.can_manage(admin)
                     ),
-                    delete_current=True,
                 )
             elif action in {"ban", "unban"}:
                 target_user_id = int(parts[2])
@@ -1654,7 +1673,6 @@ def create_router(services: AppServices) -> Router:
                     reply_markup=admin_user_card_keyboard(
                         card, can_manage=services.admin.can_manage(admin)
                     ),
-                    delete_current=True,
                 )
             elif action == "credit":
                 if not services.admin.can_manage(admin):
@@ -1672,7 +1690,6 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     "Введите положительное целое число монет для начисления.",
                     reply_markup=admin_back_keyboard(),
-                    delete_current=True,
                 )
             elif action == "search":
                 _set_dialog_state(
@@ -1687,7 +1704,6 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     "Введите @username, Telegram ID или внутренний user ID.",
                     reply_markup=admin_back_keyboard(),
-                    delete_current=True,
                 )
             else:
                 await callback.answer("Неизвестное действие", show_alert=True)
@@ -1699,7 +1715,6 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 str(exc),
                 reply_markup=admin_back_keyboard(),
-                delete_current=True,
             )
         await callback.answer()
 
@@ -1995,6 +2010,39 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
+    @router.callback_query(F.data.startswith("models:type:"))
+    async def menu_models_by_type(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if not callback.message or not callback.data:
+            await callback.answer()
+            return
+        generation_type = callback.data.rsplit(":", 1)[-1]
+        config = {
+            "text": ("Выберите текстовую модель.", False),
+            "image": ("Выберите модель для фото с AI.", True),
+            "video": ("Выберите модель для видео с AI.", False),
+            "tts": ("Выберите модель для озвучки текста.", False),
+        }.get(generation_type)
+        if config is None:
+            await callback.answer("Неизвестный раздел", show_alert=True)
+            return
+        title, skip_single_model_choice = config
+        _clear_dialog_state(services, user["id"])
+        await _send_models_for_types(
+            callback.message,
+            services,
+            user["id"],
+            generation_types={generation_type},
+            title=title,
+            skip_single_model_choice=skip_single_model_choice,
+        )
+        await callback.answer()
+
     @router.callback_query(F.data.startswith("model:"))
     async def choose_model(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
@@ -2108,8 +2156,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Введите название нового чата.",
-                reply_markup=ReplyKeyboardRemove(),
-                delete_current=True,
+                reply_markup=inline_back_to_menu_keyboard(),
             )
             await callback.answer()
             return
@@ -2265,7 +2312,6 @@ def create_router(services: AppServices) -> Router:
                         user["id"],
                         "Пользователь не найден.",
                         reply_markup=admin_back_keyboard(),
-                        delete_current=True,
                     )
                     return
                 card = services.admin.user_card(target["id"])
@@ -2277,7 +2323,6 @@ def create_router(services: AppServices) -> Router:
                     reply_markup=admin_user_card_keyboard(
                         card, can_manage=services.admin.can_manage(admin)
                     ),
-                    delete_current=True,
                 )
                 return
 
@@ -2299,7 +2344,6 @@ def create_router(services: AppServices) -> Router:
                     reply_markup=admin_user_card_keyboard(
                         card, can_manage=services.admin.can_manage(admin)
                     ),
-                    delete_current=True,
                 )
             except ValueError:
                 await _show_screen(
@@ -2308,7 +2352,6 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     "Введите положительное целое число.",
                     reply_markup=admin_back_keyboard(),
-                    delete_current=True,
                 )
             except (BusinessRuleError, NotFoundError) as exc:
                 await _show_screen(
@@ -2317,7 +2360,6 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     str(exc),
                     reply_markup=admin_back_keyboard(),
-                    delete_current=True,
                 )
             return
 
@@ -2351,7 +2393,7 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 model=model,
                 current_chat_id=current_chat_id,
-                notice="Выберите чат на нижней клавиатуре.",
+                notice="Выберите чат кнопкой в сообщении.",
                 delete_current=True,
             )
             return
@@ -2483,7 +2525,7 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Выберите модель на нижней клавиатуре.",
+                "Выберите модель кнопкой в сообщении.",
                 reply_markup=models_keyboard(models) if models else main_menu_keyboard(),
                 delete_current=True,
             )
@@ -2494,7 +2536,7 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Выберите действие на нижней клавиатуре.",
+                "Выберите действие кнопкой в сообщении.",
                 reply_markup=main_menu_keyboard(),
                 delete_current=True,
             )

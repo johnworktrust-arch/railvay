@@ -5,8 +5,6 @@ from typing import Any, Dict, Iterable
 from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
-    KeyboardButton,
-    ReplyKeyboardMarkup,
 )
 
 from ceai.formatting import format_coin_amount
@@ -36,18 +34,25 @@ REPLY_MENU_BUTTONS = {
 }
 
 
-def main_menu_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=PROFILE_BUTTON)],
-            [KeyboardButton(text=TEXT_AI_BUTTON)],
-            [KeyboardButton(text=PHOTO_AI_BUTTON), KeyboardButton(text=VIDEO_AI_BUTTON)],
-            [KeyboardButton(text=VOICE_AI_BUTTON)],
-            [KeyboardButton(text=HISTORY_BUTTON), KeyboardButton(text=HELP_BUTTON)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Выберите действие",
+def main_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
+            [InlineKeyboardButton(text=TEXT_AI_BUTTON, callback_data="models:type:text")],
+            [
+                InlineKeyboardButton(
+                    text=PHOTO_AI_BUTTON, callback_data="models:type:image"
+                ),
+                InlineKeyboardButton(
+                    text=VIDEO_AI_BUTTON, callback_data="models:type:video"
+                ),
+            ],
+            [InlineKeyboardButton(text=VOICE_AI_BUTTON, callback_data="models:type:tts")],
+            [
+                InlineKeyboardButton(text=HISTORY_BUTTON, callback_data="menu:history"),
+                InlineKeyboardButton(text=HELP_BUTTON, callback_data="menu:support"),
+            ],
+        ]
     )
 
 
@@ -90,20 +95,16 @@ def subscription_required_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def back_to_menu_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[[KeyboardButton(text=BACK_TO_MENU_BUTTON)]],
-        resize_keyboard=True,
-        is_persistent=True,
+def back_to_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")]
+        ]
     )
 
 
 def inline_back_to_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
-        ]
-    )
+    return back_to_menu_keyboard()
 
 
 def onboarding_continue_keyboard() -> InlineKeyboardMarkup:
@@ -253,20 +254,17 @@ def _model_emoji(generation_type: str) -> str:
     }.get(generation_type, "✨")
 
 
-def models_keyboard(models: Iterable[Dict[str, Any]]) -> ReplyKeyboardMarkup:
+def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
     rows = [
         [
-            KeyboardButton(text=model_choice_label(model))
+            InlineKeyboardButton(
+                text=model_choice_label(model), callback_data=f"model:{model['id']}"
+            )
         ]
         for model in models
     ]
-    rows.append([KeyboardButton(text=BACK_TO_MENU_BUTTON)])
-    return ReplyKeyboardMarkup(
-        keyboard=rows,
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Выберите модель",
-    )
+    rows.append([InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def model_choice_label(model: Dict[str, Any]) -> str:
@@ -282,12 +280,15 @@ def text_chat_label(chat: Dict[str, Any], *, current_chat_id: int | None) -> str
 
 def text_chat_keyboard(
     chats: Iterable[Dict[str, Any]], *, current_chat_id: int | None
-) -> ReplyKeyboardMarkup:
-    default_rows: list[list[KeyboardButton]] = []
-    custom_rows: list[list[KeyboardButton]] = []
-    default_buffer: list[KeyboardButton] = []
+) -> InlineKeyboardMarkup:
+    default_rows: list[list[InlineKeyboardButton]] = []
+    custom_rows: list[list[InlineKeyboardButton]] = []
+    default_buffer: list[InlineKeyboardButton] = []
     for chat in chats:
-        button = KeyboardButton(text=text_chat_label(chat, current_chat_id=current_chat_id))
+        button = InlineKeyboardButton(
+            text=text_chat_label(chat, current_chat_id=current_chat_id),
+            callback_data=f"text_chat:select:{chat['id']}",
+        )
         if chat["is_default"]:
             if chat["title"] == "Основной":
                 default_rows.append([button])
@@ -301,28 +302,31 @@ def text_chat_keyboard(
     if default_buffer:
         default_rows.append(default_buffer)
 
-    return ReplyKeyboardMarkup(
-        keyboard=[
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             *default_rows,
             *custom_rows,
-            [KeyboardButton(text=ADD_TEXT_CHAT_BUTTON)],
-            [KeyboardButton(text=BACK_TO_MENU_BUTTON)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Выберите чат",
+            [
+                InlineKeyboardButton(
+                    text=ADD_TEXT_CHAT_BUTTON, callback_data="text_chat:add"
+                )
+            ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
+        ]
     )
 
 
-def text_chat_prompt_keyboard() -> ReplyKeyboardMarkup:
-    return ReplyKeyboardMarkup(
-        keyboard=[
-            [KeyboardButton(text=DELETE_CURRENT_TEXT_CHAT_BUTTON)],
-            [KeyboardButton(text=BACK_TO_MENU_BUTTON)],
-        ],
-        resize_keyboard=True,
-        is_persistent=True,
-        input_field_placeholder="Введите вопрос",
+def text_chat_prompt_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text=DELETE_CURRENT_TEXT_CHAT_BUTTON,
+                    callback_data="text_chat:delete",
+                )
+            ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="text_chat:back")],
+        ]
     )
 
 
