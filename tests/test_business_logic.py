@@ -889,6 +889,7 @@ class MigrationAndUITest(unittest.TestCase):
         )
         from ceai.bot.keyboards import (
             crystal_packages_keyboard,
+            main_menu_button_keyboard,
             payment_methods_keyboard,
             payment_unavailable_keyboard,
             plans_keyboard,
@@ -928,6 +929,7 @@ class MigrationAndUITest(unittest.TestCase):
             row[0].callback_data
             for row in payment_unavailable_keyboard().inline_keyboard
         ]
+        main_menu_button = main_menu_button_keyboard().inline_keyboard[0][0]
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
         self.assertEqual(
@@ -987,6 +989,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
         self.assertEqual(unavailable_payment_labels, ["⬅️ Назад"])
         self.assertEqual(unavailable_payment_callbacks, ["menu:plans"])
+        self.assertEqual(main_menu_button.text, "🏠 Главное меню")
+        self.assertEqual(main_menu_button.callback_data, "menu:main")
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
         self.assertIn("_format_plan_details(plan)", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
@@ -998,6 +1002,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('currency="XTR"', handlers_source)
         self.assertIn("Подписка CeaAI", handlers_source)
         self.assertIn("Монеты начислятся автоматически после оплаты.", handlers_source)
+        self.assertIn("TELEGRAM_STARS_INVOICE_MESSAGE_ID", handlers_source)
+        self.assertIn("_delete_telegram_stars_invoice_message", handlers_source)
+        self.assertIn("reply_markup=main_menu_button_keyboard()", handlers_source)
+        self.assertIn("Начислено {format_coin_amount(result.credited_coins)}", handlers_source)
         self.assertIn("@router.pre_checkout_query()", handlers_source)
         self.assertIn("@router.message(F.successful_payment)", handlers_source)
         self.assertIn('F.data == "coins:buy"', handlers_source)
@@ -1124,7 +1132,7 @@ class MigrationAndUITest(unittest.TestCase):
             ["referral:withdraw", "menu:main"],
         )
         self.assertIn("Подписка и тарифы", keyboard_source)
-        self.assertNotIn("🏠 Главное меню", keyboard_source)
+        self.assertNotIn("🏠 Главное меню", labels)
         self.assertIn("BACK_TO_MENU_BUTTON", keyboard_source)
         self.assertIn("Поддержка", keyboard_source)
         self.assertIn("Реферальная программа", keyboard_source)

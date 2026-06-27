@@ -42,6 +42,7 @@ from ceai.bot.keyboards import (
     back_to_menu_keyboard,
     crystal_packages_keyboard,
     inline_back_to_menu_keyboard,
+    main_menu_button_keyboard,
     main_menu_keyboard,
     model_choice_label,
     models_keyboard,
@@ -85,6 +86,7 @@ from ceai.services.referrals import (
 LAST_BOT_MESSAGE_ID = "last_bot_message_id"
 LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
+TELEGRAM_STARS_INVOICE_MESSAGE_ID = "telegram_stars_invoice_message_id"
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
 ONBOARDING_PROMO_IMAGE_PATH = (
     Path(__file__).resolve().parents[1] / "assets" / "onboarding_promo.jpeg"
@@ -256,6 +258,22 @@ async def _delete_user_message(message: Message) -> None:
         await message.bot.delete_message(
             chat_id=message.chat.id,
             message_id=message.message_id,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        pass
+
+
+async def _delete_telegram_stars_invoice_message(
+    message: Message, services: AppServices, user_id: int
+) -> None:
+    _, payload = _session_state_payload(services, user_id)
+    invoice_message_id = payload.get(TELEGRAM_STARS_INVOICE_MESSAGE_ID)
+    if not isinstance(invoice_message_id, int):
+        return
+    try:
+        await message.bot.delete_message(
+            chat_id=message.chat.id,
+            message_id=invoice_message_id,
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
@@ -659,7 +677,9 @@ def _subscription_required_message() -> str:
     return "Нужна активная подписка. Откройте тарифы и выберите подписку."
 
 
-async def _send_telegram_stars_invoice(message: Message, payment: Dict[str, Any]) -> None:
+async def _send_telegram_stars_invoice(
+    message: Message, payment: Dict[str, Any]
+) -> Message:
     meta = loads_dict(payment.get("meta"))
     plan_name = str(meta.get("plan_name") or "Тариф CeaAI")
     coins_amount = int(meta.get("coins_amount") or 0)
@@ -673,7 +693,7 @@ async def _send_telegram_stars_invoice(message: Message, payment: Dict[str, Any]
         if coins_amount > 0
         else "Доступ к CeaAI. Монеты начислятся автоматически после оплаты."
     )
-    await message.bot.send_invoice(
+    return await message.bot.send_invoice(
         chat_id=message.chat.id,
         title=f"Подписка CeaAI — {plan_name}",
         description=description,
@@ -1953,7 +1973,21 @@ def create_router(services: AppServices) -> Router:
 
         if payment["provider"] == "telegram_stars":
             if callback.message:
-                await _send_telegram_stars_invoice(callback.message, payment)
+                invoice_message = await _send_telegram_stars_invoice(
+                    callback.message, payment
+                )
+                _set_dialog_state(
+                    services,
+                    user["id"],
+                    state="waiting_payment",
+                    payload={
+                        "payment_id": payment["id"],
+                        "payment_method": payment_method,
+                        TELEGRAM_STARS_INVOICE_MESSAGE_ID: (
+                            invoice_message.message_id
+                        ),
+                    },
+                )
                 await _show_screen(
                     callback.message,
                     services,
@@ -2425,6 +2459,7 @@ def create_router(services: AppServices) -> Router:
         _record_message("telegram_stars_successful_payment", message)
         await _delete_user_message(message)
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        await _delete_telegram_stars_invoice_message(message, services, user["id"])
         payment = message.successful_payment
         if payment is None:
             return
@@ -2451,7 +2486,7 @@ def create_router(services: AppServices) -> Router:
         if result.processed and result.subscription:
             text = (
                 "Оплата Telegram Stars прошла успешно.\n"
-                f"Начислено: {format_coin_amount(result.credited_coins)}.\n"
+                f"Начислено {format_coin_amount(result.credited_coins)}.\n"
                 "Текущий баланс: "
                 f"{format_coin_amount(result.subscription['coins_balance_cache'])}."
             )
@@ -2462,7 +2497,7 @@ def create_router(services: AppServices) -> Router:
             services,
             user["id"],
             text,
-            reply_markup=main_menu_keyboard(),
+            reply_markup=main_menu_button_keyboard(),
             delete_current=True,
         )
 

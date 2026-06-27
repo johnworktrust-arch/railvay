@@ -18,6 +18,7 @@ VOICE_AI_BUTTON = "🎙 Озвучка с AI"
 HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
+MAIN_MENU_BUTTON = "🏠 Главное меню"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
 DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
 BUY_CRYSTALS_BUTTON = "Купить монеты отдельно"
@@ -99,6 +100,14 @@ def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")]
+        ]
+    )
+
+
+def main_menu_button_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=MAIN_MENU_BUTTON, callback_data="menu:main")]
         ]
     )
 
