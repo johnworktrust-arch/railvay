@@ -976,6 +976,7 @@ class MigrationAndUITest(unittest.TestCase):
 
     def test_ai_reply_keyboards_have_back_button_only(self) -> None:
         from ceai.bot.handlers import _format_direct_prompt_screen
+        from ceai.bot.handlers import _format_image_generation_caption
         from ceai.bot.keyboards import model_choice_label
 
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
@@ -1032,6 +1033,8 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertIn("_image_input_from_message", handlers_source)
         self.assertIn("DEFAULT_IMAGE_EDIT_PROMPT", handlers_source)
+        self.assertIn("_format_image_generation_caption", handlers_source)
+        self.assertIn("payload.pop(LAST_BOT_MESSAGE_IDS, None)", handlers_source)
         self.assertIn("_show_generation_result(", handlers_source)
         self.assertIn("BufferedInputFile", handlers_source)
         self.assertNotIn("Баланс после генерации", handlers_source)
@@ -1062,6 +1065,17 @@ class MigrationAndUITest(unittest.TestCase):
             "Стоимость 1 запроса 4К: 3 Coin\n\n"
             "Введите текст для генерации или изображение которое хотите изменить.\n\n"
             "🔎Чтобы получить изображение 4К, добавьте «4К» в текст запроса",
+        )
+        self.assertEqual(
+            _format_image_generation_caption(
+                prompt_text="Создай фото милого котика",
+                model={"display_name": "GPT Image 2"},
+                coins_charged=3,
+                balance_after=146,
+            ),
+            "📍 Ваш запрос: Создай фото милого котика\n\n"
+            "🎛️ Инструмент: GPT Image 2\n\n"
+            "ℹ️ Списано: 3 Coin  Баланс: 146.000 Coin",
         )
 
     def test_video_and_tts_sections_show_unavailable_stub(self) -> None:

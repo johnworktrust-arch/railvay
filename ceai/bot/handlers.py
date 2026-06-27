@@ -717,6 +717,10 @@ def _format_coin_unit(amount: Any) -> str:
     return f"{int(amount or 0)} Coin"
 
 
+def _format_coin_balance_unit(amount: Any) -> str:
+    return f"{int(amount or 0):.3f} Coin"
+
+
 def _feature_temporarily_unavailable_message(feature_name: str) -> str:
     return (
         "❌ Функция временно недоступна.\n\n"
@@ -867,6 +871,22 @@ def _format_generation_result(result: Dict[str, Any]) -> str:
     return body
 
 
+def _format_image_generation_caption(
+    *,
+    prompt_text: str,
+    model: Dict[str, Any],
+    coins_charged: Any,
+    balance_after: Any,
+) -> str:
+    return (
+        f"📍 Ваш запрос: {prompt_text.strip() or '—'}\n\n"
+        f"🎛️ Инструмент: {model['display_name']}\n\n"
+        "ℹ️ Списано: "
+        f"{_format_coin_unit(coins_charged)}  "
+        f"Баланс: {_format_coin_balance_unit(balance_after)}"
+    )
+
+
 def _telegram_caption(text: str, *, limit: int = 1024) -> str:
     if len(text) <= limit:
         return text
@@ -880,6 +900,7 @@ async def _show_generation_result(
     result: Dict[str, Any],
     *,
     reply_markup: Any | None = None,
+    image_caption: str | None = None,
 ) -> Message:
     if result.get("kind") == "image" and result.get("image_b64"):
         state, payload = _session_state_payload(services, user_id)
@@ -894,17 +915,14 @@ async def _show_generation_result(
                     image_bytes,
                     filename=str(result.get("file_name") or "cea-ai.png"),
                 ),
-                caption=_telegram_caption(str(result.get("caption") or "Готово.")),
-                reply_markup=reply_markup,
+                caption=_telegram_caption(
+                    str(image_caption or result.get("caption") or "Готово.")
+                ),
+                reply_markup=None,
             )
-            _remember_screen_message(
-                services,
-                user_id,
-                state=state,
-                payload=payload,
-                message_id=sent.message_id,
-                reply_markup=reply_markup,
-            )
+            payload.pop(LAST_BOT_MESSAGE_ID, None)
+            payload.pop(LAST_BOT_MESSAGE_IDS, None)
+            services.users.set_session(user_id, state=state, payload=payload)
             return sent
         except (binascii.Error, TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
@@ -2952,7 +2970,21 @@ def create_router(services: AppServices) -> Router:
             services,
             user["id"],
             generation.result,
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=(
+                None
+                if generation.model["generation_type"] == "image"
+                else back_to_menu_keyboard()
+            ),
+            image_caption=(
+                _format_image_generation_caption(
+                    prompt_text=prompt_text,
+                    model=generation.model,
+                    coins_charged=generation.generation["coins_charged"],
+                    balance_after=generation.balance_after,
+                )
+                if generation.model["generation_type"] == "image"
+                else None
+            ),
         )
 
     return router
