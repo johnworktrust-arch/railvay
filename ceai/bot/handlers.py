@@ -677,6 +677,10 @@ def _subscription_required_message() -> str:
     return "Нужна активная подписка. Откройте тарифы и выберите подписку."
 
 
+def _format_coin_unit(amount: Any) -> str:
+    return f"{int(amount or 0)} Coin"
+
+
 def _feature_temporarily_unavailable_message(feature_name: str) -> str:
     return (
         "❌ Функция временно недоступна.\n\n"
@@ -777,10 +781,9 @@ def _format_text_chat_list_screen(
         lines.extend([notice, ""])
     lines.extend(
         [
-            f"🤖 {model['display_name']}",
+            f"💡{model['display_name']}",
             "",
-            f"Стоимость 1 запроса: {format_coin_amount(model['coins_cost'])}",
-            "",
+            f"Стоимость 1 запроса: {_format_coin_unit(model['coins_cost'])}",
             "Выберите чат ниже:",
         ]
     )
@@ -795,10 +798,10 @@ def _format_text_chat_prompt_screen(
         lines.extend([notice, ""])
     lines.extend(
         [
-            f"🤖 {model['display_name']}",
+            f"💡{model['display_name']}",
             f"Чат: {current_chat['title']}",
             "",
-            f"Стоимость 1 запроса: {format_coin_amount(model['coins_cost'])}",
+            f"Стоимость 1 запроса: {_format_coin_unit(model['coins_cost'])}",
             "Напишите вопрос сообщением ниже.",
         ]
     )

@@ -1044,6 +1044,11 @@ class MigrationAndUITest(unittest.TestCase):
     def test_text_chat_navigation_has_back_and_no_premature_current_chat(
         self,
     ) -> None:
+        from ceai.bot.handlers import (
+            _format_text_chat_list_screen,
+            _format_text_chat_prompt_screen,
+        )
+
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         chat_keyboard_source = keyboard_source.split(
@@ -1085,6 +1090,29 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("waiting_text_chat_name", handlers_source)
         self.assertIn("text_chat_id", handlers_source)
         self.assertIn("text_chat_system_prompt", handlers_source)
+        self.assertEqual(
+            _format_text_chat_list_screen(
+                {"display_name": "DeepSeek V4 Flash", "coins_cost": 1}
+            ),
+            "💡DeepSeek V4 Flash\n\n"
+            "Стоимость 1 запроса: 1 Coin\n"
+            "Выберите чат ниже:",
+        )
+        self.assertEqual(
+            _format_text_chat_list_screen(
+                {"display_name": "ChatGPT GPT-5.5", "coins_cost": 3}
+            ),
+            "💡ChatGPT GPT-5.5\n\n"
+            "Стоимость 1 запроса: 3 Coin\n"
+            "Выберите чат ниже:",
+        )
+        self.assertIn(
+            "Стоимость 1 запроса: 3 Coin",
+            _format_text_chat_prompt_screen(
+                {"display_name": "ChatGPT GPT-5.5", "coins_cost": 3},
+                {"title": "Основной"},
+            ),
+        )
 
     def test_telegram_commands_menu_contains_only_menu_and_profile(self) -> None:
         main_source = Path("ceai/main.py").read_text(encoding="utf-8")
