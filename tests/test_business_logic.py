@@ -597,7 +597,11 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
     def test_profile_counts_invited_users_and_links_account_name(self) -> None:
-        from ceai.bot.handlers import _format_menu, _format_referral_screen
+        from ceai.bot.handlers import (
+            _format_menu,
+            _format_referral_screen,
+            _format_referral_withdrawal_unavailable,
+        )
 
         with self.db.transaction() as conn:
             conn.execute(
@@ -709,6 +713,13 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("— Баланс: 443.70 ₽", referral_with_stats)
         self.assertIn("— Способ вывода: карта", referral_with_stats)
         self.assertIn("— Реквизиты: **** 1234", referral_with_stats)
+
+        unavailable = _format_referral_withdrawal_unavailable(100_000)
+        self.assertIn("❌ <b>Вывод средств сейчас недоступен.</b>", unavailable)
+        self.assertIn(
+            "Вывод доступен при реферальном балансе от 1000 рублей.",
+            unavailable,
+        )
 
     def test_failed_generation_refunds_reserved_coins(self) -> None:
         self._buy_plan("start")
@@ -1062,7 +1073,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Command(\"menu\")", handlers_source)
 
     def test_profile_screen_has_inline_actions_and_no_bottom_prompt(self) -> None:
-        from ceai.bot.keyboards import profile_keyboard
+        from ceai.bot.keyboards import profile_keyboard, referral_keyboard
 
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
@@ -1086,6 +1097,12 @@ class MigrationAndUITest(unittest.TestCase):
                 "🆘 Поддержка",
                 "⬅️ Назад",
             ],
+        )
+        referral_row = referral_keyboard().inline_keyboard[0]
+        self.assertEqual([button.text for button in referral_row], ["💰 Вывести", "⬅️ Назад"])
+        self.assertEqual(
+            [button.callback_data for button in referral_row],
+            ["referral:withdraw", "menu:main"],
         )
         self.assertIn("Подписка и тарифы", keyboard_source)
         self.assertNotIn("🏠 Главное меню", keyboard_source)
@@ -1113,7 +1130,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)
         self.assertIn("def _format_referral_screen", handlers_source)
         self.assertIn("<blockquote>", handlers_source)
-        self.assertIn("reply_markup=inline_back_to_menu_keyboard()", handlers_source)
+        self.assertIn("reply_markup=referral_keyboard()", handlers_source)
+        self.assertIn('F.data == "referral:withdraw"', handlers_source)
+        self.assertIn("_format_referral_withdrawal_unavailable", handlers_source)
+        self.assertIn("withdrawal_min_kopecks", handlers_source)
         self.assertIn('parse_mode="HTML"', handlers_source)
         self.assertNotIn("Реферальная программа пока ещё не готова", handlers_source)
         self.assertNotIn("USDT", referral_source.upper())

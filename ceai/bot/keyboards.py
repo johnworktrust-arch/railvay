@@ -107,6 +107,17 @@ def inline_back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return back_to_menu_keyboard()
 
 
+def referral_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💰 Вывести", callback_data="referral:withdraw"),
+                InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main"),
+            ]
+        ]
+    )
+
+
 def onboarding_continue_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

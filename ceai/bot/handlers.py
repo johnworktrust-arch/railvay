@@ -51,6 +51,7 @@ from ceai.bot.keyboards import (
     payment_methods_keyboard,
     plans_keyboard,
     profile_keyboard,
+    referral_keyboard,
     subscription_required_keyboard,
     text_chat_keyboard,
     text_chat_label,
@@ -528,6 +529,25 @@ def _format_referral_screen(
         "🔗 <b>Пригласительная ссылка:</b>\n"
         f"<code>{escape(referral_link)}</code>\n\n"
         "📨 Нажмите на ссылку, чтобы скопировать и поделиться с друзьями!"
+    )
+
+
+def _format_referral_withdrawal_unavailable(withdrawal_min_kopecks: int) -> str:
+    minimum = format_rubles_from_kopecks(withdrawal_min_kopecks).replace(" ₽", " рублей")
+    return (
+        "❌ <b>Вывод средств сейчас недоступен.</b>\n\n"
+        f"Вывод доступен при реферальном балансе от {escape(minimum)}."
+    )
+
+
+def _format_referral_withdrawal_available(
+    *, support_username: str, balance_kopecks: int
+) -> str:
+    username = support_username.strip().lstrip("@") or "cea_help"
+    return (
+        "✅ <b>Вывод средств доступен.</b>\n\n"
+        f"Ваш реферальный баланс: {escape(format_rubles_from_kopecks(balance_kopecks))}.\n"
+        f"Для оформления заявки напишите в поддержку: @{escape(username)}."
     )
 
 
@@ -2324,10 +2344,50 @@ def create_router(services: AppServices) -> Router:
                     rate_percent=referral_stats.rate_percent,
                     withdrawal_min_kopecks=referral_stats.withdrawal_min_kopecks,
                 ),
-                reply_markup=inline_back_to_menu_keyboard(),
+                reply_markup=referral_keyboard(),
                 delete_current=True,
                 parse_mode="HTML",
             )
+        await callback.answer()
+
+    @router.callback_query(F.data == "referral:withdraw")
+    async def referral_withdraw(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if not callback.message:
+            await callback.answer()
+            return
+
+        referral_stats = services.referrals.stats(user["id"])
+        if referral_stats.balance_kopecks < referral_stats.withdrawal_min_kopecks:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                _format_referral_withdrawal_unavailable(
+                    referral_stats.withdrawal_min_kopecks
+                ),
+                reply_markup=inline_back_to_menu_keyboard(),
+                parse_mode="HTML",
+            )
+            await callback.answer()
+            return
+
+        await _show_screen(
+            callback.message,
+            services,
+            user["id"],
+            _format_referral_withdrawal_available(
+                support_username=services.settings.support_username,
+                balance_kopecks=referral_stats.balance_kopecks,
+            ),
+            reply_markup=inline_back_to_menu_keyboard(),
+            parse_mode="HTML",
+        )
         await callback.answer()
 
     @router.pre_checkout_query()
