@@ -4,7 +4,7 @@ import hashlib
 from typing import Any, Dict
 
 from ceai.json_utils import loads_dict
-from ceai.providers.base import ProviderError, ProviderResult
+from ceai.providers.base import ImageInput, ProviderError, ProviderResult
 
 
 class MockProviderError(ProviderError):
@@ -18,6 +18,7 @@ class MockAIProvider:
         model: Dict[str, Any],
         prompt_text: str,
         system_prompt: str | None = None,
+        image_input: ImageInput | None = None,
     ) -> ProviderResult:
         normalized_prompt = prompt_text.strip()
         if "mock_error" in normalized_prompt.lower():
@@ -44,10 +45,11 @@ class MockAIProvider:
             }
             duration = None
         elif generation_type == "image":
+            action = "изменение изображения" if image_input else "изображение"
             result = {
                 "kind": "image",
                 "url": f"https://example.com/ceaai/mock-image-{job_hash}.png",
-                "caption": f"Тестовое изображение по запросу: {normalized_prompt}",
+                "caption": f"Тестовое {action} по запросу: {normalized_prompt}",
             }
             duration = None
         elif generation_type == "video":

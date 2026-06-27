@@ -13,7 +13,8 @@ from ceai.database import Database
 from ceai.internal_api import handle_provider_settings_request
 from ceai.json_utils import dumps, loads_dict
 from ceai.repositories.app_settings import AppSettingsRepository
-from ceai.providers.base import ProviderError
+from ceai.providers.base import ImageInput, ProviderError
+from ceai.providers.openai_image import OpenAIImageProvider
 from ceai.providers.router import AIProviderRouter
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
@@ -542,6 +543,96 @@ class BusinessLogicTest(unittest.TestCase):
         history = mock_services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["prompt_payload"]["image_resolution"], "4k")
 
+    def test_image_generation_accepts_uploaded_image_input(self) -> None:
+        mock_services = build_services(
+            self.db,
+            Settings(
+                telegram_bot_token="test",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+                ai_provider_mode="mock",
+            ),
+        )
+        payment = mock_services.payments.create_mock_payment(
+            user_id=self.user["id"], plan_code="start"
+        )
+        mock_services.payments.process_mock_success_webhook_for_payment_id(
+            payment_id=payment["id"]
+        )
+        model = next(
+            model
+            for model in mock_services.catalog.list_models()
+            if model["model_key"] == "gpt-image-2-medium"
+        )
+        image_input = ImageInput(
+            data=b"fake image bytes",
+            mime_type="image/png",
+            file_name="source.png",
+        )
+
+        result = mock_services.generations.generate(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            prompt_text="Сделай фон светлее",
+            image_input=image_input,
+        )
+
+        self.assertEqual(result.generation["status"], "completed")
+        self.assertEqual(result.generation["coins_charged"], 2)
+        self.assertEqual(result.balance_after, 58)
+        self.assertIn("изменение изображения", result.result["caption"])
+        history = mock_services.generations.list_recent(user_id=self.user["id"])
+        self.assertEqual(
+            history[0]["prompt_payload"]["image_input"],
+            {
+                "file_name": "source.png",
+                "mime_type": "image/png",
+                "size_bytes": len(image_input.data),
+            },
+        )
+
+    def test_openai_image_provider_uses_edit_endpoint_for_image_input(self) -> None:
+        provider = OpenAIImageProvider(api_key="test-key")
+        calls = []
+
+        def fake_post_json(path, payload):
+            calls.append((path, payload))
+            return {"created": 123, "data": [{"b64_json": "aW1hZ2U="}]}
+
+        provider._post_json = fake_post_json
+
+        result = provider.generate(
+            model={
+                "provider": "openai",
+                "model_key": "gpt-image-2-medium",
+                "display_name": "GPT Image 2",
+                "generation_type": "image",
+                "config": {
+                    "api_model": "gpt-image-2",
+                    "quality": "medium",
+                    "size": "1024x1024",
+                    "output_format": "png",
+                },
+            },
+            prompt_text="Поменяй фон на белый",
+            image_input=ImageInput(
+                data=b"image",
+                mime_type="image/png",
+                file_name="photo.png",
+            ),
+        )
+
+        self.assertEqual(calls[0][0], "/images/edits")
+        self.assertEqual(calls[0][1]["model"], "gpt-image-2")
+        self.assertTrue(
+            calls[0][1]["images"][0]["image_url"].startswith(
+                "data:image/png;base64,"
+            )
+        )
+        self.assertEqual(result.result["kind"], "image")
+        self.assertIn("Изменение изображения", result.result["caption"])
+
     def test_generation_recovers_active_subscription_from_paid_payment(self) -> None:
         payment = self.services.payments.create_mock_payment(
             user_id=self.user["id"], plan_code="start"
@@ -925,6 +1016,22 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Стоимость 1 запроса 4К", handlers_source)
         self.assertIn("🔎Чтобы получить изображение 4К", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
+        launch_blocks = handlers_source.split('"Запускаю генерацию..."')[1:]
+        self.assertGreaterEqual(len(launch_blocks), 2)
+        for block in launch_blocks:
+            self.assertIn("reply_markup=None", block.split(")", 1)[0])
+        self.assertNotIn(
+            '"Запускаю генерацию...",\n'
+            "                reply_markup=back_to_menu_keyboard()",
+            handlers_source,
+        )
+        self.assertNotIn(
+            '"Запускаю генерацию...",\n'
+            "                reply_markup=chat_keyboard",
+            handlers_source,
+        )
+        self.assertIn("_image_input_from_message", handlers_source)
+        self.assertIn("DEFAULT_IMAGE_EDIT_PROMPT", handlers_source)
         self.assertIn("_show_generation_result(", handlers_source)
         self.assertIn("BufferedInputFile", handlers_source)
         self.assertNotIn("Баланс после генерации", handlers_source)

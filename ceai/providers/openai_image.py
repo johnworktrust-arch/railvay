@@ -7,7 +7,7 @@ import urllib.request
 from typing import Any, Dict
 
 from ceai.json_utils import loads_dict
-from ceai.providers.base import ProviderError, ProviderResult
+from ceai.providers.base import ImageInput, ProviderError, ProviderResult
 
 
 class OpenAIImageProvider:
@@ -28,6 +28,7 @@ class OpenAIImageProvider:
         model: Dict[str, Any],
         prompt_text: str,
         system_prompt: str | None = None,
+        image_input: ImageInput | None = None,
     ) -> ProviderResult:
         config = loads_dict(model.get("config"))
         model_key = str(config.get("api_model") or model["model_key"])
@@ -42,7 +43,19 @@ class OpenAIImageProvider:
             if value:
                 payload[key] = value
 
-        raw = self._post_json("/images/generations", payload)
+        if image_input is not None:
+            payload["images"] = [
+                {
+                    "image_url": (
+                        f"data:{image_input.mime_type};base64,"
+                        f"{_base64_image(image_input.data)}"
+                    )
+                }
+            ]
+            raw = self._post_json("/images/edits", payload)
+        else:
+            raw = self._post_json("/images/generations", payload)
+
         data = raw.get("data")
         if not isinstance(data, list) or not data:
             raise ProviderError("OpenAI Image API returned no image data")
@@ -59,6 +72,7 @@ class OpenAIImageProvider:
         output_format = str(raw.get("output_format") or payload.get("output_format") or "png")
         quality = str(raw.get("quality") or payload.get("quality") or "auto")
         size = str(raw.get("size") or payload.get("size") or "auto")
+        caption_prefix = "Изменение изображения по запросу" if image_input else "Изображение по запросу"
         return ProviderResult(
             provider_job_id=f"openai-image-{created}-{image_hash}",
             result={
@@ -66,7 +80,7 @@ class OpenAIImageProvider:
                 "image_b64": image_b64,
                 "mime_type": f"image/{output_format}",
                 "file_name": f"cea-ai-{image_hash}.{output_format}",
-                "caption": f"Изображение по запросу: {prompt}",
+                "caption": f"{caption_prefix}: {prompt}",
                 "model": model_key,
                 "quality": quality,
                 "size": size,
@@ -101,3 +115,9 @@ class OpenAIImageProvider:
             ) from exc
         except (urllib.error.URLError, TimeoutError, json.JSONDecodeError) as exc:
             raise ProviderError(f"OpenAI Image API request failed: {exc}") from exc
+
+
+def _base64_image(data: bytes) -> str:
+    import base64
+
+    return base64.b64encode(data).decode("ascii")

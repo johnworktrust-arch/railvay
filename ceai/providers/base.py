@@ -17,6 +17,13 @@ class ProviderResult:
     duration_seconds: int | None = None
 
 
+@dataclass(frozen=True)
+class ImageInput:
+    data: bytes
+    mime_type: str
+    file_name: str
+
+
 class AIProvider(Protocol):
     def generate(
         self,
@@ -24,5 +31,6 @@ class AIProvider(Protocol):
         model: Dict[str, Any],
         prompt_text: str,
         system_prompt: str | None = None,
+        image_input: ImageInput | None = None,
     ) -> ProviderResult:
         ...

@@ -5,7 +5,7 @@ from typing import Any, Dict, List
 
 from ceai.database import Database
 from ceai.json_utils import loads_dict
-from ceai.providers.base import AIProvider, ProviderError
+from ceai.providers.base import AIProvider, ImageInput, ProviderError
 from ceai.repositories.generations import GenerationRepository
 from ceai.repositories.model_prices import ModelPriceRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
@@ -48,6 +48,7 @@ class GenerationService:
         text_chat_id: int | None = None,
         text_chat_title: str | None = None,
         text_chat_system_prompt: str | None = None,
+        image_input: ImageInput | None = None,
     ) -> GenerationResult:
         business_error: NoActiveSubscriptionError | InsufficientCoinsError | None = None
         with self.db.transaction() as conn:
@@ -59,6 +60,12 @@ class GenerationService:
             prompt_payload: Dict[str, Any] = {"text": prompt_text}
             if _is_image_four_k_request(model, prompt_text):
                 prompt_payload["image_resolution"] = "4k"
+            if image_input is not None:
+                prompt_payload["image_input"] = {
+                    "file_name": image_input.file_name,
+                    "mime_type": image_input.mime_type,
+                    "size_bytes": len(image_input.data),
+                }
             if text_chat_id is not None:
                 prompt_payload["text_chat_id"] = text_chat_id
             if text_chat_title:
@@ -129,6 +136,7 @@ class GenerationService:
                 model=model,
                 prompt_text=prompt_text,
                 system_prompt=text_chat_system_prompt,
+                image_input=image_input,
             )
         except ProviderError as exc:
             record_error(exception=exc)

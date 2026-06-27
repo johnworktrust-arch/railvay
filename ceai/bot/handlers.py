@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import binascii
+import io
 from html import escape
 from pathlib import Path
 from typing import Any, Dict
@@ -66,6 +67,7 @@ from ceai.formatting import (
     format_datetime_russian_minute,
 )
 from ceai.json_utils import loads_dict
+from ceai.providers.base import ImageInput
 from ceai.runtime_diagnostics import record_error, record_message
 from ceai.services.app import AppServices
 from ceai.services.exceptions import (
@@ -91,6 +93,8 @@ START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "нача�
 ONBOARDING_PROMO_IMAGE_PATH = (
     Path(__file__).resolve().parents[1] / "assets" / "onboarding_promo.jpeg"
 )
+MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
+DEFAULT_IMAGE_EDIT_PROMPT = "Улучши изображение, сохранив основной сюжет."
 
 
 def _is_start_text(text: str | None) -> bool:
@@ -100,6 +104,38 @@ def _is_start_text(text: str | None) -> bool:
 def _is_user_message(message: Message) -> bool:
     from_user = getattr(message, "from_user", None)
     return bool(from_user and not from_user.is_bot)
+
+
+async def _image_input_from_message(message: Message) -> ImageInput | None:
+    file_id: str | None = None
+    mime_type = "image/jpeg"
+    file_name = "telegram-photo.jpg"
+
+    if message.photo:
+        photo = message.photo[-1]
+        file_id = photo.file_id
+    elif message.document and str(message.document.mime_type or "").startswith("image/"):
+        document = message.document
+        file_id = document.file_id
+        mime_type = str(document.mime_type or "image/png")
+        file_name = str(document.file_name or "telegram-image")
+
+    if not file_id:
+        return None
+
+    file = await message.bot.get_file(file_id)
+    if not file.file_path:
+        raise ValueError("Не получилось получить файл изображения.")
+
+    buffer = io.BytesIO()
+    await message.bot.download_file(file.file_path, destination=buffer)
+    data = buffer.getvalue()
+    if len(data) > MAX_IMAGE_INPUT_BYTES:
+        raise ValueError("Изображение слишком большое. Отправьте файл до 20 МБ.")
+    if not data:
+        raise ValueError("Изображение не загрузилось. Попробуйте отправить его ещё раз.")
+
+    return ImageInput(data=data, mime_type=mime_type, file_name=file_name)
 
 
 def _user_kwargs(message_or_callback: Message | CallbackQuery) -> Dict[str, Any]:
@@ -1536,7 +1572,7 @@ async def _handle_reply_menu(
                 message,
                 services,
                 user["id"],
-                "Отправьте prompt для выбранной модели.",
+                _format_direct_prompt_screen(model),
                 reply_markup=back_to_menu_keyboard(),
                 delete_current=True,
             )
@@ -2244,7 +2280,7 @@ def create_router(services: AppServices) -> Router:
                 callback.message,
                 services,
                 user["id"],
-                "Отправьте prompt для выбранной модели.",
+                _format_direct_prompt_screen(model),
                 reply_markup=back_to_menu_keyboard(),
                 delete_current=True,
             )
@@ -2715,7 +2751,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Запускаю генерацию...",
-                reply_markup=chat_keyboard,
+                reply_markup=None,
                 delete_current=True,
             )
             try:
@@ -2808,13 +2844,48 @@ def create_router(services: AppServices) -> Router:
 
         payload = loads_dict(session.get("payload"))
         model_price_id = int(payload.get("model_price_id", 0))
-        prompt_text = message.text or ""
-        if not prompt_text.strip():
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
             await _show_screen(
                 message,
                 services,
                 user["id"],
-                "Отправьте текстовый prompt.",
+                "Модель не найдена. Выберите нейросетку заново.",
+                reply_markup=main_menu_keyboard(),
+                delete_current=True,
+            )
+            return
+
+        image_input: ImageInput | None = None
+        if model["generation_type"] == "image":
+            try:
+                image_input = await _image_input_from_message(message)
+            except ValueError as exc:
+                await _show_screen(
+                    message,
+                    services,
+                    user["id"],
+                    str(exc),
+                    reply_markup=back_to_menu_keyboard(),
+                    delete_current=True,
+                )
+                return
+
+        prompt_text = (message.text or message.caption or "").strip()
+        if image_input is not None and not prompt_text:
+            prompt_text = DEFAULT_IMAGE_EDIT_PROMPT
+        if not prompt_text:
+            prompt_hint = (
+                "Введите текст для генерации или отправьте изображение с описанием правки."
+                if model["generation_type"] == "image"
+                else "Отправьте текстовый prompt."
+            )
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                prompt_hint,
                 reply_markup=back_to_menu_keyboard(),
                 delete_current=True,
             )
@@ -2825,7 +2896,7 @@ def create_router(services: AppServices) -> Router:
             services,
             user["id"],
             "Запускаю генерацию...",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=None,
             delete_current=True,
         )
         try:
@@ -2833,6 +2904,7 @@ def create_router(services: AppServices) -> Router:
                 user_id=user["id"],
                 model_price_id=model_price_id,
                 prompt_text=prompt_text,
+                image_input=image_input,
             )
         except NoActiveSubscriptionError:
             _clear_dialog_state(services, user["id"])

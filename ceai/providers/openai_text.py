@@ -6,7 +6,7 @@ import urllib.request
 from typing import Any, Dict
 
 from ceai.json_utils import loads_dict
-from ceai.providers.base import ProviderError, ProviderResult
+from ceai.providers.base import ImageInput, ProviderError, ProviderResult
 from ceai.providers.identity import text_model_instructions
 
 
@@ -28,6 +28,7 @@ class OpenAITextProvider:
         model: Dict[str, Any],
         prompt_text: str,
         system_prompt: str | None = None,
+        image_input: ImageInput | None = None,
     ) -> ProviderResult:
         config = loads_dict(model.get("config"))
         model_key = str(config.get("api_model") or model["model_key"])

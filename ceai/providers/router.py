@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 from ceai.config import Settings
 from ceai.database import Database
-from ceai.providers.base import AIProvider, ProviderError, ProviderResult
+from ceai.providers.base import AIProvider, ImageInput, ProviderError, ProviderResult
 from ceai.providers.deepseek import DeepSeekProvider
 from ceai.providers.mock import MockAIProvider
 from ceai.providers.openai_image import OpenAIImageProvider
@@ -91,6 +91,7 @@ class AIProviderRouter:
         model: Dict[str, Any],
         prompt_text: str,
         system_prompt: str | None = None,
+        image_input: ImageInput | None = None,
     ) -> ProviderResult:
         self.reload_settings()
         provider = self._provider_for(model)
@@ -98,6 +99,7 @@ class AIProviderRouter:
             model=model,
             prompt_text=prompt_text,
             system_prompt=system_prompt,
+            image_input=image_input,
         )
 
     def _provider_for(self, model: Dict[str, Any]) -> AIProvider:
