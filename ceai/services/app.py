@@ -57,7 +57,7 @@ def build_services(db: Database, settings: Settings) -> AppServices:
             crypto_pay_request_timeout_seconds=(
                 settings.crypto_pay_request_timeout_seconds
             ),
-            telegram_stars_rub_per_star=settings.telegram_stars_rub_per_star,
+            telegram_stars_amount=settings.telegram_stars_amount,
             referrals=referrals,
         ),
         generations=GenerationService(db, provider),

@@ -4,7 +4,6 @@ import base64
 import hashlib
 import hmac
 import json
-import math
 import urllib.error
 import urllib.request
 import uuid
@@ -58,7 +57,7 @@ class PaymentService:
         crypto_pay_webhook_secret: str = "",
         crypto_pay_accepted_assets: str = "USDT",
         crypto_pay_request_timeout_seconds: int = 15,
-        telegram_stars_rub_per_star: float = 2.0,
+        telegram_stars_amount: int = 1,
         referrals: ReferralService | None = None,
     ) -> None:
         self.db = db
@@ -79,9 +78,7 @@ class PaymentService:
             crypto_pay_accepted_assets
         )
         self.crypto_pay_request_timeout_seconds = crypto_pay_request_timeout_seconds
-        self.telegram_stars_rub_per_star = max(
-            0.01, float(telegram_stars_rub_per_star)
-        )
+        self.telegram_stars_amount = max(1, int(telegram_stars_amount))
         self.plans = PlanRepository()
         self.payments = PaymentRepository()
         self.subscriptions = SubscriptionRepository()
@@ -156,7 +153,7 @@ class PaymentService:
             if plan is None or not plan["is_active"]:
                 raise NotFoundError("Тариф не найден")
             external_id = f"stars_{uuid.uuid4().hex}"
-            stars_amount = self._telegram_stars_amount(plan)
+            stars_amount = self._telegram_stars_amount()
             return self.payments.create_pending(
                 conn,
                 user_id=user_id,
@@ -174,7 +171,7 @@ class PaymentService:
                     "duration_days": plan["duration_days"],
                     "price_rub": plan["price_rub"],
                     "stars_amount": stars_amount,
-                    "stars_rub_per_star": self.telegram_stars_rub_per_star,
+                    "stars_fixed_amount": self.telegram_stars_amount,
                 },
             )
 
@@ -807,11 +804,8 @@ class PaymentService:
         cleaned = [asset for asset in assets if asset]
         return ",".join(cleaned) or "USDT"
 
-    def _telegram_stars_amount(self, plan: Dict[str, Any]) -> int:
-        return max(
-            1,
-            math.ceil(int(plan["price_rub"]) / self.telegram_stars_rub_per_star),
-        )
+    def _telegram_stars_amount(self) -> int:
+        return self.telegram_stars_amount
 
     @staticmethod
     def _payment_telegram_stars_amount(payment: Dict[str, Any]) -> int:

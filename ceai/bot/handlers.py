@@ -603,7 +603,7 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
     code = str(plan.get("code") or "")
     coins = int(plan.get("coins_amount") or 0)
     price = int(plan.get("price_rub") or 0)
-    chatgpt_requests = coins
+    chatgpt_requests = coins // 3
     deepseek_requests = coins
     meta = {
         "start": {

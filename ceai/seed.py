@@ -65,7 +65,7 @@ MODEL_PRICES = [
         "model_key": "gpt-4o-mini",
         "display_name": "ChatGPT GPT-5.5",
         "generation_type": "text",
-        "coins_cost": 1,
+        "coins_cost": 3,
         "config": {
             "api_model": "gpt-5.5",
             "reasoning_effort": "low",
@@ -82,7 +82,7 @@ MODEL_PRICES = [
         "model_key": "gpt-image-2-medium",
         "display_name": "GPT Image 2 Medium",
         "generation_type": "image",
-        "coins_cost": 1,
+        "coins_cost": 6,
         "config": {
             "api_model": "gpt-image-2",
             "quality": "medium",
@@ -101,7 +101,7 @@ MODEL_PRICES = [
         "model_key": "kling-3",
         "display_name": "Kling 3.0",
         "generation_type": "video",
-        "coins_cost": 1,
+        "coins_cost": 25,
         "config": {
             "provider_cost_amount": 92,
             "provider_cost_currency": "RUB",
@@ -117,7 +117,7 @@ MODEL_PRICES = [
         "model_key": "elevenlabs-tts",
         "display_name": "ElevenLabs TTS",
         "generation_type": "tts",
-        "coins_cost": 1,
+        "coins_cost": 5,
         "config": {
             "provider_cost_amount": 9,
             "provider_cost_currency": "RUB",

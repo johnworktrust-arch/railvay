@@ -274,29 +274,29 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(payment["provider"], "telegram_stars")
         self.assertTrue(payment["external_id"].startswith("stars_"))
         self.assertEqual(payment["payment_url"], f"telegram-stars://{payment['external_id']}")
-        self.assertEqual(meta["stars_amount"], 225)
-        self.assertEqual(meta["stars_rub_per_star"], 2.0)
+        self.assertEqual(meta["stars_amount"], 1)
+        self.assertEqual(meta["stars_fixed_amount"], 1)
         self.assertEqual(meta["coins_amount"], 60)
         self.assertEqual(meta["duration_days"], 30)
 
         checkout_payment = self.services.payments.validate_telegram_stars_pre_checkout(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=225,
+            total_amount=1,
         )
         self.assertEqual(checkout_payment["id"], payment["id"])
 
         first = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=225,
+            total_amount=1,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
         second = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=225,
+            total_amount=1,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
@@ -809,13 +809,13 @@ class BusinessLogicTest(unittest.TestCase):
         self._buy_plan("start")
         model = self._model("kling-3")
 
-        for index in range(60):
+        for index in range(2):
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
                 prompt_text=f"Видео {index}",
             )
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
 
         with self.assertRaises(InsufficientCoinsError):
             self.services.generations.generate(
@@ -824,7 +824,7 @@ class BusinessLogicTest(unittest.TestCase):
                 prompt_text="Еще одно видео",
             )
 
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
 
 
 class MigrationAndUITest(unittest.TestCase):
@@ -964,14 +964,14 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("⭐️ Старт — 449 ₽", start_details)
         self.assertIn("➕ 60 монет", start_details)
         self.assertIn("➕ До 60 запросов DeepSeek", start_details)
-        self.assertIn("➕ До 60 запросов ChatGPT", start_details)
+        self.assertIn("➕ До 20 запросов ChatGPT", start_details)
         self.assertIn("💳 Выберите способ оплаты:", start_details)
         self.assertIn("🔥 Базовый — 890 ₽", basic_details)
         self.assertIn("➕ 150 монет", basic_details)
-        self.assertIn("➕ До 150 запросов ChatGPT", basic_details)
+        self.assertIn("➕ До 50 запросов ChatGPT", basic_details)
         self.assertIn("⚡️ Про — 1990 ₽", pro_details)
         self.assertIn("➕ 360 монет", pro_details)
-        self.assertIn("➕ До 360 запросов ChatGPT", pro_details)
+        self.assertIn("➕ До 120 запросов ChatGPT", pro_details)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 60, "basic": 150, "pro": 360},
@@ -1436,14 +1436,14 @@ class MigrationAndUITest(unittest.TestCase):
                 "os.environ",
                 {
                     "TELEGRAM_BOT_TOKEN": "test",
-                    "TELEGRAM_STARS_RUB_PER_STAR": "2.5",
+                    "TELEGRAM_STARS_AMOUNT": "7",
                 },
                 clear=True,
             ),
         ):
             settings = load_settings()
 
-        self.assertEqual(settings.telegram_stars_rub_per_star, 2.5)
+        self.assertEqual(settings.telegram_stars_amount, 7)
 
     def test_railway_deploy_config_uses_dockerfile_and_healthcheck(self) -> None:
         railway_config = loads(Path("railway.json").read_text(encoding="utf-8"))
@@ -1540,10 +1540,12 @@ class MigrationAndUITest(unittest.TestCase):
                     "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
                     ("openai", "gpt-image-2-medium"),
                 ).fetchone()
-                all_costs = [
-                    row["coins_cost"]
-                    for row in conn.execute("SELECT coins_cost FROM model_prices")
-                ]
+                costs = {
+                    row["model_key"]: row["coins_cost"]
+                    for row in conn.execute(
+                        "SELECT model_key, coins_cost FROM model_prices"
+                    )
+                }
 
             self.assertEqual(
                 loads_dict(deepseek["config"])["api_model"], "deepseek-v4-flash"
@@ -1552,8 +1554,17 @@ class MigrationAndUITest(unittest.TestCase):
                 loads_dict(deepseek["config"])["thinking_type"], "disabled"
             )
             self.assertEqual(openai["display_name"], "ChatGPT GPT-5.5")
-            self.assertEqual(openai["coins_cost"], 1)
-            self.assertEqual(set(all_costs), {1})
+            self.assertEqual(openai["coins_cost"], 3)
+            self.assertEqual(
+                costs,
+                {
+                    "deepseek-v4-flash": 1,
+                    "gpt-4o-mini": 3,
+                    "gpt-image-2-medium": 6,
+                    "kling-3": 25,
+                    "elevenlabs-tts": 5,
+                },
+            )
             self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
             self.assertEqual(loads_dict(openai["config"])["reasoning_effort"], "low")
             image_config = loads_dict(image["config"])
