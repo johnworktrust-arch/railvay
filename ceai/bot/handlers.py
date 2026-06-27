@@ -677,6 +677,14 @@ def _subscription_required_message() -> str:
     return "Нужна активная подписка. Откройте тарифы и выберите подписку."
 
 
+def _feature_temporarily_unavailable_message(feature_name: str) -> str:
+    return (
+        "❌ Функция временно недоступна.\n\n"
+        f"Раздел «{feature_name}» сейчас находится в технической подготовке. "
+        "Мы сообщим, когда он станет доступен."
+    )
+
+
 async def _send_telegram_stars_invoice(
     message: Message, payment: Dict[str, Any]
 ) -> Message:
@@ -1574,23 +1582,23 @@ async def _handle_reply_menu(
         return True
 
     if text_lower == "видео с ai" or text == VIDEO_AI_BUTTON:
-        await _send_models_for_types(
+        await _show_screen(
             message,
             services,
             user["id"],
-            generation_types={"video"},
-            title="Выберите модель для видео с AI.",
+            _feature_temporarily_unavailable_message("Видео с AI"),
+            reply_markup=back_to_menu_keyboard(),
             delete_current=True,
         )
         return True
 
     if text_lower in {"озвучка с ai", "озвучка текста"} or text == VOICE_AI_BUTTON:
-        await _send_models_for_types(
+        await _show_screen(
             message,
             services,
             user["id"],
-            generation_types={"tts"},
-            title="Выберите модель для озвучки текста.",
+            _feature_temporarily_unavailable_message("Озвучка с AI"),
+            reply_markup=back_to_menu_keyboard(),
             delete_current=True,
         )
         return True
@@ -2145,6 +2153,18 @@ def create_router(services: AppServices) -> Router:
         }.get(generation_type)
         if config is None:
             await callback.answer("Неизвестный раздел", show_alert=True)
+            return
+        if generation_type in {"video", "tts"}:
+            feature_name = "Видео с AI" if generation_type == "video" else "Озвучка с AI"
+            _clear_dialog_state(services, user["id"])
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                _feature_temporarily_unavailable_message(feature_name),
+                reply_markup=back_to_menu_keyboard(),
+            )
+            await callback.answer()
             return
         title, skip_single_model_choice = config
         _clear_dialog_state(services, user["id"])

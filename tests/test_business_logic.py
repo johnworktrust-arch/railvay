@@ -881,6 +881,17 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("Баланс после генерации", handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
 
+    def test_video_and_tts_sections_show_unavailable_stub(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+
+        self.assertIn("_feature_temporarily_unavailable_message", handlers_source)
+        self.assertIn("❌ Функция временно недоступна.", handlers_source)
+        self.assertIn("находится в технической подготовке", handlers_source)
+        self.assertIn('generation_type in {"video", "tts"}', handlers_source)
+        self.assertIn('_feature_temporarily_unavailable_message("Видео с AI")', handlers_source)
+        self.assertIn('_feature_temporarily_unavailable_message("Озвучка с AI")', handlers_source)
+        self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
+
     def test_plan_screen_uses_new_prices_and_coins_are_called_monety(self) -> None:
         from ceai.bot.handlers import (
             _format_crystal_packages,
