@@ -585,7 +585,10 @@ def _format_main_menu() -> str:
 
 
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
-    return "💳 Выбрать тариф с подпиской:"
+    return (
+        "💳 Выберите тариф с подпиской.\n\n"
+        "Нажмите на любой тариф ниже — покажу цену, количество монет и что входит."
+    )
 
 
 def _format_crystal_packages() -> str:

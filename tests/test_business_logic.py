@@ -930,7 +930,11 @@ class MigrationAndUITest(unittest.TestCase):
         ]
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
-        self.assertEqual(text, "💳 Выбрать тариф с подпиской:")
+        self.assertEqual(
+            text,
+            "💳 Выберите тариф с подпиской.\n\n"
+            "Нажмите на любой тариф ниже — покажу цену, количество монет и что входит.",
+        )
         self.assertNotIn("Старт", text)
         self.assertNotIn("Базовый", text)
         self.assertNotIn("Про", text)
