@@ -809,13 +809,13 @@ class BusinessLogicTest(unittest.TestCase):
         self._buy_plan("start")
         model = self._model("kling-3")
 
-        for index in range(2):
+        for index in range(60):
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
                 prompt_text=f"Видео {index}",
             )
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
 
         with self.assertRaises(InsufficientCoinsError):
             self.services.generations.generate(
@@ -824,7 +824,7 @@ class BusinessLogicTest(unittest.TestCase):
                 prompt_text="Еще одно видео",
             )
 
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
 
 
 class MigrationAndUITest(unittest.TestCase):
@@ -964,14 +964,14 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("⭐️ Старт — 449 ₽", start_details)
         self.assertIn("➕ 60 монет", start_details)
         self.assertIn("➕ До 60 запросов DeepSeek", start_details)
-        self.assertIn("➕ До 20 запросов ChatGPT", start_details)
+        self.assertIn("➕ До 60 запросов ChatGPT", start_details)
         self.assertIn("💳 Выберите способ оплаты:", start_details)
         self.assertIn("🔥 Базовый — 890 ₽", basic_details)
         self.assertIn("➕ 150 монет", basic_details)
-        self.assertIn("➕ До 50 запросов ChatGPT", basic_details)
+        self.assertIn("➕ До 150 запросов ChatGPT", basic_details)
         self.assertIn("⚡️ Про — 1990 ₽", pro_details)
         self.assertIn("➕ 360 монет", pro_details)
-        self.assertIn("➕ До 120 запросов ChatGPT", pro_details)
+        self.assertIn("➕ До 360 запросов ChatGPT", pro_details)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 60, "basic": 150, "pro": 360},
@@ -1540,6 +1540,10 @@ class MigrationAndUITest(unittest.TestCase):
                     "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
                     ("openai", "gpt-image-2-medium"),
                 ).fetchone()
+                all_costs = [
+                    row["coins_cost"]
+                    for row in conn.execute("SELECT coins_cost FROM model_prices")
+                ]
 
             self.assertEqual(
                 loads_dict(deepseek["config"])["api_model"], "deepseek-v4-flash"
@@ -1548,7 +1552,8 @@ class MigrationAndUITest(unittest.TestCase):
                 loads_dict(deepseek["config"])["thinking_type"], "disabled"
             )
             self.assertEqual(openai["display_name"], "ChatGPT GPT-5.5")
-            self.assertEqual(openai["coins_cost"], 3)
+            self.assertEqual(openai["coins_cost"], 1)
+            self.assertEqual(set(all_costs), {1})
             self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
             self.assertEqual(loads_dict(openai["config"])["reasoning_effort"], "low")
             image_config = loads_dict(image["config"])
