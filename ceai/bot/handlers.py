@@ -1563,6 +1563,10 @@ async def _handle_reply_menu(
         "нейронки chatgpt deepseek",
         "нейронки gpt deepseek",
         "нейронки gpt deepseq",
+        "нейросети: chatgpt, deepseek",
+        "нейросети: gpt, deepseek",
+        "нейросети chatgpt deepseek",
+        "нейросети gpt deepseek",
     } or text == TEXT_AI_BUTTON:
         await _send_models_for_types(
             message,

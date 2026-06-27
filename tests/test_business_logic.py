@@ -837,8 +837,8 @@ class MigrationAndUITest(unittest.TestCase):
     def test_reply_keyboard_uses_correct_deepseek_name(self) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
-        self.assertIn("ChatGPT", keyboard_source)
-        self.assertIn("DeepSeek", keyboard_source)
+        self.assertIn('TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"', keyboard_source)
+        self.assertNotIn("🤖 Нейронки: ChatGPT, DeepSeek", keyboard_source)
         self.assertNotIn("DeepSeq", keyboard_source)
         self.assertNotIn("DeepSeak", keyboard_source)
 
