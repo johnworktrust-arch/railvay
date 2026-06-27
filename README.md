@@ -75,6 +75,7 @@ YOOKASSA_SECRET_KEY=your-yookassa-secret-key
 YOOKASSA_API_BASE_URL=https://api.yookassa.ru/v3
 YOOKASSA_WEBHOOK_PATH=/payments/yookassa/webhook
 YOOKASSA_RETURN_PATH=/payments/yookassa/return
+TELEGRAM_STARS_RUB_PER_STAR=2
 AI_PROVIDER_MODE=auto
 DEEPSEEK_API_KEY=your-deepseek-api-key
 OPENAI_API_KEY=your-openai-api-key
@@ -82,6 +83,10 @@ OPENAI_IMAGE_API_KEY=your-openai-image-api-key
 ADMIN_TELEGRAM_USERNAMES=samescam
 SUPPORT_USERNAME=cea_help
 ```
+
+`TELEGRAM_STARS_RUB_PER_STAR` управляет ценой Telegram Stars в счёте. По умолчанию `2`:
+тариф за 449 ₽ будет выставлен как 225 Stars. Если фактический курс у Telegram изменится,
+достаточно поменять эту переменную на Railway и перезапустить сервис.
 
 `APP_BASE_URL` можно не задавать: Railway сам отдаёт `RAILWAY_PUBLIC_DOMAIN`, а приложение превращает его в `https://...` и ставит webhook. Если нужно указать домен вручную:
 

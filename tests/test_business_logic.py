@@ -274,27 +274,29 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(payment["provider"], "telegram_stars")
         self.assertTrue(payment["external_id"].startswith("stars_"))
         self.assertEqual(payment["payment_url"], f"telegram-stars://{payment['external_id']}")
-        self.assertEqual(meta["stars_amount"], 449)
+        self.assertEqual(meta["stars_amount"], 225)
+        self.assertEqual(meta["stars_rub_per_star"], 2.0)
         self.assertEqual(meta["coins_amount"], 60)
+        self.assertEqual(meta["duration_days"], 30)
 
         checkout_payment = self.services.payments.validate_telegram_stars_pre_checkout(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=449,
+            total_amount=225,
         )
         self.assertEqual(checkout_payment["id"], payment["id"])
 
         first = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=449,
+            total_amount=225,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
         second = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=449,
+            total_amount=225,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
@@ -979,6 +981,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
         self.assertIn("_send_telegram_stars_invoice", handlers_source)
         self.assertIn('currency="XTR"', handlers_source)
+        self.assertIn("Подписка CeaAI", handlers_source)
+        self.assertIn("Монеты начислятся автоматически после оплаты.", handlers_source)
         self.assertIn("@router.pre_checkout_query()", handlers_source)
         self.assertIn("@router.message(F.successful_payment)", handlers_source)
         self.assertIn('F.data == "coins:buy"', handlers_source)
@@ -1407,6 +1411,24 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.crypto_pay_webhook_path, "/crypto/hook")
         self.assertEqual(settings.crypto_pay_accepted_assets, "USDT,TON")
         self.assertEqual(settings.crypto_pay_request_timeout_seconds, 7)
+
+    def test_telegram_stars_env_settings_are_read(self) -> None:
+        from ceai.config import load_settings
+
+        with (
+            patch("ceai.config._load_dotenv", return_value={}),
+            patch.dict(
+                "os.environ",
+                {
+                    "TELEGRAM_BOT_TOKEN": "test",
+                    "TELEGRAM_STARS_RUB_PER_STAR": "2.5",
+                },
+                clear=True,
+            ),
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.telegram_stars_rub_per_star, 2.5)
 
     def test_railway_deploy_config_uses_dockerfile_and_healthcheck(self) -> None:
         railway_config = loads(Path("railway.json").read_text(encoding="utf-8"))

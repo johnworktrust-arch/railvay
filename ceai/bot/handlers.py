@@ -659,20 +659,26 @@ async def _send_telegram_stars_invoice(message: Message, payment: Dict[str, Any]
     meta = loads_dict(payment.get("meta"))
     plan_name = str(meta.get("plan_name") or "Тариф CeaAI")
     coins_amount = int(meta.get("coins_amount") or 0)
+    duration_days = int(meta.get("duration_days") or 30)
     stars_amount = int(meta.get("stars_amount") or payment["amount_rub"])
+    coins_label = format_coin_amount(coins_amount)
     description = (
-        f"{format_coin_amount(coins_amount)} для CeaAI"
+        f"Тариф «{plan_name}» на {duration_days} дней. "
+        f"Включено: {coins_label}. "
+        "Монеты начислятся автоматически после оплаты."
         if coins_amount > 0
-        else "Доступ к CeaAI"
+        else "Доступ к CeaAI. Монеты начислятся автоматически после оплаты."
     )
     await message.bot.send_invoice(
         chat_id=message.chat.id,
-        title=f"CeaAI: {plan_name}",
+        title=f"Подписка CeaAI — {plan_name}",
         description=description,
         payload=str(payment["external_id"]),
         provider_token="",
         currency="XTR",
-        prices=[LabeledPrice(label=plan_name, amount=stars_amount)],
+        prices=[
+            LabeledPrice(label=f"{plan_name}: {coins_label}", amount=stars_amount)
+        ],
     )
 
 

@@ -4,6 +4,7 @@ import base64
 import hashlib
 import hmac
 import json
+import math
 import urllib.error
 import urllib.request
 import uuid
@@ -57,6 +58,7 @@ class PaymentService:
         crypto_pay_webhook_secret: str = "",
         crypto_pay_accepted_assets: str = "USDT",
         crypto_pay_request_timeout_seconds: int = 15,
+        telegram_stars_rub_per_star: float = 2.0,
         referrals: ReferralService | None = None,
     ) -> None:
         self.db = db
@@ -77,6 +79,9 @@ class PaymentService:
             crypto_pay_accepted_assets
         )
         self.crypto_pay_request_timeout_seconds = crypto_pay_request_timeout_seconds
+        self.telegram_stars_rub_per_star = max(
+            0.01, float(telegram_stars_rub_per_star)
+        )
         self.plans = PlanRepository()
         self.payments = PaymentRepository()
         self.subscriptions = SubscriptionRepository()
@@ -166,7 +171,10 @@ class PaymentService:
                     "plan_code": plan["code"],
                     "plan_name": plan["name"],
                     "coins_amount": plan["coins_amount"],
+                    "duration_days": plan["duration_days"],
+                    "price_rub": plan["price_rub"],
                     "stars_amount": stars_amount,
+                    "stars_rub_per_star": self.telegram_stars_rub_per_star,
                 },
             )
 
@@ -596,11 +604,15 @@ class PaymentService:
                 plan_id=plan["id"],
                 duration_days=plan["duration_days"],
             )
+            paid_meta = {
+                **loads_dict(payment.get("meta")),
+                **payload,
+            }
             payment = self.payments.mark_paid(
                 conn,
                 payment_id=payment["id"],
                 subscription_id=subscription["id"],
-                meta=payload,
+                meta=paid_meta,
             )
             self.coins.credit_payment(
                 conn,
@@ -795,9 +807,11 @@ class PaymentService:
         cleaned = [asset for asset in assets if asset]
         return ",".join(cleaned) or "USDT"
 
-    @staticmethod
-    def _telegram_stars_amount(plan: Dict[str, Any]) -> int:
-        return max(1, int(plan["price_rub"]))
+    def _telegram_stars_amount(self, plan: Dict[str, Any]) -> int:
+        return max(
+            1,
+            math.ceil(int(plan["price_rub"]) / self.telegram_stars_rub_per_star),
+        )
 
     @staticmethod
     def _payment_telegram_stars_amount(payment: Dict[str, Any]) -> int:
