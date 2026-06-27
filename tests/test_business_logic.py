@@ -70,15 +70,15 @@ class BusinessLogicTest(unittest.TestCase):
     def test_successful_mock_payment_credits_coins_once(self) -> None:
         payment, first = self._buy_plan("start")
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 60)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
+        self.assertEqual(first.credited_coins, 100)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
 
         second = self.services.payments.process_mock_success_webhook_for_payment_id(
             payment_id=payment["id"]
         )
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -90,7 +90,7 @@ class BusinessLogicTest(unittest.TestCase):
                 (payment["id"],),
             ).fetchone()
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 60)
+        self.assertEqual(row["amount"], 100)
 
     def test_yookassa_payment_creation_uses_redirect_checkout(self) -> None:
         settings = Settings(
@@ -126,12 +126,12 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(payment["provider"], "yookassa")
         self.assertEqual(payment["external_id"], "yk_payment_1")
         self.assertEqual(payment["payment_url"], "https://yookassa.test/pay/1")
-        self.assertEqual(payment["amount_rub"], 449)
+        self.assertEqual(payment["amount_rub"], 299)
 
         args, kwargs = api.call_args
         self.assertEqual(args, ("POST", "/payments"))
         payload = kwargs["payload"]
-        self.assertEqual(payload["amount"], {"value": "449.00", "currency": "RUB"})
+        self.assertEqual(payload["amount"], {"value": "299.00", "currency": "RUB"})
         self.assertTrue(payload["capture"])
         self.assertEqual(payload["confirmation"]["type"], "redirect")
         self.assertEqual(
@@ -177,14 +177,14 @@ class BusinessLogicTest(unittest.TestCase):
             payment["payment_url"],
             "https://t.me/CryptoTestnetBot?start=invoice-98765",
         )
-        self.assertEqual(payment["amount_rub"], 449)
+        self.assertEqual(payment["amount_rub"], 299)
 
         args, kwargs = api.call_args
         self.assertEqual(args, ("createInvoice",))
         payload = kwargs["payload"]
         self.assertEqual(payload["currency_type"], "fiat")
         self.assertEqual(payload["fiat"], "RUB")
-        self.assertEqual(payload["amount"], "449")
+        self.assertEqual(payload["amount"], "299")
         self.assertEqual(payload["accepted_assets"], "USDT")
         self.assertIn("ceaai-crypto-", payload["payload"])
 
@@ -224,7 +224,7 @@ class BusinessLogicTest(unittest.TestCase):
                 "invoice_id": 54321,
                 "status": "paid",
                 "asset": "USDT",
-                "amount": "449",
+                "amount": "299",
             },
         }
         raw_body = dumps(payload).encode("utf-8")
@@ -242,10 +242,10 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 60)
+        self.assertEqual(first.credited_coins, 100)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
-        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 60)
+        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 100)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -257,7 +257,7 @@ class BusinessLogicTest(unittest.TestCase):
                 (payment["id"],),
             ).fetchone()
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 60)
+        self.assertEqual(row["amount"], 100)
 
         with self.assertRaises(BusinessRuleError):
             services.payments.process_crypto_pay_webhook(
@@ -275,44 +275,44 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(payment["provider"], "telegram_stars")
         self.assertTrue(payment["external_id"].startswith("stars_"))
         self.assertEqual(payment["payment_url"], f"telegram-stars://{payment['external_id']}")
-        self.assertEqual(meta["stars_amount"], 1)
-        self.assertEqual(meta["stars_fixed_amount"], 1)
-        self.assertEqual(meta["coins_amount"], 60)
+        self.assertEqual(meta["stars_amount"], 150)
+        self.assertEqual(meta["stars_fixed_amount"], 0)
+        self.assertEqual(meta["coins_amount"], 100)
         self.assertEqual(meta["duration_days"], 30)
 
         checkout_payment = self.services.payments.validate_telegram_stars_pre_checkout(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=1,
+            total_amount=150,
         )
         self.assertEqual(checkout_payment["id"], payment["id"])
 
         first = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=1,
+            total_amount=150,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
         second = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=1,
+            total_amount=150,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 60)
+        self.assertEqual(first.credited_coins, 100)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
 
         with self.assertRaises(BusinessRuleError):
             self.services.payments.validate_telegram_stars_pre_checkout(
                 invoice_payload=payment["external_id"],
                 currency="XTR",
-                total_amount=1,
+                total_amount=150,
             )
 
     def test_successful_yookassa_webhook_credits_coins_once(self) -> None:
@@ -364,11 +364,11 @@ class BusinessLogicTest(unittest.TestCase):
             second = services.payments.process_yookassa_webhook(payload=payload)
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 60)
+        self.assertEqual(first.credited_coins, 100)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
         self.assertEqual(fetch.call_count, 1)
-        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 60)
+        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 100)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -380,7 +380,7 @@ class BusinessLogicTest(unittest.TestCase):
                 (payment["id"],),
             ).fetchone()
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 60)
+        self.assertEqual(row["amount"], 100)
 
     def test_start_referral_assigns_referrer_once_and_rejects_self(self) -> None:
         friend = self.services.users.ensure_telegram_user(
@@ -465,13 +465,13 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.referral_reward_kopecks, 13470)
+        self.assertEqual(first.referral_reward_kopecks, 8970)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
 
         stats = self.services.referrals.stats(self.user["id"])
         self.assertEqual(stats.invited_count, 1)
-        self.assertEqual(stats.balance_kopecks, 13470)
+        self.assertEqual(stats.balance_kopecks, 8970)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -484,7 +484,7 @@ class BusinessLogicTest(unittest.TestCase):
             ).fetchone()
 
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 13470)
+        self.assertEqual(row["amount"], 8970)
 
     def test_generation_charges_coins_after_success(self) -> None:
         self._buy_plan("start")
@@ -499,8 +499,8 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.generation["status"], "completed")
         self.assertEqual(result.generation["coins_reserved"], 1)
         self.assertEqual(result.generation["coins_charged"], 1)
-        self.assertEqual(result.balance_after, 59)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 59)
+        self.assertEqual(result.balance_after, 99)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 99)
 
     def test_image_generation_uses_standard_and_four_k_coin_costs(self) -> None:
         mock_services = build_services(
@@ -537,9 +537,9 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertEqual(standard.generation["coins_charged"], 2)
-        self.assertEqual(standard.balance_after, 58)
+        self.assertEqual(standard.balance_after, 98)
         self.assertEqual(four_k.generation["coins_charged"], 3)
-        self.assertEqual(four_k.balance_after, 55)
+        self.assertEqual(four_k.balance_after, 95)
         history = mock_services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["prompt_payload"]["image_resolution"], "4k")
 
@@ -580,7 +580,7 @@ class BusinessLogicTest(unittest.TestCase):
 
         self.assertEqual(result.generation["status"], "completed")
         self.assertEqual(result.generation["coins_charged"], 2)
-        self.assertEqual(result.balance_after, 58)
+        self.assertEqual(result.balance_after, 98)
         self.assertIn("изменение изображения", result.result["caption"])
         history = mock_services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(
@@ -655,10 +655,10 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertEqual(result.generation["status"], "completed")
-        self.assertEqual(result.balance_after, 59)
+        self.assertEqual(result.balance_after, 99)
         subscription = self.services.subscriptions.active_for_user(self.user["id"])
         self.assertIsNotNone(subscription)
-        self.assertEqual(subscription["coins_balance_cache"], 59)
+        self.assertEqual(subscription["coins_balance_cache"], 99)
         with self.db.transaction() as conn:
             recovered_payment = conn.execute(
                 "SELECT subscription_id FROM payments WHERE id = ?", (payment["id"],)
@@ -867,7 +867,7 @@ class BusinessLogicTest(unittest.TestCase):
             )
 
         self.assertIn("Коины возвращены", str(raised.exception))
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
         history = self.services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["status"], "failed")
 
@@ -941,13 +941,13 @@ class BusinessLogicTest(unittest.TestCase):
         self._buy_plan("start")
         model = self._model("kling-3")
 
-        for index in range(2):
+        for index in range(4):
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
                 prompt_text=f"Видео {index}",
             )
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
 
         with self.assertRaises(InsufficientCoinsError):
             self.services.generations.generate(
@@ -956,7 +956,7 @@ class BusinessLogicTest(unittest.TestCase):
                 prompt_text="Еще одно видео",
             )
 
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
 
 
 class MigrationAndUITest(unittest.TestCase):
@@ -1154,9 +1154,9 @@ class MigrationAndUITest(unittest.TestCase):
             crystal_text,
             "💳 Выберите количество коинов для покупки:",
         )
-        self.assertIn("⭐️ Старт - 449руб", labels)
-        self.assertIn("🔥 Базовый - 890руб", labels)
-        self.assertIn("⚡️ Про - 1990руб", labels)
+        self.assertIn("⭐️ Старт - 299руб", labels)
+        self.assertIn("🔥 Базовый - 699руб", labels)
+        self.assertIn("⚡️ Про - 1490руб", labels)
         self.assertIn("Купить коины отдельно", labels)
         self.assertEqual(
             crystal_labels,
@@ -1171,20 +1171,26 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertIn("crystals:s", crystal_callbacks)
         self.assertIn("crystals:xxl", crystal_callbacks)
-        self.assertIn("⭐️ Старт — 449 ₽", start_details)
-        self.assertIn("➕ 60 коинов", start_details)
-        self.assertIn("➕ До 60 запросов DeepSeek", start_details)
-        self.assertIn("➕ До 20 запросов ChatGPT", start_details)
+        self.assertIn("⭐️ Старт — 299 ₽", start_details)
+        self.assertIn("➕ 100 коинов", start_details)
+        self.assertIn("➕ До 100 запросов DeepSeek", start_details)
+        self.assertIn("➕ До 33 запросов ChatGPT", start_details)
+        self.assertIn("➕ До 50 изображений GPT Image", start_details)
+        self.assertIn("⭐ Telegram Stars: 150⭐", start_details)
         self.assertIn("💳 Выберите способ оплаты:", start_details)
-        self.assertIn("🔥 Базовый — 890 ₽", basic_details)
-        self.assertIn("➕ 150 коинов", basic_details)
-        self.assertIn("➕ До 50 запросов ChatGPT", basic_details)
-        self.assertIn("⚡️ Про — 1990 ₽", pro_details)
-        self.assertIn("➕ 360 коинов", pro_details)
-        self.assertIn("➕ До 120 запросов ChatGPT", pro_details)
+        self.assertIn("🔥 Базовый — 699 ₽", basic_details)
+        self.assertIn("➕ 230 коинов", basic_details)
+        self.assertIn("➕ До 76 запросов ChatGPT", basic_details)
+        self.assertIn("➕ До 115 изображений GPT Image", basic_details)
+        self.assertIn("⭐ Telegram Stars: 350⭐", basic_details)
+        self.assertIn("⚡️ Про — 1490 ₽", pro_details)
+        self.assertIn("➕ 500 коинов", pro_details)
+        self.assertIn("➕ До 166 запросов ChatGPT", pro_details)
+        self.assertIn("➕ До 250 изображений GPT Image", pro_details)
+        self.assertIn("⭐ Telegram Stars: 745⭐", pro_details)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
-            {"start": 60, "basic": 150, "pro": 360},
+            {"start": 100, "basic": 230, "pro": 500},
         )
         self.assertIn("coins:buy", callbacks)
         self.assertEqual(
@@ -2237,9 +2243,9 @@ class AdminLogicTest(unittest.TestCase):
 
         card = self.services.admin.user_card(target["id"])
 
-        self.assertEqual(card["subscription"]["coins_balance_cache"], 59)
+        self.assertEqual(card["subscription"]["coins_balance_cache"], 99)
         self.assertEqual(card["payments"]["paid_count"], 1)
-        self.assertEqual(card["payments"]["paid_amount_rub"], 449)
+        self.assertEqual(card["payments"]["paid_amount_rub"], 299)
         self.assertEqual(card["generations"]["total"], 1)
         self.assertEqual(card["generations"]["spent_coins"], 1)
 
@@ -2270,7 +2276,7 @@ class AdminLogicTest(unittest.TestCase):
             admin=self.admin, target_user_id=target["id"], amount=25
         )
 
-        self.assertEqual(balance, 85)
+        self.assertEqual(balance, 125)
         with self.db.transaction() as conn:
             transaction = conn.execute(
                 """

@@ -12,6 +12,7 @@ from typing import Any, Dict
 
 from ceai.database import Database
 from ceai.json_utils import loads_dict
+from ceai.pricing import telegram_stars_amount_for_rub
 from ceai.repositories.payments import PaymentRepository
 from ceai.repositories.plans import PlanRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
@@ -57,7 +58,7 @@ class PaymentService:
         crypto_pay_webhook_secret: str = "",
         crypto_pay_accepted_assets: str = "USDT",
         crypto_pay_request_timeout_seconds: int = 15,
-        telegram_stars_amount: int = 1,
+        telegram_stars_amount: int = 0,
         referrals: ReferralService | None = None,
     ) -> None:
         self.db = db
@@ -78,7 +79,7 @@ class PaymentService:
             crypto_pay_accepted_assets
         )
         self.crypto_pay_request_timeout_seconds = crypto_pay_request_timeout_seconds
-        self.telegram_stars_amount = max(1, int(telegram_stars_amount))
+        self.telegram_stars_amount = max(0, int(telegram_stars_amount))
         self.plans = PlanRepository()
         self.payments = PaymentRepository()
         self.subscriptions = SubscriptionRepository()
@@ -153,7 +154,7 @@ class PaymentService:
             if plan is None or not plan["is_active"]:
                 raise NotFoundError("Тариф не найден")
             external_id = f"stars_{uuid.uuid4().hex}"
-            stars_amount = self._telegram_stars_amount()
+            stars_amount = self._telegram_stars_amount(plan)
             return self.payments.create_pending(
                 conn,
                 user_id=user_id,
@@ -804,8 +805,10 @@ class PaymentService:
         cleaned = [asset for asset in assets if asset]
         return ",".join(cleaned) or "USDT"
 
-    def _telegram_stars_amount(self) -> int:
-        return self.telegram_stars_amount
+    def _telegram_stars_amount(self, plan: Dict[str, Any]) -> int:
+        if self.telegram_stars_amount > 1:
+            return self.telegram_stars_amount
+        return telegram_stars_amount_for_rub(int(plan["price_rub"]))
 
     @staticmethod
     def _payment_telegram_stars_amount(payment: Dict[str, Any]) -> int:

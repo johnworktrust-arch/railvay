@@ -67,6 +67,7 @@ from ceai.formatting import (
     format_datetime_russian_minute,
 )
 from ceai.json_utils import loads_dict
+from ceai.pricing import telegram_stars_amount_for_rub
 from ceai.providers.base import ImageInput
 from ceai.runtime_diagnostics import record_error, record_message
 from ceai.services.app import AppServices
@@ -659,6 +660,8 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
     price = int(plan.get("price_rub") or 0)
     chatgpt_requests = coins // 3
     deepseek_requests = coins
+    image_requests = coins // 2
+    stars_amount = telegram_stars_amount_for_rub(price)
     meta = {
         "start": {
             "icon": "⭐️",
@@ -690,10 +693,12 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
     return (
         f"{meta['icon']} {meta['label']} — {price} ₽\n"
         f"({meta['tag']})\n\n"
-        "➕ Доступ к текстовым нейросетям\n"
+        "➕ DeepSeek, ChatGPT и GPT Image\n"
         f"➕ {format_coin_amount(coins)}\n"
         f"➕ До {deepseek_requests} запросов DeepSeek\n"
         f"➕ До {chatgpt_requests} запросов ChatGPT\n"
+        f"➕ До {image_requests} изображений GPT Image\n"
+        f"⭐ Telegram Stars: {stars_amount}⭐\n"
         "➕ Срок действия — 30 дней\n"
         f"{meta['extra']}\n\n"
         f"{_format_payment_methods()}"

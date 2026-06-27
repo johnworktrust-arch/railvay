@@ -77,7 +77,7 @@ class Settings:
     crypto_pay_webhook_path: str = "/payments/crypto/webhook"
     crypto_pay_accepted_assets: str = "USDT"
     crypto_pay_request_timeout_seconds: int = 15
-    telegram_stars_amount: int = 1
+    telegram_stars_amount: int = 0
     allow_ephemeral_sqlite: bool = False
 
 
@@ -170,6 +170,6 @@ def load_settings() -> Settings:
         crypto_pay_request_timeout_seconds=read_int(
             "CRYPTO_PAY_REQUEST_TIMEOUT_SECONDS", 15
         ),
-        telegram_stars_amount=read_int("TELEGRAM_STARS_AMOUNT", 1),
+        telegram_stars_amount=read_int("TELEGRAM_STARS_AMOUNT", 0),
         allow_ephemeral_sqlite=read_bool("CEAI_ALLOW_EPHEMERAL_SQLITE"),
     )
