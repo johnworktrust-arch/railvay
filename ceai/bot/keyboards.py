@@ -158,12 +158,6 @@ def payment_methods_keyboard(plan_code: str) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="💵 Крипта USDT TRC20",
-                    callback_data=f"pay_method:{plan_code}:usdt_trc20",
-                )
-            ],
-            [
-                InlineKeyboardButton(
                     text="⭐️ Telegram Stars",
                     callback_data=f"pay_method:{plan_code}:telegram_stars",
                 )

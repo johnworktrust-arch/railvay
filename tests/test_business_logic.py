@@ -905,10 +905,11 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("coins:buy", callbacks)
         self.assertEqual(
             payment_method_labels[:3],
-            ["💳 Карта / СБП", "💵 Крипта USDT TRC20", "⭐️ Telegram Stars"],
+            ["💳 Карта / СБП", "⭐️ Telegram Stars", "⬅️ Назад"],
         )
         self.assertIn("pay_method:start:card_sbp", payment_method_callbacks)
-        self.assertIn("pay_method:start:usdt_trc20", payment_method_callbacks)
+        self.assertNotIn("pay_method:start:usdt_trc20", payment_method_callbacks)
+        self.assertNotIn("Крипта", payment_method_labels)
         self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
         self.assertIn("_format_plan_details(plan)", handlers_source)
@@ -989,6 +990,11 @@ class MigrationAndUITest(unittest.TestCase):
         )[1].split("if _is_blocked_regular_user(services, user):", 1)[0]
 
         self.assertIn("_show_screen(", admin_callback_source)
+        self.assertIn("_track_existing_screen_message", handlers_source)
+        self.assertIn(
+            '_track_existing_screen_message(services, user["id"], callback.message)',
+            admin_callback_source,
+        )
         self.assertIn("_send_admin_home(callback.message, services, user[\"id\"])", admin_callback_source)
         self.assertNotIn("delete_current=True", admin_callback_source)
         self.assertIn("_show_screen(", admin_message_source)

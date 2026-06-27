@@ -191,6 +191,22 @@ def _remember_screen_message(
     services.users.set_session(user_id, state=state, payload=payload)
 
 
+def _track_existing_screen_message(
+    services: AppServices, user_id: int, message: Message
+) -> None:
+    if not message.message_id:
+        return
+    state, payload = _session_state_payload(services, user_id)
+    _remember_screen_message(
+        services,
+        user_id,
+        state=state,
+        payload=payload,
+        message_id=message.message_id,
+        reply_markup=message.reply_markup,
+    )
+
+
 async def _edit_screen_message(
     message: Message,
     *,
@@ -1613,6 +1629,7 @@ def create_router(services: AppServices) -> Router:
             await callback.answer()
             return
 
+        _track_existing_screen_message(services, user["id"], callback.message)
         parts = callback.data.split(":")
         action = parts[1] if len(parts) > 1 else "home"
         try:
