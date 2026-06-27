@@ -50,6 +50,13 @@ def build_services(db: Database, settings: Settings) -> AppServices:
             yookassa_request_timeout_seconds=(
                 settings.yookassa_request_timeout_seconds
             ),
+            crypto_pay_token=settings.crypto_pay_token,
+            crypto_pay_api_base_url=settings.crypto_pay_api_base_url,
+            crypto_pay_webhook_secret=settings.crypto_pay_webhook_secret,
+            crypto_pay_accepted_assets=settings.crypto_pay_accepted_assets,
+            crypto_pay_request_timeout_seconds=(
+                settings.crypto_pay_request_timeout_seconds
+            ),
             referrals=referrals,
         ),
         generations=GenerationService(db, provider),

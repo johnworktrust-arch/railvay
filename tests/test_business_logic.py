@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
 import sqlite3
 import unittest
 from json import loads
@@ -136,6 +138,130 @@ class BusinessLogicTest(unittest.TestCase):
             "https://bot.example/payments/yookassa/return",
         )
         self.assertEqual(payload["metadata"]["plan_code"], "start")
+
+    def test_crypto_pay_payment_creation_uses_invoice_url(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            app_base_url="https://bot.example",
+            crypto_pay_token="crypto-token",
+            crypto_pay_api_base_url="https://testnet-pay.crypt.bot/api",
+            crypto_pay_accepted_assets="USDT",
+        )
+        services = build_services(self.db, settings)
+
+        with patch.object(
+            services.payments,
+            "_crypto_pay_request",
+            return_value={
+                "ok": True,
+                "result": {
+                    "invoice_id": 98765,
+                    "status": "active",
+                    "pay_url": "https://t.me/CryptoTestnetBot?start=invoice-98765",
+                },
+            },
+        ) as api:
+            payment = services.payments.create_payment(
+                user_id=self.user["id"],
+                plan_code="start",
+                payment_method="usdt_trc20",
+            )
+
+        self.assertEqual(payment["provider"], "crypto_pay")
+        self.assertEqual(payment["external_id"], "98765")
+        self.assertEqual(
+            payment["payment_url"],
+            "https://t.me/CryptoTestnetBot?start=invoice-98765",
+        )
+        self.assertEqual(payment["amount_rub"], 449)
+
+        args, kwargs = api.call_args
+        self.assertEqual(args, ("createInvoice",))
+        payload = kwargs["payload"]
+        self.assertEqual(payload["currency_type"], "fiat")
+        self.assertEqual(payload["fiat"], "RUB")
+        self.assertEqual(payload["amount"], "449")
+        self.assertEqual(payload["accepted_assets"], "USDT")
+        self.assertIn("ceaai-crypto-", payload["payload"])
+
+    def test_successful_crypto_pay_webhook_credits_coins_once(self) -> None:
+        token = "crypto-token"
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            crypto_pay_token=token,
+        )
+        services = build_services(self.db, settings)
+
+        with patch.object(
+            services.payments,
+            "_crypto_pay_request",
+            return_value={
+                "ok": True,
+                "result": {
+                    "invoice_id": 54321,
+                    "status": "active",
+                    "pay_url": "https://t.me/CryptoTestnetBot?start=invoice-54321",
+                },
+            },
+        ):
+            payment = services.payments.create_payment(
+                user_id=self.user["id"],
+                plan_code="start",
+                payment_method="usdt_trc20",
+            )
+
+        payload = {
+            "update_id": 100,
+            "update_type": "invoice_paid",
+            "payload": {
+                "invoice_id": 54321,
+                "status": "paid",
+                "asset": "USDT",
+                "amount": "449",
+            },
+        }
+        raw_body = dumps(payload).encode("utf-8")
+        signature = hmac.new(
+            hashlib.sha256(token.encode("utf-8")).digest(),
+            raw_body,
+            hashlib.sha256,
+        ).hexdigest()
+
+        first = services.payments.process_crypto_pay_webhook(
+            payload=payload, raw_body=raw_body, signature=signature
+        )
+        second = services.payments.process_crypto_pay_webhook(
+            payload=payload, raw_body=raw_body, signature=signature
+        )
+
+        self.assertTrue(first.processed)
+        self.assertEqual(first.credited_coins, 60)
+        self.assertFalse(second.processed)
+        self.assertTrue(second.duplicate)
+        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 60)
+
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT COUNT(*) AS count, COALESCE(SUM(amount), 0) AS amount
+                FROM coin_transactions
+                WHERE payment_id = ? AND type = 'credit'
+                """,
+                (payment["id"],),
+            ).fetchone()
+        self.assertEqual(row["count"], 1)
+        self.assertEqual(row["amount"], 60)
+
+        with self.assertRaises(BusinessRuleError):
+            services.payments.process_crypto_pay_webhook(
+                payload=payload, raw_body=raw_body, signature="bad-signature"
+            )
 
     def test_successful_yookassa_webhook_credits_coins_once(self) -> None:
         settings = Settings(
@@ -1171,6 +1297,36 @@ class MigrationAndUITest(unittest.TestCase):
             settings = load_settings()
 
         self.assertEqual(settings.app_base_url, "https://custom.example")
+
+    def test_crypto_pay_env_settings_are_read(self) -> None:
+        from ceai.config import load_settings
+
+        with (
+            patch("ceai.config._load_dotenv", return_value={}),
+            patch.dict(
+                "os.environ",
+                {
+                    "TELEGRAM_BOT_TOKEN": "test",
+                    "CRYPTO_PAY_TOKEN": "crypto-token",
+                    "CRYPTO_PAY_API_BASE": "https://testnet-pay.crypt.bot",
+                    "CRYPTO_PAY_WEBHOOK_SECRET": "crypto-secret",
+                    "CRYPTO_PAY_WEBHOOK_PATH": "/crypto/hook",
+                    "CRYPTO_PAY_ACCEPTED_ASSETS": "USDT,TON",
+                    "CRYPTO_PAY_REQUEST_TIMEOUT_SECONDS": "7",
+                },
+                clear=True,
+            ),
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.crypto_pay_token, "crypto-token")
+        self.assertEqual(
+            settings.crypto_pay_api_base_url, "https://testnet-pay.crypt.bot"
+        )
+        self.assertEqual(settings.crypto_pay_webhook_secret, "crypto-secret")
+        self.assertEqual(settings.crypto_pay_webhook_path, "/crypto/hook")
+        self.assertEqual(settings.crypto_pay_accepted_assets, "USDT,TON")
+        self.assertEqual(settings.crypto_pay_request_timeout_seconds, 7)
 
     def test_railway_deploy_config_uses_dockerfile_and_healthcheck(self) -> None:
         railway_config = loads(Path("railway.json").read_text(encoding="utf-8"))

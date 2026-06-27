@@ -1848,10 +1848,7 @@ def create_router(services: AppServices) -> Router:
         parts = callback.data.split(":", 2) if callback.data else []
         plan_code = parts[1] if len(parts) >= 2 else ""
         payment_method = parts[2] if len(parts) >= 3 else ""
-        if (
-            payment_method in {"usdt_trc20", "telegram_stars"}
-            and services.payments.payment_provider != "mock"
-        ):
+        if payment_method == "telegram_stars":
             if callback.message:
                 await _show_screen(
                     callback.message,

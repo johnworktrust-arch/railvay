@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import base64
+import hashlib
+import hmac
 import json
 import urllib.error
 import urllib.request
@@ -19,6 +21,8 @@ from ceai.services.referrals import ReferralService
 
 
 YOOKASSA_PROVIDER = "yookassa"
+CRYPTO_PAY_PROVIDER = "crypto_pay"
+CRYPTO_PAY_METHODS = {"crypto", "crypto_pay", "usdt_trc20"}
 
 
 @dataclass(frozen=True)
@@ -45,6 +49,11 @@ class PaymentService:
         yookassa_api_base_url: str = "https://api.yookassa.ru/v3",
         yookassa_return_path: str = "/payments/yookassa/return",
         yookassa_request_timeout_seconds: int = 15,
+        crypto_pay_token: str = "",
+        crypto_pay_api_base_url: str = "https://testnet-pay.crypt.bot/api",
+        crypto_pay_webhook_secret: str = "",
+        crypto_pay_accepted_assets: str = "USDT",
+        crypto_pay_request_timeout_seconds: int = 15,
         referrals: ReferralService | None = None,
     ) -> None:
         self.db = db
@@ -56,6 +65,15 @@ class PaymentService:
         self.yookassa_api_base_url = yookassa_api_base_url.rstrip("/")
         self.yookassa_return_path = yookassa_return_path
         self.yookassa_request_timeout_seconds = yookassa_request_timeout_seconds
+        self.crypto_pay_token = crypto_pay_token.strip()
+        self.crypto_pay_api_base_url = self._normalize_crypto_pay_api_base(
+            crypto_pay_api_base_url
+        )
+        self.crypto_pay_webhook_secret = crypto_pay_webhook_secret.strip()
+        self.crypto_pay_accepted_assets = self._normalize_crypto_pay_assets(
+            crypto_pay_accepted_assets
+        )
+        self.crypto_pay_request_timeout_seconds = crypto_pay_request_timeout_seconds
         self.plans = PlanRepository()
         self.payments = PaymentRepository()
         self.subscriptions = SubscriptionRepository()
@@ -66,6 +84,19 @@ class PaymentService:
     def create_payment(
         self, *, user_id: int, plan_code: str, payment_method: str = ""
     ) -> Dict[str, Any]:
+        normalized_method = (payment_method or "").strip().lower()
+        if normalized_method in CRYPTO_PAY_METHODS:
+            return self.create_crypto_pay_payment(
+                user_id=user_id,
+                plan_code=plan_code,
+                payment_method=normalized_method,
+            )
+        if self.payment_provider == CRYPTO_PAY_PROVIDER:
+            return self.create_crypto_pay_payment(
+                user_id=user_id,
+                plan_code=plan_code,
+                payment_method=normalized_method or CRYPTO_PAY_PROVIDER,
+            )
         if self.payment_provider == YOOKASSA_PROVIDER:
             return self.create_yookassa_payment(user_id=user_id, plan_code=plan_code)
         return self.create_mock_payment(
@@ -94,6 +125,62 @@ class PaymentService:
                 meta={
                     "kind": "mock_payment",
                     "payment_method": payment_method or "mock",
+                },
+            )
+
+    def create_crypto_pay_payment(
+        self, *, user_id: int, plan_code: str, payment_method: str = "crypto_pay"
+    ) -> Dict[str, Any]:
+        if not self.crypto_pay_token:
+            raise BusinessRuleError("Crypto Pay не настроен: нужен CRYPTO_PAY_TOKEN.")
+
+        with self.db.transaction() as conn:
+            plan = self.plans.get_by_code(conn, plan_code)
+            if plan is None or not plan["is_active"]:
+                raise NotFoundError("Тариф не найден")
+
+        amount_rub = int(plan["price_rub"])
+        idempotence_key = f"ceaai-crypto-{uuid.uuid4().hex}"
+        payload = {
+            "currency_type": "fiat",
+            "fiat": "RUB",
+            "amount": str(amount_rub),
+            "accepted_assets": self.crypto_pay_accepted_assets,
+            "description": self._payment_description(plan),
+            "payload": idempotence_key,
+            "paid_btn_name": "openBot",
+            "paid_btn_url": "https://t.me/aiceabot",
+        }
+        response = self._crypto_pay_request("createInvoice", payload=payload)
+        invoice = response.get("result")
+        if not isinstance(invoice, dict):
+            raise BusinessRuleError("Crypto Pay вернул некорректный invoice.")
+        external_id = str(invoice.get("invoice_id") or "")
+        payment_url = str(
+            invoice.get("pay_url")
+            or invoice.get("bot_invoice_url")
+            or invoice.get("mini_app_invoice_url")
+            or invoice.get("web_app_invoice_url")
+            or ""
+        )
+        if not external_id or not payment_url:
+            raise BusinessRuleError("Crypto Pay не вернул ссылку на оплату.")
+
+        with self.db.transaction() as conn:
+            return self.payments.create_pending(
+                conn,
+                user_id=user_id,
+                plan_id=plan["id"],
+                amount_rub=amount_rub,
+                external_id=external_id,
+                payment_url=payment_url,
+                provider=CRYPTO_PAY_PROVIDER,
+                meta={
+                    "kind": "crypto_pay_invoice",
+                    "payment_method": payment_method or CRYPTO_PAY_PROVIDER,
+                    "idempotence_key": idempotence_key,
+                    "accepted_assets": self.crypto_pay_accepted_assets,
+                    "response": invoice,
                 },
             )
 
@@ -271,6 +358,66 @@ class PaymentService:
             payload={
                 "webhook": payload,
                 "verified_payment": verified_payment,
+            },
+        )
+
+    def process_crypto_pay_webhook(
+        self,
+        *,
+        payload: Dict[str, Any],
+        raw_body: bytes,
+        signature: str,
+    ) -> PaymentWebhookResult:
+        self._verify_crypto_pay_signature(raw_body=raw_body, signature=signature)
+        event_type = str(payload.get("update_type") or "")
+        invoice = payload.get("payload")
+        if not isinstance(invoice, dict):
+            raise BusinessRuleError("Некорректный Crypto Pay webhook: нет invoice.")
+        external_id = str(invoice.get("invoice_id") or "")
+        if not external_id:
+            raise BusinessRuleError(
+                "Некорректный Crypto Pay webhook: нет invoice_id."
+            )
+
+        webhook, should_process, duplicate = self._reserve_webhook(
+            provider=CRYPTO_PAY_PROVIDER,
+            external_id=external_id,
+            event_type=event_type,
+            payload=payload,
+        )
+        if not should_process:
+            return PaymentWebhookResult(
+                processed=False,
+                duplicate=duplicate,
+                payment=None,
+                subscription=None,
+                credited_coins=0,
+                message="Webhook already processed or received",
+            )
+
+        status = str(invoice.get("status") or "")
+        if event_type != "invoice_paid" or status != "paid":
+            self._mark_webhook(
+                webhook_id=int(webhook["id"]),
+                status="ignored",
+                error_message=f"Unsupported Crypto Pay event {event_type}/{status}",
+            )
+            return PaymentWebhookResult(
+                processed=False,
+                duplicate=False,
+                payment=None,
+                subscription=None,
+                credited_coins=0,
+                message=f"Crypto Pay webhook ignored: {event_type}/{status}",
+            )
+
+        return self._process_successful_payment(
+            provider=CRYPTO_PAY_PROVIDER,
+            external_id=external_id,
+            webhook_id=int(webhook["id"]),
+            payload={
+                "webhook": payload,
+                "invoice": invoice,
             },
         )
 
@@ -465,9 +612,70 @@ class PaymentService:
         raw = f"{self.yookassa_shop_id}:{self.yookassa_secret_key}".encode("utf-8")
         return "Basic " + base64.b64encode(raw).decode("ascii")
 
+    def _crypto_pay_request(
+        self, method_name: str, *, payload: Dict[str, Any] | None = None
+    ) -> Dict[str, Any]:
+        if not self.crypto_pay_token:
+            raise BusinessRuleError("Crypto Pay не настроен.")
+
+        url = f"{self.crypto_pay_api_base_url}/{method_name.lstrip('/')}"
+        body = None
+        headers = {
+            "Accept": "application/json",
+            "Crypto-Pay-API-Token": self.crypto_pay_token,
+        }
+        if payload is not None:
+            body = json.dumps(payload, ensure_ascii=False).encode("utf-8")
+            headers["Content-Type"] = "application/json"
+
+        request = urllib.request.Request(url, data=body, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(
+                request, timeout=self.crypto_pay_request_timeout_seconds
+            ) as response:
+                response_body = response.read().decode("utf-8")
+        except urllib.error.HTTPError as exc:
+            error_body = exc.read().decode("utf-8", errors="replace")
+            raise BusinessRuleError(
+                f"Crypto Pay API error {exc.code}: {error_body}"
+            ) from exc
+        except urllib.error.URLError as exc:
+            raise BusinessRuleError(f"Crypto Pay API недоступна: {exc.reason}") from exc
+
+        data = json.loads(response_body) if response_body else {}
+        if not isinstance(data, dict):
+            raise BusinessRuleError("Crypto Pay вернул некорректный ответ.")
+        if not data.get("ok"):
+            raise BusinessRuleError(f"Crypto Pay API error: {data}")
+        return data
+
+    def _verify_crypto_pay_signature(self, *, raw_body: bytes, signature: str) -> None:
+        if not self.crypto_pay_token:
+            raise BusinessRuleError("Crypto Pay не настроен.")
+        received = (signature or "").strip().lower()
+        if not received:
+            raise BusinessRuleError("Crypto Pay webhook без подписи.")
+        secret = hashlib.sha256(self.crypto_pay_token.encode("utf-8")).digest()
+        expected = hmac.new(secret, raw_body, hashlib.sha256).hexdigest()
+        if not hmac.compare_digest(expected, received):
+            raise BusinessRuleError("Некорректная подпись Crypto Pay webhook.")
+
     def _public_url(self, path: str) -> str:
         normalized_path = path if path.startswith("/") else f"/{path}"
         return f"{self.app_base_url}{normalized_path}"
+
+    @staticmethod
+    def _normalize_crypto_pay_api_base(value: str) -> str:
+        cleaned = (value or "https://testnet-pay.crypt.bot/api").strip().rstrip("/")
+        if not cleaned.endswith("/api"):
+            cleaned += "/api"
+        return cleaned
+
+    @staticmethod
+    def _normalize_crypto_pay_assets(value: str) -> str:
+        assets = [asset.strip().upper() for asset in (value or "").split(",")]
+        cleaned = [asset for asset in assets if asset]
+        return ",".join(cleaned) or "USDT"
 
     @staticmethod
     def _payment_description(plan: Dict[str, Any]) -> str:

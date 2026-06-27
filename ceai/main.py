@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 import os
 
@@ -51,6 +52,18 @@ async def payment_return(request: web.Request) -> web.Response:
         ),
         content_type="text/html",
     )
+
+
+def _normalize_path(path: str) -> str:
+    return path if path.startswith("/") else f"/{path}"
+
+
+def _crypto_webhook_path(settings: Settings) -> str:
+    path = _normalize_path(settings.crypto_pay_webhook_path)
+    secret = settings.crypto_pay_webhook_secret.strip().strip("/")
+    if secret and not path.rstrip("/").endswith(f"/{secret}"):
+        path = f"{path.rstrip('/')}/{secret}"
+    return path
 
 
 async def telegram_status(request: web.Request) -> web.Response:
@@ -122,12 +135,9 @@ async def run_webhook(
     app["settings"] = settings
     app.router.add_get("/healthz", health)
     app.router.add_get("/public-offer", public_offer)
-    yookassa_return_path = settings.yookassa_return_path
-    if not yookassa_return_path.startswith("/"):
-        yookassa_return_path = "/" + yookassa_return_path
-    yookassa_webhook_path = settings.yookassa_webhook_path
-    if not yookassa_webhook_path.startswith("/"):
-        yookassa_webhook_path = "/" + yookassa_webhook_path
+    yookassa_return_path = _normalize_path(settings.yookassa_return_path)
+    yookassa_webhook_path = _normalize_path(settings.yookassa_webhook_path)
+    crypto_webhook_path = _crypto_webhook_path(settings)
     app.router.add_get(yookassa_return_path, payment_return)
     app.router.add_get("/telegram/status", telegram_status)
 
@@ -176,6 +186,42 @@ async def run_webhook(
         )
 
     app.router.add_post(yookassa_webhook_path, yookassa_webhook)
+
+    async def crypto_pay_webhook(request: web.Request) -> web.Response:
+        raw_body = await request.read()
+        try:
+            payload = json.loads(raw_body.decode("utf-8")) if raw_body else {}
+        except Exception:
+            return web.json_response({"ok": False, "error": "invalid_json"}, status=400)
+        if not isinstance(payload, dict):
+            return web.json_response(
+                {"ok": False, "error": "invalid_payload"}, status=400
+            )
+        try:
+            result = await asyncio.to_thread(
+                services.payments.process_crypto_pay_webhook,
+                payload=payload,
+                raw_body=raw_body,
+                signature=request.headers.get("Crypto-Pay-API-Signature", ""),
+            )
+        except BusinessRuleError as exc:
+            logging.warning("Crypto Pay webhook rejected: %s", exc)
+            return web.json_response({"ok": False, "error": str(exc)}, status=400)
+        except Exception:
+            logging.exception("Crypto Pay webhook failed")
+            return web.json_response(
+                {"ok": False, "error": "webhook_failed"}, status=502
+            )
+        return web.json_response(
+            {
+                "ok": True,
+                "processed": result.processed,
+                "duplicate": result.duplicate,
+                "credited_coins": result.credited_coins,
+            }
+        )
+
+    app.router.add_post(crypto_webhook_path, crypto_pay_webhook)
     SimpleRequestHandler(
         dispatcher=dispatcher,
         bot=bot,

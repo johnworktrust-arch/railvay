@@ -133,6 +133,35 @@ URL: https://your-service.up.railway.app/payments/yookassa/webhook
 
 `/payments/yookassa/return` нужен только как страница возврата пользователя после оплаты. Монеты там не начисляются; начисление идет только после webhook и проверки статуса платежа через API YooKassa.
 
+### Оплата криптой через Crypto Pay
+
+Для testnet используйте токен приложения из `@CryptoTestnetBot`.
+Для прода используйте `@CryptoBot` и замените API base на `https://pay.crypt.bot/api`.
+
+```bash
+CRYPTO_PAY_TOKEN=your-crypto-pay-app-token
+CRYPTO_PAY_API_BASE=https://testnet-pay.crypt.bot/api
+CRYPTO_PAY_WEBHOOK_SECRET=change-this-long-random-secret
+CRYPTO_PAY_WEBHOOK_PATH=/payments/crypto/webhook
+CRYPTO_PAY_ACCEPTED_ASSETS=USDT
+```
+
+Webhook URL в Crypto Pay:
+
+```text
+https://your-service.up.railway.app/payments/crypto/webhook/change-this-long-random-secret
+```
+
+Сценарий:
+
+```text
+Бот создает invoice в Crypto Pay
+-> пользователь открывает pay_url
+-> Crypto Pay присылает webhook invoice_paid
+-> backend проверяет подпись Crypto-Pay-API-Signature
+-> backend начисляет монеты один раз
+```
+
 ### Проверка сценария в Telegram
 
 ```text

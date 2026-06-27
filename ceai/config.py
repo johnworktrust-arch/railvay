@@ -71,6 +71,12 @@ class Settings:
     yookassa_webhook_path: str = "/payments/yookassa/webhook"
     yookassa_return_path: str = "/payments/yookassa/return"
     yookassa_request_timeout_seconds: int = 15
+    crypto_pay_token: str = ""
+    crypto_pay_api_base_url: str = "https://testnet-pay.crypt.bot/api"
+    crypto_pay_webhook_secret: str = ""
+    crypto_pay_webhook_path: str = "/payments/crypto/webhook"
+    crypto_pay_accepted_assets: str = "USDT"
+    crypto_pay_request_timeout_seconds: int = 15
     allow_ephemeral_sqlite: bool = False
 
 
@@ -149,6 +155,19 @@ def load_settings() -> Settings:
         ),
         yookassa_request_timeout_seconds=read_int(
             "YOOKASSA_REQUEST_TIMEOUT_SECONDS", 15
+        ),
+        crypto_pay_token=read("CRYPTO_PAY_TOKEN"),
+        crypto_pay_api_base_url=read(
+            "CRYPTO_PAY_API_BASE",
+            "https://testnet-pay.crypt.bot/api",
+        ).rstrip("/"),
+        crypto_pay_webhook_secret=read("CRYPTO_PAY_WEBHOOK_SECRET"),
+        crypto_pay_webhook_path=read(
+            "CRYPTO_PAY_WEBHOOK_PATH", "/payments/crypto/webhook"
+        ),
+        crypto_pay_accepted_assets=read("CRYPTO_PAY_ACCEPTED_ASSETS", "USDT"),
+        crypto_pay_request_timeout_seconds=read_int(
+            "CRYPTO_PAY_REQUEST_TIMEOUT_SECONDS", 15
         ),
         allow_ephemeral_sqlite=read_bool("CEAI_ALLOW_EPHEMERAL_SQLITE"),
     )
