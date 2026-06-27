@@ -80,14 +80,15 @@ MODEL_PRICES = [
     {
         "provider": "openai",
         "model_key": "gpt-image-2-medium",
-        "display_name": "GPT Image 2 Medium",
+        "display_name": "GPT Image 2",
         "generation_type": "image",
-        "coins_cost": 6,
+        "coins_cost": 2,
         "config": {
             "api_model": "gpt-image-2",
             "quality": "medium",
             "size": "1024x1024",
             "output_format": "png",
+            "four_k_coins_cost": 3,
             "provider_cost_amount": 4.5,
             "provider_cost_currency": "RUB",
             "ui_description": (

@@ -501,6 +501,47 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.balance_after, 59)
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 59)
 
+    def test_image_generation_uses_standard_and_four_k_coin_costs(self) -> None:
+        mock_services = build_services(
+            self.db,
+            Settings(
+                telegram_bot_token="test",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+                ai_provider_mode="mock",
+            ),
+        )
+        payment = mock_services.payments.create_mock_payment(
+            user_id=self.user["id"], plan_code="start"
+        )
+        mock_services.payments.process_mock_success_webhook_for_payment_id(
+            payment_id=payment["id"]
+        )
+        model = next(
+            model
+            for model in mock_services.catalog.list_models()
+            if model["model_key"] == "gpt-image-2-medium"
+        )
+
+        standard = mock_services.generations.generate(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            prompt_text="Нарисуй футуристичный город",
+        )
+        four_k = mock_services.generations.generate(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            prompt_text="Нарисуй футуристичный город 4К",
+        )
+
+        self.assertEqual(standard.generation["coins_charged"], 2)
+        self.assertEqual(standard.balance_after, 58)
+        self.assertEqual(four_k.generation["coins_charged"], 3)
+        self.assertEqual(four_k.balance_after, 55)
+        history = mock_services.generations.list_recent(user_id=self.user["id"])
+        self.assertEqual(history[0]["prompt_payload"]["image_resolution"], "4k")
+
     def test_generation_recovers_active_subscription_from_paid_payment(self) -> None:
         payment = self.services.payments.create_mock_payment(
             user_id=self.user["id"], plan_code="start"
@@ -843,6 +884,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("DeepSeak", keyboard_source)
 
     def test_ai_reply_keyboards_have_back_button_only(self) -> None:
+        from ceai.bot.handlers import _format_direct_prompt_screen
         from ceai.bot.keyboards import model_choice_label
 
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
@@ -879,7 +921,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")', keyboard_source)
         self.assertIn("Выберите модель кнопкой в сообщении.", handlers_source)
         self.assertIn("skip_single_model_choice=True", handlers_source)
-        self.assertIn("Опишите фото, которое хотите получить.", handlers_source)
+        self.assertIn("Модель: {model['display_name']}", handlers_source)
+        self.assertIn("Стоимость 1 запроса 4К", handlers_source)
+        self.assertIn("🔎Чтобы получить изображение 4К", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
         self.assertIn("_show_generation_result(", handlers_source)
         self.assertIn("BufferedInputFile", handlers_source)
@@ -896,6 +940,21 @@ class MigrationAndUITest(unittest.TestCase):
                 {"generation_type": "text", "display_name": "ChatGPT GPT-5.5"}
             ),
             "ChatGPT GPT-5.5",
+        )
+        self.assertEqual(
+            _format_direct_prompt_screen(
+                {
+                    "display_name": "GPT Image 2",
+                    "generation_type": "image",
+                    "coins_cost": 2,
+                    "config": {"four_k_coins_cost": 3},
+                }
+            ),
+            "Модель: GPT Image 2\n\n"
+            "Стоимость 1 запроса: 2 Coin\n"
+            "Стоимость 1 запроса 4К: 3 Coin\n\n"
+            "Введите текст для генерации или изображение которое хотите изменить.\n\n"
+            "🔎Чтобы получить изображение 4К, добавьте «4К» в текст запроса",
         )
 
     def test_video_and_tts_sections_show_unavailable_stub(self) -> None:
@@ -1637,7 +1696,7 @@ class MigrationAndUITest(unittest.TestCase):
                 {
                     "deepseek-v4-flash": 1,
                     "gpt-4o-mini": 3,
-                    "gpt-image-2-medium": 6,
+                    "gpt-image-2-medium": 2,
                     "kling-3": 25,
                     "elevenlabs-tts": 5,
                 },
@@ -1645,10 +1704,13 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
             self.assertEqual(loads_dict(openai["config"])["reasoning_effort"], "low")
             image_config = loads_dict(image["config"])
+            self.assertEqual(image["display_name"], "GPT Image 2")
+            self.assertEqual(image["coins_cost"], 2)
             self.assertEqual(image_config["api_model"], "gpt-image-2")
             self.assertEqual(image_config["quality"], "medium")
             self.assertEqual(image_config["size"], "1024x1024")
             self.assertEqual(image_config["output_format"], "png")
+            self.assertEqual(image_config["four_k_coins_cost"], 3)
         finally:
             db.close()
 
@@ -1689,7 +1751,7 @@ class MigrationAndUITest(unittest.TestCase):
                 model={
                     "provider": "openai",
                     "model_key": "gpt-image-2-medium",
-                    "display_name": "GPT Image 2 Medium",
+                    "display_name": "GPT Image 2",
                     "generation_type": "image",
                     "config": "{}",
                 },

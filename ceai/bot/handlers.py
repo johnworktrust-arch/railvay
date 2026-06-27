@@ -738,8 +738,17 @@ def _format_models(models: list[Dict[str, Any]]) -> str:
 
 
 def _format_direct_prompt_screen(model: Dict[str, Any]) -> str:
+    if str(model["generation_type"]) == "image":
+        config = loads_dict(model.get("config"))
+        four_k_cost = int(config.get("four_k_coins_cost") or 3)
+        return (
+            f"Модель: {model['display_name']}\n\n"
+            f"Стоимость 1 запроса: {_format_coin_unit(model['coins_cost'])}\n"
+            f"Стоимость 1 запроса 4К: {_format_coin_unit(four_k_cost)}\n\n"
+            "Введите текст для генерации или изображение которое хотите изменить.\n\n"
+            "🔎Чтобы получить изображение 4К, добавьте «4К» в текст запроса"
+        )
     prompt_copy = {
-        "image": "Опишите фото, которое хотите получить.",
         "video": "Опишите видео, которое хотите получить.",
         "tts": "Отправьте текст для озвучки.",
     }.get(str(model["generation_type"]), "Отправьте prompt для выбранной модели.")

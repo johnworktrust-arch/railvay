@@ -55,7 +55,10 @@ class GenerationService:
             if model is None or not model["is_active"]:
                 raise NotFoundError("Модель не найдена")
 
+            cost = _generation_coin_cost(model, prompt_text)
             prompt_payload: Dict[str, Any] = {"text": prompt_text}
+            if _is_image_four_k_request(model, prompt_text):
+                prompt_payload["image_resolution"] = "4k"
             if text_chat_id is not None:
                 prompt_payload["text_chat_id"] = text_chat_id
             if text_chat_title:
@@ -93,7 +96,6 @@ class GenerationService:
                 self.subscriptions.set_balance_cache(
                     conn, subscription_id=subscription["id"], balance=balance
                 )
-                cost = int(model["coins_cost"])
                 if balance < cost:
                     self.generations.mark_failed(
                         conn,
@@ -199,6 +201,20 @@ def _result_for_storage(result: Dict[str, Any]) -> Dict[str, Any]:
     stored.pop("image_b64", None)
     stored["image_data_saved"] = False
     return stored
+
+
+def _generation_coin_cost(model: Dict[str, Any], prompt_text: str) -> int:
+    if _is_image_four_k_request(model, prompt_text):
+        config = loads_dict(model.get("config"))
+        return max(1, int(config.get("four_k_coins_cost") or 3))
+    return max(1, int(model["coins_cost"]))
+
+
+def _is_image_four_k_request(model: Dict[str, Any], prompt_text: str) -> bool:
+    if str(model.get("generation_type") or "") != "image":
+        return False
+    normalized = prompt_text.casefold()
+    return "4k" in normalized or "4к" in normalized
 
 
 def _provider_error_message(*, provider_error: str, generation_type: str) -> str:
