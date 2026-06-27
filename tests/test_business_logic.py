@@ -862,6 +862,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("state=\"waiting_model_choice\"", handlers_source)
         self.assertIn("reply_markup=models_keyboard(models)", handlers_source)
         self.assertIn('F.data.startswith("models:type:")', handlers_source)
+        self.assertIn("💡Выберите текстовую модель:", handlers_source)
         self.assertIn("ui_description", handlers_source)
         self.assertIn("ui_description", seed_source)
         self.assertIn(

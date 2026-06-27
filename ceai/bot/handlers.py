@@ -1564,7 +1564,7 @@ async def _handle_reply_menu(
             services,
             user["id"],
             generation_types={"text"},
-            title="Выберите текстовую модель.",
+            title="💡Выберите текстовую модель:",
             delete_current=True,
         )
         return True
@@ -2146,7 +2146,7 @@ def create_router(services: AppServices) -> Router:
             return
         generation_type = callback.data.rsplit(":", 1)[-1]
         config = {
-            "text": ("Выберите текстовую модель.", False),
+            "text": ("💡Выберите текстовую модель:", False),
             "image": ("Выберите модель для фото с AI.", True),
             "video": ("Выберите модель для видео с AI.", False),
             "tts": ("Выберите модель для озвучки текста.", False),
