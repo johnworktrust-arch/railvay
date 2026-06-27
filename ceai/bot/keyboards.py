@@ -295,6 +295,8 @@ def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
 
 
 def model_choice_label(model: Dict[str, Any]) -> str:
+    if model["generation_type"] == "text":
+        return str(model["display_name"])
     return (
         f"{_model_emoji(model['generation_type'])} {model['display_name']} · "
         f"{format_coin_amount(model['coins_cost'])}"

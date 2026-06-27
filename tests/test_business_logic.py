@@ -843,6 +843,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("DeepSeak", keyboard_source)
 
     def test_ai_reply_keyboards_have_back_button_only(self) -> None:
+        from ceai.bot.keyboards import model_choice_label
+
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         seed_source = Path("ceai/seed.py").read_text(encoding="utf-8")
@@ -861,6 +863,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("ReplyKeyboardMarkup", model_keyboard_source)
         self.assertIn("state=\"waiting_model_choice\"", handlers_source)
         self.assertIn("reply_markup=models_keyboard(models)", handlers_source)
+        self.assertIn("screen_text = (", handlers_source)
+        self.assertIn('if generation_types == {"text"}', handlers_source)
         self.assertIn('F.data.startswith("models:type:")', handlers_source)
         self.assertIn("💡Выберите текстовую модель:", handlers_source)
         self.assertIn("ui_description", handlers_source)
@@ -881,6 +885,18 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("BufferedInputFile", handlers_source)
         self.assertNotIn("Баланс после генерации", handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
+        self.assertEqual(
+            model_choice_label(
+                {"generation_type": "text", "display_name": "DeepSeek V4 Flash"}
+            ),
+            "DeepSeek V4 Flash",
+        )
+        self.assertEqual(
+            model_choice_label(
+                {"generation_type": "text", "display_name": "ChatGPT GPT-5.5"}
+            ),
+            "ChatGPT GPT-5.5",
+        )
 
     def test_video_and_tts_sections_show_unavailable_stub(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")

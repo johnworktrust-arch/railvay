@@ -1227,11 +1227,16 @@ async def _send_models_for_types(
         state="waiting_model_choice",
         payload=_model_choice_payload(models),
     )
+    screen_text = (
+        title
+        if generation_types == {"text"}
+        else f"{title}\n\n{_format_models(models)}"
+    )
     await _show_screen(
         message,
         services,
         user_id,
-        f"{title}\n\n{_format_models(models)}",
+        screen_text,
         reply_markup=models_keyboard(models),
         delete_current=delete_current,
     )
