@@ -49,6 +49,7 @@ from ceai.bot.keyboards import (
     onboarding_links_keyboard,
     payment_keyboard,
     payment_methods_keyboard,
+    payment_unavailable_keyboard,
     plans_keyboard,
     profile_keyboard,
     referral_keyboard,
@@ -1922,7 +1923,7 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
                     "Этот способ оплаты скоро будет подключён.",
-                    reply_markup=payment_methods_keyboard(plan_code),
+                    reply_markup=payment_unavailable_keyboard(),
                 )
             await callback.answer()
             return
