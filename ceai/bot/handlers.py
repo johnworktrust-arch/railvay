@@ -641,12 +641,12 @@ def _format_main_menu() -> str:
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
     return (
         "💳 Выберите тариф с подпиской.\n\n"
-        "Нажмите на любой тариф ниже — покажу цену, количество монет и что входит."
+        "Нажмите на любой тариф ниже — покажу цену, количество коинов и что входит."
     )
 
 
 def _format_crystal_packages() -> str:
-    return "💳 Выберите количество кристаллов для покупки:"
+    return "💳 Выберите количество коинов для покупки:"
 
 
 def _format_payment_methods() -> str:
@@ -676,7 +676,7 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
             "icon": "⚡️",
             "label": "Про",
             "tag": "максимум",
-            "extra": "➕ Больше всего монет и запас для активной работы",
+            "extra": "➕ Больше всего коинов и запас для активной работы",
         },
     }.get(
         code,
@@ -741,9 +741,9 @@ async def _send_telegram_stars_invoice(
     description = (
         f"Тариф «{plan_name}» на {duration_days} дней. "
         f"Включено: {coins_label}. "
-        "Монеты начислятся автоматически после оплаты."
+        "Коины начислятся автоматически после оплаты."
         if coins_amount > 0
-        else "Доступ к CeaAI. Монеты начислятся автоматически после оплаты."
+        else "Доступ к CeaAI. Коины начислятся автоматически после оплаты."
     )
     return await message.bot.send_invoice(
         chat_id=message.chat.id,
@@ -1862,7 +1862,7 @@ def create_router(services: AppServices) -> Router:
                     callback.message,
                     services,
                     user["id"],
-                    "Введите положительное целое число монет для начисления.",
+                    "Введите положительное целое число коинов для начисления.",
                     reply_markup=admin_back_keyboard(),
                 )
             elif action == "search":
@@ -2100,7 +2100,7 @@ def create_router(services: AppServices) -> Router:
             payment_text = (
                 f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
                 "Платёж создан. Нажмите кнопку ниже и завершите оплату.\n"
-                "Монеты начислятся автоматически после подтверждения платежа."
+                "Коины начислятся автоматически после подтверждения платежа."
             )
         if callback.message:
             await _show_screen(
@@ -2149,7 +2149,7 @@ def create_router(services: AppServices) -> Router:
                 callback.message,
                 services,
                 user["id"],
-                "Покупка кристаллов скоро будет доступна.",
+                "Покупка коинов скоро будет доступна.",
                 reply_markup=crystal_packages_keyboard(),
                 delete_current=True,
             )
@@ -2797,7 +2797,7 @@ def create_router(services: AppServices) -> Router:
                     message,
                     services,
                     user["id"],
-                    "Недостаточно монет для этой модели. Выберите тариф или модель дешевле.",
+                    "Недостаточно коинов для этой модели. Выберите тариф или модель дешевле.",
                     reply_markup=main_menu_keyboard(),
                 )
                 return
@@ -2940,7 +2940,7 @@ def create_router(services: AppServices) -> Router:
                 message,
                 services,
                 user["id"],
-                "Недостаточно монет для этой модели. Выберите тариф или модель дешевле.",
+                "Недостаточно коинов для этой модели. Выберите тариф или модель дешевле.",
                 reply_markup=back_to_menu_keyboard(),
             )
             return

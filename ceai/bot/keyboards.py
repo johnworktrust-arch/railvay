@@ -21,7 +21,7 @@ BACK_TO_MENU_BUTTON = "⬅️ Назад"
 MAIN_MENU_BUTTON = "🏠 Главное меню"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
 DELETE_CURRENT_TEXT_CHAT_BUTTON = "🗑 Удалить текущий чат"
-BUY_CRYSTALS_BUTTON = "Купить монеты отдельно"
+BUY_CRYSTALS_BUTTON = "Купить коины отдельно"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
@@ -209,28 +209,30 @@ def crystal_packages_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="S - 139₽ - 30 💎", callback_data="crystals:s"
+                    text="S - 139₽ - 30 коинов", callback_data="crystals:s"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🔥M - 499₽ - 110 💎  (-2%)", callback_data="crystals:m"
+                    text="🔥M - 499₽ - 110 коинов  (-2%)",
+                    callback_data="crystals:m",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="L - 999₽ - 260 💎  (-17%)", callback_data="crystals:l"
+                    text="L - 999₽ - 260 коинов  (-17%)",
+                    callback_data="crystals:l",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="XL - 2990₽ - 1198 💎  (-45%)",
+                    text="XL - 2990₽ - 1198 коинов  (-45%)",
                     callback_data="crystals:xl",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="⚡XXL - 9000₽ - 4300 💎  (-55%)",
+                    text="⚡XXL - 9000₽ - 4300 коинов  (-55%)",
                     callback_data="crystals:xxl",
                 )
             ],
@@ -419,7 +421,7 @@ def admin_user_card_keyboard(
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="➕ Начислить монеты",
+                    text="➕ Начислить коины",
                     callback_data=f"admin:credit:{user['id']}",
                 )
             ]

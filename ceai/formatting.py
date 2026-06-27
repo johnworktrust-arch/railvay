@@ -53,11 +53,11 @@ def format_coin_amount(amount: Any) -> str:
     value = int(amount or 0)
     abs_value = abs(value)
     if abs_value % 100 in {11, 12, 13, 14}:
-        word = "монет"
+        word = "коинов"
     elif abs_value % 10 == 1:
-        word = "монета"
+        word = "коин"
     elif abs_value % 10 in {2, 3, 4}:
-        word = "монеты"
+        word = "коина"
     else:
-        word = "монет"
+        word = "коинов"
     return f"{value} {word}"

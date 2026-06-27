@@ -46,7 +46,7 @@ async def payment_return(request: web.Request) -> web.Response:
             "<title>CeaAI payment</title>"
             "<body style=\"font-family: system-ui, sans-serif; padding: 32px;\">"
             "<h1>Оплата обрабатывается</h1>"
-            "<p>Вернитесь в Telegram-бота CeaAI. Монеты начислятся "
+            "<p>Вернитесь в Telegram-бота CeaAI. Коины начислятся "
             "автоматически после подтверждения платежа.</p>"
             "</body></html>"
         ),

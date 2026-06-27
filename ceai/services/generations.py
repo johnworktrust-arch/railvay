@@ -111,7 +111,7 @@ class GenerationService:
                         error_message="Insufficient coins",
                     )
                     business_error = InsufficientCoinsError(
-                        "Недостаточно монет", generation_id=generation["id"]
+                        "Недостаточно коинов", generation_id=generation["id"]
                     )
                 else:
                     self.coins.reserve_generation(
@@ -227,7 +227,7 @@ def _is_image_four_k_request(model: Dict[str, Any], prompt_text: str) -> bool:
 
 def _provider_error_message(*, provider_error: str, generation_type: str) -> str:
     normalized = provider_error.casefold()
-    suffix = "Монеты возвращены."
+    suffix = "Коины возвращены."
     if generation_type == "image":
         if "openai_image_api_key" in normalized or "not configured" in normalized:
             return (

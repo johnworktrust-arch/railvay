@@ -767,7 +767,7 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(invited_count, 1)
         self.assertIn('👤 Профиль: <a href="tg://user?id=1001">@tester</a>', profile)
         self.assertIn("ℹ️ ID: 1001", profile)
-        self.assertIn("💰 Баланс: 0 монет", profile)
+        self.assertIn("💰 Баланс: 0 коинов", profile)
         self.assertIn("⭐ Подписка: нет активной", profile)
         self.assertIn("📅 Срок действия: —", profile)
         self.assertIn(
@@ -786,7 +786,7 @@ class BusinessLogicTest(unittest.TestCase):
             },
             invited_users_count=2,
         )
-        self.assertIn("💰 Баланс: 42 монеты", active_profile)
+        self.assertIn("💰 Баланс: 42 коина", active_profile)
         self.assertIn("⭐ Подписка: Про", active_profile)
         self.assertIn("📅 Срок действия: 24 июня 2026 года, 20:16", active_profile)
         self.assertIn("👥 Приглашено: 2", active_profile)
@@ -866,7 +866,7 @@ class BusinessLogicTest(unittest.TestCase):
                 prompt_text="mock_error",
             )
 
-        self.assertIn("Монеты возвращены", str(raised.exception))
+        self.assertIn("Коины возвращены", str(raised.exception))
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
         history = self.services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["status"], "failed")
@@ -919,7 +919,7 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("except GenerationProviderFailedError as exc", handlers_source)
         self.assertIn("str(exc)", handlers_source)
         self.assertNotIn(
-            '"Не получилось выполнить генерацию. Монеты возвращены.",',
+            '"Не получилось выполнить генерацию. Коины возвращены.",',
             handlers_source,
         )
 
@@ -1089,7 +1089,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('_feature_temporarily_unavailable_message("Озвучка с AI")', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
 
-    def test_plan_screen_uses_new_prices_and_coins_are_called_monety(self) -> None:
+    def test_plan_screen_uses_new_prices_and_coins_are_called_koiny(self) -> None:
         from ceai.bot.handlers import (
             _format_crystal_packages,
             _format_plan_details,
@@ -1143,44 +1143,44 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             text,
             "💳 Выберите тариф с подпиской.\n\n"
-            "Нажмите на любой тариф ниже — покажу цену, количество монет и что входит.",
+            "Нажмите на любой тариф ниже — покажу цену, количество коинов и что входит.",
         )
         self.assertNotIn("Старт", text)
         self.assertNotIn("Базовый", text)
         self.assertNotIn("Про", text)
-        self.assertNotIn("Купить монеты отдельно", text)
+        self.assertNotIn("Купить коины отдельно", text)
         self.assertNotIn("coins", text.casefold())
         self.assertEqual(
             crystal_text,
-            "💳 Выберите количество кристаллов для покупки:",
+            "💳 Выберите количество коинов для покупки:",
         )
         self.assertIn("⭐️ Старт - 449руб", labels)
         self.assertIn("🔥 Базовый - 890руб", labels)
         self.assertIn("⚡️ Про - 1990руб", labels)
-        self.assertIn("Купить монеты отдельно", labels)
+        self.assertIn("Купить коины отдельно", labels)
         self.assertEqual(
             crystal_labels,
             [
-                "S - 139₽ - 30 💎",
-                "🔥M - 499₽ - 110 💎  (-2%)",
-                "L - 999₽ - 260 💎  (-17%)",
-                "XL - 2990₽ - 1198 💎  (-45%)",
-                "⚡XXL - 9000₽ - 4300 💎  (-55%)",
+                "S - 139₽ - 30 коинов",
+                "🔥M - 499₽ - 110 коинов  (-2%)",
+                "L - 999₽ - 260 коинов  (-17%)",
+                "XL - 2990₽ - 1198 коинов  (-45%)",
+                "⚡XXL - 9000₽ - 4300 коинов  (-55%)",
                 "⬅️ Назад",
             ],
         )
         self.assertIn("crystals:s", crystal_callbacks)
         self.assertIn("crystals:xxl", crystal_callbacks)
         self.assertIn("⭐️ Старт — 449 ₽", start_details)
-        self.assertIn("➕ 60 монет", start_details)
+        self.assertIn("➕ 60 коинов", start_details)
         self.assertIn("➕ До 60 запросов DeepSeek", start_details)
         self.assertIn("➕ До 20 запросов ChatGPT", start_details)
         self.assertIn("💳 Выберите способ оплаты:", start_details)
         self.assertIn("🔥 Базовый — 890 ₽", basic_details)
-        self.assertIn("➕ 150 монет", basic_details)
+        self.assertIn("➕ 150 коинов", basic_details)
         self.assertIn("➕ До 50 запросов ChatGPT", basic_details)
         self.assertIn("⚡️ Про — 1990 ₽", pro_details)
-        self.assertIn("➕ 360 монет", pro_details)
+        self.assertIn("➕ 360 коинов", pro_details)
         self.assertIn("➕ До 120 запросов ChatGPT", pro_details)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
@@ -1209,7 +1209,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("_send_telegram_stars_invoice", handlers_source)
         self.assertIn('currency="XTR"', handlers_source)
         self.assertIn("Подписка CeaAI", handlers_source)
-        self.assertIn("Монеты начислятся автоматически после оплаты.", handlers_source)
+        self.assertIn("Коины начислятся автоматически после оплаты.", handlers_source)
         self.assertIn("TELEGRAM_STARS_INVOICE_MESSAGE_ID", handlers_source)
         self.assertIn("_delete_telegram_stars_invoice_message", handlers_source)
         self.assertIn("reply_markup=main_menu_button_keyboard()", handlers_source)
@@ -1219,7 +1219,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('F.data == "coins:buy"', handlers_source)
         self.assertIn('F.data.startswith("crystals:")', handlers_source)
         self.assertIn("_format_crystal_packages()", handlers_source)
-        self.assertIn("Покупка кристаллов скоро будет доступна.", handlers_source)
+        self.assertIn("Покупка коинов скоро будет доступна.", handlers_source)
 
     def test_text_chat_navigation_has_back_and_no_premature_current_chat(
         self,
