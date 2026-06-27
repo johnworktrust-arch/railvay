@@ -1106,12 +1106,25 @@ class MigrationAndUITest(unittest.TestCase):
             "Стоимость 1 запроса: 3 Coin\n"
             "Выберите чат ниже:",
         )
-        self.assertIn(
-            "Стоимость 1 запроса: 3 Coin",
+        self.assertEqual(
+            _format_text_chat_prompt_screen(
+                {"display_name": "DeepSeek V4 Flash", "coins_cost": 1},
+                {"title": "Основной"},
+            ),
+            "💡DeepSeek V4 Flash\n\n"
+            "Стоимость 1 запроса: 1 Coin\n"
+            "Чат «Основной» выбран.\n\n"
+            "Введите текст, что хотите спросить у нейросети.",
+        )
+        self.assertEqual(
             _format_text_chat_prompt_screen(
                 {"display_name": "ChatGPT GPT-5.5", "coins_cost": 3},
                 {"title": "Основной"},
             ),
+            "💡ChatGPT GPT-5.5\n\n"
+            "Стоимость 1 запроса: 3 Coin\n"
+            "Чат «Основной» выбран.\n\n"
+            "Введите текст, что хотите спросить у нейросети.",
         )
 
     def test_telegram_commands_menu_contains_only_menu_and_profile(self) -> None:

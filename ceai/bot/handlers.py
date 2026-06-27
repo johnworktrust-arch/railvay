@@ -799,10 +799,11 @@ def _format_text_chat_prompt_screen(
     lines.extend(
         [
             f"💡{model['display_name']}",
-            f"Чат: {current_chat['title']}",
             "",
             f"Стоимость 1 запроса: {_format_coin_unit(model['coins_cost'])}",
-            "Напишите вопрос сообщением ниже.",
+            f"Чат «{current_chat['title']}» выбран.",
+            "",
+            "Введите текст, что хотите спросить у нейросети.",
         ]
     )
     return "\n".join(lines)
