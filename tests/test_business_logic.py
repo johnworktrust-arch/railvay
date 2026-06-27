@@ -263,6 +263,55 @@ class BusinessLogicTest(unittest.TestCase):
                 payload=payload, raw_body=raw_body, signature="bad-signature"
             )
 
+    def test_telegram_stars_payment_credits_coins_once(self) -> None:
+        payment = self.services.payments.create_payment(
+            user_id=self.user["id"],
+            plan_code="start",
+            payment_method="telegram_stars",
+        )
+        meta = loads_dict(payment["meta"])
+
+        self.assertEqual(payment["provider"], "telegram_stars")
+        self.assertTrue(payment["external_id"].startswith("stars_"))
+        self.assertEqual(payment["payment_url"], f"telegram-stars://{payment['external_id']}")
+        self.assertEqual(meta["stars_amount"], 449)
+        self.assertEqual(meta["coins_amount"], 60)
+
+        checkout_payment = self.services.payments.validate_telegram_stars_pre_checkout(
+            invoice_payload=payment["external_id"],
+            currency="XTR",
+            total_amount=449,
+        )
+        self.assertEqual(checkout_payment["id"], payment["id"])
+
+        first = self.services.payments.process_telegram_stars_successful_payment(
+            invoice_payload=payment["external_id"],
+            currency="XTR",
+            total_amount=449,
+            telegram_payment_charge_id="tg-stars-charge-1",
+            provider_payment_charge_id="",
+        )
+        second = self.services.payments.process_telegram_stars_successful_payment(
+            invoice_payload=payment["external_id"],
+            currency="XTR",
+            total_amount=449,
+            telegram_payment_charge_id="tg-stars-charge-1",
+            provider_payment_charge_id="",
+        )
+
+        self.assertTrue(first.processed)
+        self.assertEqual(first.credited_coins, 60)
+        self.assertFalse(second.processed)
+        self.assertTrue(second.duplicate)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 60)
+
+        with self.assertRaises(BusinessRuleError):
+            self.services.payments.validate_telegram_stars_pre_checkout(
+                invoice_payload=payment["external_id"],
+                currency="XTR",
+                total_amount=1,
+            )
+
     def test_successful_yookassa_webhook_credits_coins_once(self) -> None:
         settings = Settings(
             telegram_bot_token="test",
@@ -915,7 +964,11 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("_format_plan_details(plan)", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
-        self.assertIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
+        self.assertIn("_send_telegram_stars_invoice", handlers_source)
+        self.assertIn('currency="XTR"', handlers_source)
+        self.assertIn("@router.pre_checkout_query()", handlers_source)
+        self.assertIn("@router.message(F.successful_payment)", handlers_source)
+        self.assertNotIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
         self.assertIn('F.data == "coins:buy"', handlers_source)
         self.assertIn('F.data.startswith("crystals:")', handlers_source)
         self.assertIn("_format_crystal_packages()", handlers_source)

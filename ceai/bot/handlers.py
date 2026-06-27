@@ -16,7 +16,9 @@ from aiogram.types import (
     ErrorEvent,
     FSInputFile,
     InlineKeyboardMarkup,
+    LabeledPrice,
     Message,
+    PreCheckoutQuery,
     ReplyKeyboardMarkup,
     ReplyKeyboardRemove,
 )
@@ -631,6 +633,27 @@ def _payment_method_label(payment_method: str) -> str:
 
 def _subscription_required_message() -> str:
     return "Нужна активная подписка. Откройте тарифы и выберите подписку."
+
+
+async def _send_telegram_stars_invoice(message: Message, payment: Dict[str, Any]) -> None:
+    meta = loads_dict(payment.get("meta"))
+    plan_name = str(meta.get("plan_name") or "Тариф CeaAI")
+    coins_amount = int(meta.get("coins_amount") or 0)
+    stars_amount = int(meta.get("stars_amount") or payment["amount_rub"])
+    description = (
+        f"{format_coin_amount(coins_amount)} для CeaAI"
+        if coins_amount > 0
+        else "Доступ к CeaAI"
+    )
+    await message.bot.send_invoice(
+        chat_id=message.chat.id,
+        title=f"CeaAI: {plan_name}",
+        description=description,
+        payload=str(payment["external_id"]),
+        provider_token="",
+        currency="XTR",
+        prices=[LabeledPrice(label=plan_name, amount=stars_amount)],
+    )
 
 
 def _format_models(models: list[Dict[str, Any]]) -> str:
@@ -1865,19 +1888,6 @@ def create_router(services: AppServices) -> Router:
         parts = callback.data.split(":", 2) if callback.data else []
         plan_code = parts[1] if len(parts) >= 2 else ""
         payment_method = parts[2] if len(parts) >= 3 else ""
-        if payment_method == "telegram_stars":
-            if callback.message:
-                await _show_screen(
-                    callback.message,
-                    services,
-                    user["id"],
-                    f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
-                    "Этот способ оплаты скоро будет подключён.",
-                    reply_markup=payment_methods_keyboard(plan_code),
-                    delete_current=True,
-                )
-            await callback.answer()
-            return
 
         try:
             payment = await asyncio.to_thread(
@@ -1895,6 +1905,21 @@ def create_router(services: AppServices) -> Router:
                     str(exc),
                     reply_markup=back_to_menu_keyboard(),
                     delete_current=True,
+                )
+            await callback.answer()
+            return
+
+        if payment["provider"] == "telegram_stars":
+            if callback.message:
+                await _send_telegram_stars_invoice(callback.message, payment)
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
+                    "Счёт Telegram Stars отправлен отдельным сообщением. "
+                    "Откройте его и подтвердите оплату.",
+                    reply_markup=back_to_menu_keyboard(),
                 )
             await callback.answer()
             return
@@ -2292,6 +2317,72 @@ def create_router(services: AppServices) -> Router:
                 parse_mode="HTML",
             )
         await callback.answer()
+
+    @router.pre_checkout_query()
+    async def telegram_stars_pre_checkout(pre_checkout: PreCheckoutQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(pre_checkout))
+        if _is_blocked_regular_user(services, user):
+            await pre_checkout.answer(
+                ok=False,
+                error_message="Ваш аккаунт заблокирован. Обратитесь в поддержку.",
+            )
+            return
+        try:
+            services.payments.validate_telegram_stars_pre_checkout(
+                invoice_payload=pre_checkout.invoice_payload,
+                currency=pre_checkout.currency,
+                total_amount=pre_checkout.total_amount,
+            )
+        except (BusinessRuleError, NotFoundError) as exc:
+            await pre_checkout.answer(ok=False, error_message=str(exc))
+            return
+        await pre_checkout.answer(ok=True)
+
+    @router.message(F.successful_payment)
+    async def telegram_stars_successful_payment(message: Message) -> None:
+        _record_message("telegram_stars_successful_payment", message)
+        await _delete_user_message(message)
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        payment = message.successful_payment
+        if payment is None:
+            return
+        try:
+            result = services.payments.process_telegram_stars_successful_payment(
+                invoice_payload=payment.invoice_payload,
+                currency=payment.currency,
+                total_amount=payment.total_amount,
+                telegram_payment_charge_id=payment.telegram_payment_charge_id,
+                provider_payment_charge_id=payment.provider_payment_charge_id,
+            )
+        except (BusinessRuleError, NotFoundError) as exc:
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                str(exc),
+                reply_markup=back_to_menu_keyboard(),
+                delete_current=True,
+            )
+            return
+
+        _clear_dialog_state(services, user["id"])
+        if result.processed and result.subscription:
+            text = (
+                "Оплата Telegram Stars прошла успешно.\n"
+                f"Начислено: {format_coin_amount(result.credited_coins)}.\n"
+                "Текущий баланс: "
+                f"{format_coin_amount(result.subscription['coins_balance_cache'])}."
+            )
+        else:
+            text = "Этот платёж уже был обработан. Повторного начисления нет."
+        await _show_screen(
+            message,
+            services,
+            user["id"],
+            text,
+            reply_markup=main_menu_keyboard(),
+            delete_current=True,
+        )
 
     @router.message()
     async def prompt_or_fallback(message: Message) -> None:

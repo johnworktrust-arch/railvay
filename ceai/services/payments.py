@@ -11,6 +11,7 @@ from dataclasses import dataclass
 from typing import Any, Dict
 
 from ceai.database import Database
+from ceai.json_utils import loads_dict
 from ceai.repositories.payments import PaymentRepository
 from ceai.repositories.plans import PlanRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
@@ -23,6 +24,8 @@ from ceai.services.referrals import ReferralService
 YOOKASSA_PROVIDER = "yookassa"
 CRYPTO_PAY_PROVIDER = "crypto_pay"
 CRYPTO_PAY_METHODS = {"crypto", "crypto_pay", "usdt_trc20"}
+TELEGRAM_STARS_PROVIDER = "telegram_stars"
+TELEGRAM_STARS_METHODS = {"telegram_stars", "stars"}
 
 
 @dataclass(frozen=True)
@@ -85,6 +88,12 @@ class PaymentService:
         self, *, user_id: int, plan_code: str, payment_method: str = ""
     ) -> Dict[str, Any]:
         normalized_method = (payment_method or "").strip().lower()
+        if normalized_method in TELEGRAM_STARS_METHODS:
+            return self.create_telegram_stars_payment(
+                user_id=user_id,
+                plan_code=plan_code,
+                payment_method=normalized_method,
+            )
         if normalized_method in CRYPTO_PAY_METHODS:
             return self.create_crypto_pay_payment(
                 user_id=user_id,
@@ -96,6 +105,12 @@ class PaymentService:
                 user_id=user_id,
                 plan_code=plan_code,
                 payment_method=normalized_method or CRYPTO_PAY_PROVIDER,
+            )
+        if self.payment_provider == TELEGRAM_STARS_PROVIDER:
+            return self.create_telegram_stars_payment(
+                user_id=user_id,
+                plan_code=plan_code,
+                payment_method=normalized_method or TELEGRAM_STARS_PROVIDER,
             )
         if self.payment_provider == YOOKASSA_PROVIDER:
             return self.create_yookassa_payment(user_id=user_id, plan_code=plan_code)
@@ -125,6 +140,33 @@ class PaymentService:
                 meta={
                     "kind": "mock_payment",
                     "payment_method": payment_method or "mock",
+                },
+            )
+
+    def create_telegram_stars_payment(
+        self, *, user_id: int, plan_code: str, payment_method: str = "telegram_stars"
+    ) -> Dict[str, Any]:
+        with self.db.transaction() as conn:
+            plan = self.plans.get_by_code(conn, plan_code)
+            if plan is None or not plan["is_active"]:
+                raise NotFoundError("Тариф не найден")
+            external_id = f"stars_{uuid.uuid4().hex}"
+            stars_amount = self._telegram_stars_amount(plan)
+            return self.payments.create_pending(
+                conn,
+                user_id=user_id,
+                plan_id=plan["id"],
+                amount_rub=plan["price_rub"],
+                external_id=external_id,
+                payment_url=f"telegram-stars://{external_id}",
+                provider=TELEGRAM_STARS_PROVIDER,
+                meta={
+                    "kind": "telegram_stars_invoice",
+                    "payment_method": payment_method or TELEGRAM_STARS_PROVIDER,
+                    "plan_code": plan["code"],
+                    "plan_name": plan["name"],
+                    "coins_amount": plan["coins_amount"],
+                    "stars_amount": stars_amount,
                 },
             )
 
@@ -421,6 +463,62 @@ class PaymentService:
             },
         )
 
+    def validate_telegram_stars_pre_checkout(
+        self, *, invoice_payload: str, currency: str, total_amount: int
+    ) -> Dict[str, Any]:
+        payment = self._load_telegram_stars_payment(invoice_payload=invoice_payload)
+        if payment["status"] != "pending":
+            raise BusinessRuleError("Этот счёт уже обработан или недоступен.")
+        self._validate_telegram_stars_amount(
+            payment=payment, currency=currency, total_amount=total_amount
+        )
+        return payment
+
+    def process_telegram_stars_successful_payment(
+        self,
+        *,
+        invoice_payload: str,
+        currency: str,
+        total_amount: int,
+        telegram_payment_charge_id: str,
+        provider_payment_charge_id: str = "",
+    ) -> PaymentWebhookResult:
+        payment = self._load_telegram_stars_payment(invoice_payload=invoice_payload)
+        if payment["status"] not in {"pending", "paid"}:
+            raise BusinessRuleError(f"Статус счёта: {payment['status']}.")
+        self._validate_telegram_stars_amount(
+            payment=payment, currency=currency, total_amount=total_amount
+        )
+        payload = {
+            "provider": TELEGRAM_STARS_PROVIDER,
+            "invoice_payload": invoice_payload,
+            "currency": currency,
+            "total_amount": total_amount,
+            "telegram_payment_charge_id": telegram_payment_charge_id,
+            "provider_payment_charge_id": provider_payment_charge_id,
+        }
+        webhook, should_process, duplicate = self._reserve_webhook(
+            provider=TELEGRAM_STARS_PROVIDER,
+            external_id=invoice_payload,
+            event_type="successful_payment",
+            payload=payload,
+        )
+        if not should_process:
+            return PaymentWebhookResult(
+                processed=False,
+                duplicate=duplicate,
+                payment=None,
+                subscription=None,
+                credited_coins=0,
+                message="Webhook already processed or received",
+            )
+        return self._process_successful_payment(
+            provider=TELEGRAM_STARS_PROVIDER,
+            external_id=invoice_payload,
+            webhook_id=int(webhook["id"]),
+            payload=payload,
+        )
+
     def _reserve_webhook(
         self,
         *,
@@ -660,6 +758,26 @@ class PaymentService:
         if not hmac.compare_digest(expected, received):
             raise BusinessRuleError("Некорректная подпись Crypto Pay webhook.")
 
+    def _load_telegram_stars_payment(self, *, invoice_payload: str) -> Dict[str, Any]:
+        if not invoice_payload:
+            raise BusinessRuleError("Некорректный Telegram Stars payload.")
+        with self.db.transaction() as conn:
+            payment = self.payments.get_by_external_id(
+                conn, TELEGRAM_STARS_PROVIDER, invoice_payload
+            )
+        if payment is None:
+            raise NotFoundError("Счёт Telegram Stars не найден.")
+        return payment
+
+    def _validate_telegram_stars_amount(
+        self, *, payment: Dict[str, Any], currency: str, total_amount: int
+    ) -> None:
+        if currency != "XTR":
+            raise BusinessRuleError("Некорректная валюта Telegram Stars.")
+        expected_amount = self._payment_telegram_stars_amount(payment)
+        if int(total_amount) != expected_amount:
+            raise BusinessRuleError("Некорректная сумма Telegram Stars.")
+
     def _public_url(self, path: str) -> str:
         normalized_path = path if path.startswith("/") else f"/{path}"
         return f"{self.app_base_url}{normalized_path}"
@@ -676,6 +794,15 @@ class PaymentService:
         assets = [asset.strip().upper() for asset in (value or "").split(",")]
         cleaned = [asset for asset in assets if asset]
         return ",".join(cleaned) or "USDT"
+
+    @staticmethod
+    def _telegram_stars_amount(plan: Dict[str, Any]) -> int:
+        return max(1, int(plan["price_rub"]))
+
+    @staticmethod
+    def _payment_telegram_stars_amount(payment: Dict[str, Any]) -> int:
+        meta = loads_dict(payment.get("meta"))
+        return max(1, int(meta.get("stars_amount") or payment["amount_rub"]))
 
     @staticmethod
     def _payment_description(plan: Dict[str, Any]) -> str:
