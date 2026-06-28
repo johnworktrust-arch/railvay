@@ -253,7 +253,7 @@ def payment_keyboard(
             [InlineKeyboardButton(text="🔗 Ссылка оплаты", url=payment_url)]
         )
     else:
-        rows.append([InlineKeyboardButton(text="💳 Перейти к оплате", url=payment_url)])
+        rows.append([InlineKeyboardButton(text="💳 Оплатить", url=payment_url)])
     rows.append(
         [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
     )

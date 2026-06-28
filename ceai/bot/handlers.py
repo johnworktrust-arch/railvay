@@ -713,6 +713,28 @@ def _payment_method_label(payment_method: str) -> str:
     }.get(payment_method, "оплата")
 
 
+def _format_yookassa_payment_screen(
+    plan: Dict[str, Any], *, public_offer_url: str
+) -> str:
+    price = int(plan.get("price_rub") or 0)
+    coins = int(plan.get("coins_amount") or 0)
+    duration_days = int(plan.get("duration_days") or 30)
+    offer_url = public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
+    return (
+        f"💳 Стоимость выбранного тарифа — {price} ₽.\n\n"
+        f"После оплаты вы получите {format_coin_amount(coins)}. "
+        f"Доступ к тарифу действует {duration_days} дней.\n\n"
+        "Проверка платежа происходит автоматически. "
+        "Коины начислятся на баланс сразу после подтверждения оплаты.\n\n"
+        "Нажимая «Оплатить», вы подтверждаете согласие с условиями "
+        "обработки данных и публичной офертой.\n\n"
+        f"Публичная оферта: {offer_url}\n\n"
+        "Автоматическое продление сейчас не подключено — повторного списания "
+        "без вашего подтверждения не будет. Продлить тариф можно в разделе "
+        "«Профиль» → «Подписка и тарифы»."
+    )
+
+
 def _subscription_required_message() -> str:
     return "Нужна активная подписка. Откройте тарифы и выберите подписку."
 
@@ -2116,11 +2138,24 @@ def create_router(services: AppServices) -> Router:
             state="waiting_payment",
             payload={"payment_id": payment["id"], "payment_method": payment_method},
         )
+        selected_plan = next(
+            (
+                candidate
+                for candidate in services.catalog.list_plans()
+                if str(candidate.get("code")) == plan_code
+            ),
+            None,
+        )
         if payment["provider"] == "mock":
             payment_text = (
                 f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
                 "Платёж создан со статусом pending.\n"
                 "Нажмите кнопку ниже, чтобы подтвердить оплату."
+            )
+        elif payment["provider"] == "yookassa" and selected_plan is not None:
+            payment_text = _format_yookassa_payment_screen(
+                selected_plan,
+                public_offer_url=services.settings.public_offer_url,
             )
         else:
             payment_text = (

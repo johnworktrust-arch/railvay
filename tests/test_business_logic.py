@@ -1198,10 +1198,12 @@ class MigrationAndUITest(unittest.TestCase):
             _format_crystal_packages,
             _format_plan_details,
             _format_plans,
+            _format_yookassa_payment_screen,
         )
         from ceai.bot.keyboards import (
             crystal_packages_keyboard,
             main_menu_button_keyboard,
+            payment_keyboard,
             payment_methods_keyboard,
             plans_keyboard,
         )
@@ -1215,6 +1217,10 @@ class MigrationAndUITest(unittest.TestCase):
         start_details = _format_plan_details(start_plan)
         basic_details = _format_plan_details(basic_plan)
         pro_details = _format_plan_details(pro_plan)
+        yookassa_payment_screen = _format_yookassa_payment_screen(
+            basic_plan,
+            public_offer_url="https://cea.ai/public-offer",
+        )
         labels = [row[0].text for row in plans_keyboard(PLANS).inline_keyboard]
         callbacks = [
             row[0].callback_data for row in plans_keyboard(PLANS).inline_keyboard
@@ -1233,6 +1239,11 @@ class MigrationAndUITest(unittest.TestCase):
             row[0].callback_data
             for row in payment_methods_keyboard("start").inline_keyboard
         ]
+        yookassa_payment_button = payment_keyboard(
+            1,
+            "https://yookassa.test/pay/1",
+            provider="yookassa",
+        ).inline_keyboard[0][0]
         main_menu_button = main_menu_button_keyboard().inline_keyboard[0][0]
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
@@ -1284,6 +1295,14 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("➕ До 166 запросов ChatGPT", pro_details)
         self.assertIn("➕ До 250 изображений GPT Image", pro_details)
         self.assertIn("⭐ Telegram Stars: 745⭐", pro_details)
+        self.assertIn("💳 Стоимость выбранного тарифа — 699 ₽.", yookassa_payment_screen)
+        self.assertIn("После оплаты вы получите 230 коинов.", yookassa_payment_screen)
+        self.assertIn("Доступ к тарифу действует 30 дней.", yookassa_payment_screen)
+        self.assertIn("Проверка платежа происходит автоматически.", yookassa_payment_screen)
+        self.assertIn("Нажимая «Оплатить»", yookassa_payment_screen)
+        self.assertIn("Публичная оферта: https://cea.ai/public-offer", yookassa_payment_screen)
+        self.assertIn("Автоматическое продление сейчас не подключено", yookassa_payment_screen)
+        self.assertIn("«Профиль» → «Подписка и тарифы»", yookassa_payment_screen)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 100, "basic": 230, "pro": 500},
@@ -1297,12 +1316,15 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("pay_method:start:usdt_trc20", payment_method_callbacks)
         self.assertNotIn("Крипта", payment_method_labels)
         self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
+        self.assertEqual(yookassa_payment_button.text, "💳 Оплатить")
+        self.assertEqual(yookassa_payment_button.url, "https://yookassa.test/pay/1")
         self.assertEqual(main_menu_button.text, "🏠 Главное меню")
         self.assertEqual(main_menu_button.callback_data, "menu:main")
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
         self.assertIn("_format_plan_details(plan)", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
+        self.assertIn("_format_yookassa_payment_screen(", handlers_source)
         self.assertNotIn('payment_method == "card_sbp"', handlers_source)
         self.assertNotIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
         self.assertNotIn("reply_markup=payment_unavailable_keyboard()", handlers_source)
