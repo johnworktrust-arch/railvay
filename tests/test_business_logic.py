@@ -1836,10 +1836,16 @@ class MigrationAndUITest(unittest.TestCase):
 
     def test_railway_deploy_config_uses_dockerfile_and_healthcheck(self) -> None:
         railway_config = loads(Path("railway.json").read_text(encoding="utf-8"))
+        main_source = Path("ceai/main.py").read_text(encoding="utf-8")
 
         self.assertEqual(railway_config["build"]["builder"], "DOCKERFILE")
         self.assertEqual(railway_config["build"]["dockerfilePath"], "Dockerfile")
         self.assertEqual(railway_config["deploy"]["healthcheckPath"], "/healthz")
+        self.assertIn("https://t.me/aiceabot", main_source)
+        self.assertIn("http-equiv=", main_source)
+        self.assertIn("refresh", main_source)
+        self.assertIn("window.location.replace", main_source)
+        self.assertIn("Открыть CeaAI в Telegram", main_source)
 
     def test_production_refuses_ephemeral_sqlite(self) -> None:
         from ceai.main import _ensure_persistent_database

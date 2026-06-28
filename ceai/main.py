@@ -40,14 +40,22 @@ async def public_offer(request: web.Request) -> web.Response:
 
 
 async def payment_return(request: web.Request) -> web.Response:
+    bot_url = "https://t.me/aiceabot"
     return web.Response(
         text=(
             "<!doctype html><html lang=\"ru\"><meta charset=\"utf-8\">"
-            "<title>CeaAI payment</title>"
+            f"<meta http-equiv=\"refresh\" content=\"0; url={bot_url}\">"
+            "<title>Возвращаем в CeaAI</title>"
+            f"<script>window.location.replace(\"{bot_url}\");</script>"
             "<body style=\"font-family: system-ui, sans-serif; padding: 32px;\">"
-            "<h1>Оплата обрабатывается</h1>"
-            "<p>Вернитесь в Telegram-бота CeaAI. Коины начислятся "
-            "автоматически после подтверждения платежа.</p>"
+            "<h1>Возвращаем в Telegram</h1>"
+            "<p>Платёж обрабатывается. Коины начислятся автоматически "
+            "после подтверждения оплаты.</p>"
+            "<p>Если Telegram не открылся автоматически, нажмите кнопку ниже.</p>"
+            f"<p><a href=\"{bot_url}\" "
+            "style=\"display:inline-block;padding:12px 18px;border-radius:10px;"
+            "background:#2481cc;color:white;text-decoration:none;font-weight:600;\">"
+            "Открыть CeaAI в Telegram</a></p>"
             "</body></html>"
         ),
         content_type="text/html",
