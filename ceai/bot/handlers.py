@@ -51,7 +51,6 @@ from ceai.bot.keyboards import (
     onboarding_links_keyboard,
     payment_keyboard,
     payment_methods_keyboard,
-    payment_unavailable_keyboard,
     plans_keyboard,
     profile_keyboard,
     referral_keyboard,
@@ -2027,18 +2026,6 @@ def create_router(services: AppServices) -> Router:
         parts = callback.data.split(":", 2) if callback.data else []
         plan_code = parts[1] if len(parts) >= 2 else ""
         payment_method = parts[2] if len(parts) >= 3 else ""
-        if payment_method == "card_sbp":
-            if callback.message:
-                await _show_screen(
-                    callback.message,
-                    services,
-                    user["id"],
-                    f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
-                    "Этот способ оплаты скоро будет подключён.",
-                    reply_markup=payment_unavailable_keyboard(),
-                )
-            await callback.answer()
-            return
 
         try:
             payment = await asyncio.to_thread(

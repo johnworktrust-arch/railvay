@@ -1099,7 +1099,6 @@ class MigrationAndUITest(unittest.TestCase):
             crystal_packages_keyboard,
             main_menu_button_keyboard,
             payment_methods_keyboard,
-            payment_unavailable_keyboard,
             plans_keyboard,
         )
         from ceai.seed import PLANS
@@ -1129,13 +1128,6 @@ class MigrationAndUITest(unittest.TestCase):
         payment_method_callbacks = [
             row[0].callback_data
             for row in payment_methods_keyboard("start").inline_keyboard
-        ]
-        unavailable_payment_labels = [
-            row[0].text for row in payment_unavailable_keyboard().inline_keyboard
-        ]
-        unavailable_payment_callbacks = [
-            row[0].callback_data
-            for row in payment_unavailable_keyboard().inline_keyboard
         ]
         main_menu_button = main_menu_button_keyboard().inline_keyboard[0][0]
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
@@ -1201,17 +1193,15 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("pay_method:start:usdt_trc20", payment_method_callbacks)
         self.assertNotIn("Крипта", payment_method_labels)
         self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
-        self.assertEqual(unavailable_payment_labels, ["⬅️ Назад"])
-        self.assertEqual(unavailable_payment_callbacks, ["menu:plans"])
         self.assertEqual(main_menu_button.text, "🏠 Главное меню")
         self.assertEqual(main_menu_button.callback_data, "menu:main")
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
         self.assertIn("_format_plan_details(plan)", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
-        self.assertIn('payment_method == "card_sbp"', handlers_source)
-        self.assertIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
-        self.assertIn("reply_markup=payment_unavailable_keyboard()", handlers_source)
+        self.assertNotIn('payment_method == "card_sbp"', handlers_source)
+        self.assertNotIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
+        self.assertNotIn("reply_markup=payment_unavailable_keyboard()", handlers_source)
         self.assertIn("_send_telegram_stars_invoice", handlers_source)
         self.assertIn('currency="XTR"', handlers_source)
         self.assertIn("Подписка CeaAI", handlers_source)

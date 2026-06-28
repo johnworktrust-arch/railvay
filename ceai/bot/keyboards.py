@@ -191,19 +191,6 @@ def payment_methods_keyboard(plan_code: str) -> InlineKeyboardMarkup:
     )
 
 
-def payment_unavailable_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(
-                    text=BACK_TO_MENU_BUTTON,
-                    callback_data="menu:plans",
-                )
-            ],
-        ]
-    )
-
-
 def crystal_packages_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
