@@ -2068,6 +2068,7 @@ def create_router(services: AppServices) -> Router:
                 payment_method=payment_method,
             )
         except (BusinessRuleError, NotFoundError) as exc:
+            record_error(exception=exc, update=callback)
             if callback.message:
                 await _show_screen(
                     callback.message,

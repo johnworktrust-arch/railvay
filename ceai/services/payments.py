@@ -4,6 +4,10 @@ import base64
 import hashlib
 import hmac
 import json
+import logging
+import socket
+import ssl
+import time
 import urllib.error
 import urllib.request
 import uuid
@@ -24,6 +28,14 @@ from ceai.services.referrals import ReferralService
 
 YOOKASSA_PROVIDER = "yookassa"
 YOOKASSA_METHODS = {"yookassa", "card", "cards", "card_sbp", "sbp"}
+YOOKASSA_MIN_TIMEOUT_SECONDS = 30
+YOOKASSA_NETWORK_ATTEMPTS = 3
+YOOKASSA_NETWORK_ERRORS = (
+    urllib.error.URLError,
+    TimeoutError,
+    socket.timeout,
+    ssl.SSLError,
+)
 CRYPTO_PAY_PROVIDER = "crypto_pay"
 CRYPTO_PAY_METHODS = {"crypto", "crypto_pay", "usdt_trc20"}
 TELEGRAM_STARS_PROVIDER = "telegram_stars"
@@ -70,7 +82,10 @@ class PaymentService:
         self.yookassa_secret_key = yookassa_secret_key.strip()
         self.yookassa_api_base_url = yookassa_api_base_url.rstrip("/")
         self.yookassa_return_path = yookassa_return_path
-        self.yookassa_request_timeout_seconds = yookassa_request_timeout_seconds
+        self.yookassa_request_timeout_seconds = max(
+            YOOKASSA_MIN_TIMEOUT_SECONDS,
+            yookassa_request_timeout_seconds,
+        )
         self.crypto_pay_token = crypto_pay_token.strip()
         self.crypto_pay_api_base_url = self._normalize_crypto_pay_api_base(
             crypto_pay_api_base_url
@@ -701,23 +716,53 @@ class PaymentService:
             headers=headers,
             method=method.upper(),
         )
-        try:
-            with urllib.request.urlopen(
-                request, timeout=self.yookassa_request_timeout_seconds
-            ) as response:
-                response_body = response.read().decode("utf-8")
-        except urllib.error.HTTPError as exc:
-            error_body = exc.read().decode("utf-8", errors="replace")
-            raise BusinessRuleError(
-                f"ЮKassa API error {exc.code}: {error_body}"
-            ) from exc
-        except urllib.error.URLError as exc:
-            raise BusinessRuleError(f"ЮKassa API недоступна: {exc.reason}") from exc
+        response_body = self._open_yookassa_request(request)
 
         data = json.loads(response_body) if response_body else {}
         if not isinstance(data, dict):
             raise BusinessRuleError("ЮKassa вернула некорректный ответ.")
         return data
+
+    def _open_yookassa_request(self, request: urllib.request.Request) -> str:
+        last_error: BaseException | None = None
+        for attempt in range(1, YOOKASSA_NETWORK_ATTEMPTS + 1):
+            try:
+                with urllib.request.urlopen(
+                    request,
+                    timeout=self.yookassa_request_timeout_seconds,
+                ) as response:
+                    return response.read().decode("utf-8")
+            except urllib.error.HTTPError as exc:
+                error_body = exc.read().decode("utf-8", errors="replace")
+                logging.warning("YooKassa API error %s: %s", exc.code, error_body)
+                raise BusinessRuleError(self._yookassa_http_error_message(exc)) from exc
+            except YOOKASSA_NETWORK_ERRORS as exc:
+                last_error = exc
+                if attempt < YOOKASSA_NETWORK_ATTEMPTS:
+                    time.sleep(0.5 * attempt)
+                    continue
+                logging.warning(
+                    "YooKassa API unavailable after %s attempts: %r",
+                    YOOKASSA_NETWORK_ATTEMPTS,
+                    exc,
+                )
+        raise BusinessRuleError(
+            "ЮKassa сейчас не отвечает. Попробуйте оплатить ещё раз через минуту."
+        ) from last_error
+
+    @staticmethod
+    def _yookassa_http_error_message(exc: urllib.error.HTTPError) -> str:
+        if exc.code in {401, 403}:
+            return (
+                "ЮKassa отклонила запрос. Проверьте Shop ID и секретный ключ "
+                "в настройках хостинга."
+            )
+        if exc.code == 400:
+            return (
+                "ЮKassa отклонила платёж. Проверьте настройки магазина и "
+                "доступные способы оплаты."
+            )
+        return "ЮKassa вернула ошибку. Попробуйте оплатить ещё раз позже."
 
     def _yookassa_auth_header(self) -> str:
         raw = f"{self.yookassa_shop_id}:{self.yookassa_secret_key}".encode("utf-8")

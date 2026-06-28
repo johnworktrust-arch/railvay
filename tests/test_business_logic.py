@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import io
 import sqlite3
 import unittest
+import urllib.error
 from json import loads
 from pathlib import Path
 from unittest.mock import patch
@@ -175,6 +177,72 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(payment["external_id"], "yk_payment_card_sbp")
         self.assertEqual(payment["payment_url"], "https://yookassa.test/pay/card-sbp")
         self.assertEqual(api.call_count, 1)
+
+    def test_yookassa_network_errors_are_retried_and_sanitized(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            payment_provider="mock",
+            app_base_url="https://bot.example",
+            yookassa_shop_id="shop-test",
+            yookassa_secret_key="secret-test",
+        )
+        services = build_services(self.db, settings)
+        error = urllib.error.URLError(
+            TimeoutError("_ssl.c:993: The handshake operation timed out")
+        )
+
+        with patch(
+            "ceai.services.payments.urllib.request.urlopen",
+            side_effect=error,
+        ) as urlopen, patch("ceai.services.payments.time.sleep") as sleep:
+            with self.assertRaises(BusinessRuleError) as cm:
+                services.payments.create_payment(
+                    user_id=self.user["id"],
+                    plan_code="start",
+                    payment_method="card_sbp",
+                )
+
+        self.assertEqual(urlopen.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        self.assertIn("ЮKassa сейчас не отвечает", str(cm.exception))
+        self.assertNotIn("_ssl.c", str(cm.exception))
+
+    def test_yookassa_http_errors_are_sanitized(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            payment_provider="mock",
+            app_base_url="https://bot.example",
+            yookassa_shop_id="shop-test",
+            yookassa_secret_key="secret-test",
+        )
+        services = build_services(self.db, settings)
+        error = urllib.error.HTTPError(
+            "https://api.yookassa.ru/v3/payments",
+            401,
+            "Unauthorized",
+            {},
+            io.BytesIO(b'{"code":"invalid_credentials"}'),
+        )
+
+        with patch(
+            "ceai.services.payments.urllib.request.urlopen",
+            side_effect=error,
+        ):
+            with self.assertRaises(BusinessRuleError) as cm:
+                services.payments.create_payment(
+                    user_id=self.user["id"],
+                    plan_code="start",
+                    payment_method="card_sbp",
+                )
+
+        self.assertIn("Проверьте Shop ID", str(cm.exception))
+        self.assertNotIn("invalid_credentials", str(cm.exception))
 
     def test_crypto_pay_payment_creation_uses_invoice_url(self) -> None:
         settings = Settings(
