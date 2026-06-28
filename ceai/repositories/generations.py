@@ -46,6 +46,24 @@ class GenerationRepository:
             ).fetchone()
         )
 
+    def get_for_user(
+        self, conn: sqlite3.Connection, *, user_id: int, generation_id: int
+    ) -> Dict[str, Any] | None:
+        return row_to_dict(
+            conn.execute(
+                """
+                SELECT
+                    g.*,
+                    mp.display_name AS model_display_name,
+                    mp.coins_cost AS model_coins_cost
+                FROM generations g
+                JOIN model_prices mp ON mp.id = g.model_price_id
+                WHERE g.user_id = ? AND g.id = ?
+                """,
+                (user_id, generation_id),
+            ).fetchone()
+        )
+
     def mark_processing(
         self,
         conn: sqlite3.Connection,
@@ -136,8 +154,20 @@ class GenerationRepository:
             raise RuntimeError("Could not mark generation failed")
         return generation
 
+    def count_for_user(self, conn: sqlite3.Connection, *, user_id: int) -> int:
+        row = conn.execute(
+            "SELECT COUNT(*) AS total FROM generations WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        return int(row["total"] if row else 0)
+
     def list_recent_for_user(
-        self, conn: sqlite3.Connection, *, user_id: int, limit: int = 10
+        self,
+        conn: sqlite3.Connection,
+        *,
+        user_id: int,
+        limit: int = 10,
+        offset: int = 0,
     ) -> List[Dict[str, Any]]:
         return rows_to_dicts(
             conn.execute(
@@ -150,8 +180,8 @@ class GenerationRepository:
                 JOIN model_prices mp ON mp.id = g.model_price_id
                 WHERE g.user_id = ?
                 ORDER BY g.created_at DESC
-                LIMIT ?
+                LIMIT ? OFFSET ?
                 """,
-                (user_id, limit),
+                (user_id, limit, offset),
             ).fetchall()
         )

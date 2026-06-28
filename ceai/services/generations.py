@@ -191,15 +191,33 @@ class GenerationService:
             balance_after=balance_after,
         )
 
-    def list_recent(self, *, user_id: int, limit: int = 10) -> List[Dict[str, Any]]:
+    def list_recent(
+        self, *, user_id: int, limit: int = 10, offset: int = 0
+    ) -> List[Dict[str, Any]]:
         with self.db.transaction() as conn:
             rows = self.generations.list_recent_for_user(
-                conn, user_id=user_id, limit=limit
+                conn, user_id=user_id, limit=limit, offset=offset
             )
-            for row in rows:
-                row["prompt_payload"] = loads_dict(row.get("prompt"))
-                row["result_payload"] = loads_dict(row.get("result"))
-            return rows
+            return [_hydrate_generation_row(row) for row in rows]
+
+    def count_for_user(self, *, user_id: int) -> int:
+        with self.db.transaction() as conn:
+            return self.generations.count_for_user(conn, user_id=user_id)
+
+    def get_for_user(
+        self, *, user_id: int, generation_id: int
+    ) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            row = self.generations.get_for_user(
+                conn, user_id=user_id, generation_id=generation_id
+            )
+            return _hydrate_generation_row(row) if row else None
+
+
+def _hydrate_generation_row(row: Dict[str, Any]) -> Dict[str, Any]:
+    row["prompt_payload"] = loads_dict(row.get("prompt"))
+    row["result_payload"] = loads_dict(row.get("result"))
+    return row
 
 
 def _result_for_storage(result: Dict[str, Any]) -> Dict[str, Any]:

@@ -805,6 +805,49 @@ class BusinessLogicTest(unittest.TestCase):
             },
         )
 
+    def test_generation_history_paginates_and_loads_single_result(self) -> None:
+        self._buy_plan("start")
+        model = self._model("deepseek-v4-flash")
+        for index in range(4):
+            self.services.generations.generate(
+                user_id=self.user["id"],
+                model_price_id=model["id"],
+                prompt_text=f"Запрос {index + 1}",
+            )
+
+        first_page = self.services.generations.list_recent(
+            user_id=self.user["id"], limit=3, offset=0
+        )
+        second_page = self.services.generations.list_recent(
+            user_id=self.user["id"], limit=3, offset=3
+        )
+        loaded = self.services.generations.get_for_user(
+            user_id=self.user["id"],
+            generation_id=first_page[0]["id"],
+        )
+        other_user = self.services.users.ensure_telegram_user(
+            telegram_id=5555,
+            username="other",
+            first_name="Other",
+            language_code="ru",
+        )
+
+        self.assertEqual(
+            self.services.generations.count_for_user(user_id=self.user["id"]), 4
+        )
+        self.assertEqual(len(first_page), 3)
+        self.assertEqual(len(second_page), 1)
+        self.assertEqual(first_page[0]["prompt_payload"]["text"], "Запрос 4")
+        self.assertEqual(second_page[0]["prompt_payload"]["text"], "Запрос 1")
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded["result_payload"]["kind"], "text")
+        self.assertIsNone(
+            self.services.generations.get_for_user(
+                user_id=other_user["id"],
+                generation_id=first_page[0]["id"],
+            )
+        )
+
     def test_openai_image_provider_uses_edit_endpoint_for_image_input(self) -> None:
         provider = OpenAIImageProvider(api_key="test-key")
         calls = []
@@ -1701,6 +1744,90 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertIn("reply_markup=back_to_menu_keyboard()", support_source)
         self.assertNotIn("reply_markup=main_menu_keyboard()", support_source)
+
+    def test_history_screen_has_paged_generation_buttons(self) -> None:
+        from ceai.bot.handlers import _format_history, _format_history_result
+        from ceai.bot.keyboards import history_keyboard, history_result_keyboard
+
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        send_history_source = handlers_source.split("async def _send_history(", 1)[
+            1
+        ].split("async def _send_history_result", 1)[0]
+        rows = [
+            {
+                "id": 4,
+                "model_display_name": "GPT Image 2",
+                "status": "completed",
+                "coins_charged": 2,
+                "prompt_payload": {
+                    "text": "Поменяй на этом изображении надпись cea на надпись foto"
+                },
+                "result_payload": {"kind": "image", "caption": "Готовое изображение"},
+            },
+            {
+                "id": 3,
+                "model_display_name": "GPT Image 2",
+                "status": "completed",
+                "coins_charged": 2,
+                "prompt_payload": {
+                    "text": "Поменяй на этом изображении надпись cea на надпись foto"
+                },
+                "result_payload": {"kind": "image", "caption": "Готовое изображение"},
+            },
+            {
+                "id": 2,
+                "model_display_name": "GPT Image 2",
+                "status": "completed",
+                "coins_charged": 2,
+                "prompt_payload": {
+                    "text": "Поменяй на этом изображении надпись cea на надпись foto"
+                },
+                "result_payload": {"kind": "image", "caption": "Готовое изображение"},
+            },
+        ]
+
+        self.assertEqual(
+            _format_history(rows),
+            "Последние генерации:\n\n"
+            "#4 Модель - GPT Image 2\n"
+            "      Статус - completed\n"
+            "      Списано - 2 коина\n"
+            "      Промпт - Поменяй на этом изображении надпись cea на надпись foto\n\n"
+            "#3 Модель - GPT Image 2\n"
+            "      Статус - completed\n"
+            "      Списано - 2 коина\n"
+            "      Промпт - Поменяй на этом изображении надпись cea на надпись foto\n\n"
+            "#2 Модель - GPT Image 2\n"
+            "      Статус - completed\n"
+            "      Списано - 2 коина\n"
+            "      Промпт - Поменяй на этом изображении надпись cea на надпись foto\n\n"
+            "Чтобы увидеть результат выберите кнопку с номером генерации:",
+        )
+        self.assertIn("HISTORY_PAGE_SIZE = 3", handlers_source)
+        self.assertIn("services.generations.count_for_user", send_history_source)
+        self.assertIn("offset=(page - 1) * HISTORY_PAGE_SIZE", send_history_source)
+        self.assertIn(
+            "reply_markup=history_keyboard(rows, page=page, pages=pages)",
+            send_history_source,
+        )
+        self.assertNotIn("reply_markup=main_menu_keyboard()", send_history_source)
+
+        keyboard = history_keyboard(rows, page=1, pages=2).inline_keyboard
+        self.assertEqual([button.text for button in keyboard[0]], ["#4", "#3", "#2"])
+        self.assertEqual(
+            [button.callback_data for button in keyboard[0]],
+            ["history:view:4:1", "history:view:3:1", "history:view:2:1"],
+        )
+        self.assertEqual(keyboard[1][0].text, "➡️ След страница")
+        self.assertEqual(keyboard[1][0].callback_data, "history:page:2")
+        self.assertEqual(keyboard[-1][0].text, "⬅️ Назад")
+        self.assertEqual(keyboard[-1][0].callback_data, "menu:main")
+
+        result_keyboard = history_result_keyboard(page=2).inline_keyboard
+        self.assertEqual(result_keyboard[0][0].text, "⬅️ К истории")
+        self.assertEqual(result_keyboard[0][0].callback_data, "history:page:2")
+        self.assertIn("Результат:\nГотовое изображение", _format_history_result(rows[0]))
+        self.assertIn('F.data.startswith("history:")', handlers_source)
 
     def test_subscription_required_message_has_plan_buttons_without_test_copy(self) -> None:
         from ceai.bot.handlers import _subscription_required_message

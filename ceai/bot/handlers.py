@@ -42,6 +42,8 @@ from ceai.bot.keyboards import (
     admin_users_keyboard,
     back_to_menu_keyboard,
     crystal_packages_keyboard,
+    history_keyboard,
+    history_result_keyboard,
     inline_back_to_menu_keyboard,
     main_menu_button_keyboard,
     main_menu_keyboard,
@@ -95,6 +97,7 @@ ONBOARDING_PROMO_IMAGE_PATH = (
 )
 MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
 DEFAULT_IMAGE_EDIT_PROMPT = "Улучши изображение, сохранив основной сюжет."
+HISTORY_PAGE_SIZE = 3
 
 
 def _is_start_text(text: str | None) -> bool:
@@ -970,19 +973,80 @@ async def _show_generation_result(
     )
 
 
+def _short_history_text(text: str, *, limit: int = 180) -> str:
+    normalized = " ".join(text.split())
+    if len(normalized) <= limit:
+        return normalized or "—"
+    return normalized[: limit - 3].rstrip() + "..."
+
+
+def _generation_prompt_text(row: Dict[str, Any]) -> str:
+    prompt_payload = row.get("prompt_payload")
+    if not isinstance(prompt_payload, dict):
+        prompt_payload = loads_dict(row.get("prompt"))
+    prompt = prompt_payload.get("text") or prompt_payload.get("prompt")
+    return str(prompt or "").strip()
+
+
+def _generation_result_text(row: Dict[str, Any]) -> str:
+    result_payload = row.get("result_payload")
+    if not isinstance(result_payload, dict):
+        result_payload = loads_dict(row.get("result"))
+    if not result_payload:
+        return str(row.get("error_message") or "Результат пока не сохранён.")
+
+    kind = result_payload.get("kind")
+    parts: list[str] = []
+    if kind == "text":
+        parts.append(str(result_payload.get("text") or "").strip())
+    elif kind in {"image", "video"}:
+        parts.append(str(result_payload.get("caption") or "").strip())
+        if result_payload.get("url"):
+            parts.append(str(result_payload["url"]).strip())
+        if result_payload.get("revised_prompt"):
+            parts.append(f"Уточнённый prompt: {result_payload['revised_prompt']}")
+    elif kind == "tts":
+        parts.append(str(result_payload.get("message") or "").strip())
+        if result_payload.get("url"):
+            parts.append(str(result_payload["url"]).strip())
+    else:
+        parts.append(str(result_payload))
+    return "\n".join(part for part in parts if part).strip() or "Результат сохранён."
+
+
 def _format_history(rows: list[Dict[str, Any]]) -> str:
     if not rows:
         return "История пока пустая."
     lines = ["Последние генерации:"]
     for row in rows:
-        prompt = row.get("prompt_payload", {}).get("text", "")
-        if len(prompt) > 60:
-            prompt = prompt[:57] + "..."
+        prompt = _short_history_text(_generation_prompt_text(row))
         lines.append(
-            f"#{row['id']} {row['model_display_name']} — {row['status']} — "
-            f"{format_coin_amount(row['coins_charged'])} — {prompt}"
+            "\n"
+            f"#{row['id']} Модель - {row['model_display_name']}\n"
+            f"      Статус - {row['status']}\n"
+            f"      Списано - {format_coin_amount(row.get('coins_charged'))}\n"
+            f"      Промпт - {prompt}"
         )
+    lines.extend(
+        [
+            "",
+            "Чтобы увидеть результат выберите кнопку с номером генерации:",
+        ]
+    )
     return "\n".join(lines)
+
+
+def _format_history_result(row: Dict[str, Any]) -> str:
+    result_text = _short_history_text(_generation_result_text(row), limit=2400)
+    prompt = _short_history_text(_generation_prompt_text(row), limit=800)
+    return (
+        f"Генерация #{row['id']}\n\n"
+        f"Модель - {row['model_display_name']}\n"
+        f"Статус - {row['status']}\n"
+        f"Списано - {format_coin_amount(row.get('coins_charged'))}\n"
+        f"Промпт - {prompt}\n\n"
+        f"Результат:\n{result_text}"
+    )
 
 
 def _format_admin_stats(stats: Dict[str, Any]) -> str:
@@ -1272,15 +1336,55 @@ async def _send_history(
     services: AppServices,
     user_id: int,
     *,
+    page: int = 1,
     delete_current: bool = False,
 ) -> None:
-    rows = services.generations.list_recent(user_id=user_id, limit=10)
+    total = services.generations.count_for_user(user_id=user_id)
+    pages = max(1, (total + HISTORY_PAGE_SIZE - 1) // HISTORY_PAGE_SIZE)
+    page = max(1, min(page, pages))
+    rows = services.generations.list_recent(
+        user_id=user_id,
+        limit=HISTORY_PAGE_SIZE,
+        offset=(page - 1) * HISTORY_PAGE_SIZE,
+    )
     await _show_screen(
         message,
         services,
         user_id,
         _format_history(rows),
-        reply_markup=main_menu_keyboard(),
+        reply_markup=history_keyboard(rows, page=page, pages=pages),
+        delete_current=delete_current,
+    )
+
+
+async def _send_history_result(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    generation_id: int,
+    page: int = 1,
+    delete_current: bool = False,
+) -> None:
+    generation = services.generations.get_for_user(
+        user_id=user_id,
+        generation_id=generation_id,
+    )
+    if generation is None:
+        await _send_history(
+            message,
+            services,
+            user_id,
+            page=page,
+            delete_current=delete_current,
+        )
+        return
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_history_result(generation),
+        reply_markup=history_result_keyboard(page=page),
         delete_current=delete_current,
     )
 
@@ -2567,6 +2671,47 @@ def create_router(services: AppServices) -> Router:
             await _send_history(
                 callback.message, services, user["id"], delete_current=True
             )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("history:"))
+    async def history_callback(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if not callback.message or not callback.data:
+            await callback.answer()
+            return
+
+        parts = callback.data.split(":")
+        action = parts[1] if len(parts) > 1 else ""
+        try:
+            if action == "page":
+                page = int(parts[2]) if len(parts) > 2 else 1
+                await _send_history(
+                    callback.message,
+                    services,
+                    user["id"],
+                    page=page,
+                )
+            elif action == "view":
+                generation_id = int(parts[2]) if len(parts) > 2 else 0
+                page = int(parts[3]) if len(parts) > 3 else 1
+                await _send_history_result(
+                    callback.message,
+                    services,
+                    user["id"],
+                    generation_id=generation_id,
+                    page=page,
+                )
+            else:
+                await callback.answer("Неизвестное действие", show_alert=True)
+                return
+        except ValueError:
+            await callback.answer("Не получилось открыть историю.", show_alert=True)
+            return
         await callback.answer()
 
     @router.callback_query(F.data == "menu:support")

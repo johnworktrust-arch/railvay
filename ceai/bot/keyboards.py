@@ -296,7 +296,9 @@ def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
         ]
         for model in models
     ]
-    rows.append([InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")])
+    rows.append(
+        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")]
+    )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -346,7 +348,11 @@ def text_chat_keyboard(
                     text=ADD_TEXT_CHAT_BUTTON, callback_data="text_chat:add"
                 )
             ],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
+            [
+                InlineKeyboardButton(
+                    text=BACK_TO_MENU_BUTTON, callback_data="menu:main"
+                )
+            ],
         ]
     )
 
@@ -361,6 +367,53 @@ def text_chat_prompt_keyboard() -> InlineKeyboardMarkup:
                 )
             ],
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="text_chat:back")],
+        ]
+    )
+
+
+def history_keyboard(
+    generations: Iterable[Dict[str, Any]], *, page: int, pages: int
+) -> InlineKeyboardMarkup:
+    number_buttons = [
+        InlineKeyboardButton(
+            text=f"#{generation['id']}",
+            callback_data=f"history:view:{generation['id']}:{page}",
+        )
+        for generation in generations
+    ]
+    rows: list[list[InlineKeyboardButton]] = []
+    if number_buttons:
+        rows.append(number_buttons)
+
+    pager: list[InlineKeyboardButton] = []
+    if page > 1:
+        pager.append(
+            InlineKeyboardButton(
+                text="⬅️ Пред страница", callback_data=f"history:page:{page - 1}"
+            )
+        )
+    if page < pages:
+        pager.append(
+            InlineKeyboardButton(
+                text="➡️ След страница", callback_data=f"history:page:{page + 1}"
+            )
+        )
+    if pager:
+        rows.append(pager)
+
+    rows.append([InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def history_result_keyboard(*, page: int) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="⬅️ К истории", callback_data=f"history:page:{page}"
+                )
+            ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
 
