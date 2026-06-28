@@ -521,10 +521,16 @@ def _format_menu(
             "📅 Срок действия: "
             f"{escape(format_datetime_russian_minute(subscription.get('ends_at')))}"
         )
+        auto_renew_line = (
+            "🔁 Автопродление: включено"
+            if subscription.get("auto_renew")
+            else "🔁 Автопродление: выключено"
+        )
     else:
         balance = 0
         sub_line = "⭐ Подписка: нет активной"
         expires_line = "📅 Срок действия: —"
+        auto_renew_line = "🔁 Автопродление: —"
     invited_line = f"👥 Приглашено: {invited_users_count}"
     if invited_users_count <= 0:
         invited_line += (
@@ -535,7 +541,8 @@ def _format_menu(
         f"ℹ️ ID: {user.get('telegram_id') or user.get('id')}\n"
         f"💰 Баланс: {format_coin_amount(balance)}\n"
         f"{sub_line}\n"
-        f"{expires_line}\n\n"
+        f"{expires_line}\n"
+        f"{auto_renew_line}\n\n"
         f"{invited_line}"
     )
 
@@ -724,14 +731,15 @@ def _format_yookassa_payment_screen(
         f"💳 Стоимость выбранного тарифа — {price} ₽.\n\n"
         f"После оплаты вы получите {format_coin_amount(coins)}. "
         f"Доступ к тарифу действует {duration_days} дней.\n\n"
+        "Подписка продлевается автоматически "
+        f"ещё на {duration_days} дней за {price} ₽.\n\n"
         "Проверка платежа происходит автоматически. "
         "Коины начислятся на баланс сразу после подтверждения оплаты.\n\n"
         "Нажимая «Оплатить», вы подтверждаете согласие с условиями "
         "обработки данных и публичной офертой.\n\n"
         f"Публичная оферта: {offer_url}\n\n"
-        "Автоматическое продление сейчас не подключено — повторного списания "
-        "без вашего подтверждения не будет. Продлить тариф можно в разделе "
-        "«Профиль» → «Подписка и тарифы»."
+        "Отключить автоматическое продление можно в разделе "
+        "«Профиль» → «Отключить автопродление»."
     )
 
 
@@ -2020,6 +2028,34 @@ def create_router(services: AppServices) -> Router:
         if callback.message:
             await _send_plans(
                 callback.message, services, user["id"], delete_current=True
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data == "subscription:cancel_auto_renew")
+    async def cancel_auto_renew(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+
+        subscription = services.subscriptions.active_for_user(user["id"])
+        if subscription is None:
+            notice = "ℹ️ У вас нет активной подписки для отключения автопродления."
+        elif not subscription.get("auto_renew"):
+            notice = "ℹ️ Автопродление уже выключено."
+        else:
+            services.subscriptions.disable_auto_renew(user["id"])
+            notice = "✅ Автопродление отключено. Повторных списаний не будет."
+
+        if callback.message:
+            await _send_main_menu(
+                callback.message,
+                services,
+                user["id"],
+                intro=notice,
+                delete_current=True,
             )
         await callback.answer()
 

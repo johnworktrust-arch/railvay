@@ -6,6 +6,7 @@ import io
 import sqlite3
 import unittest
 import urllib.error
+from datetime import timedelta
 from json import loads
 from pathlib import Path
 from unittest.mock import patch
@@ -26,7 +27,7 @@ from ceai.services.exceptions import (
     InsufficientCoinsError,
     NoActiveSubscriptionError,
 )
-from ceai.time_utils import iso_now
+from ceai.time_utils import iso_now, utcnow
 
 
 class BusinessLogicTest(unittest.TestCase):
@@ -135,6 +136,7 @@ class BusinessLogicTest(unittest.TestCase):
         payload = kwargs["payload"]
         self.assertEqual(payload["amount"], {"value": "299.00", "currency": "RUB"})
         self.assertTrue(payload["capture"])
+        self.assertTrue(payload["save_payment_method"])
         self.assertEqual(payload["confirmation"]["type"], "redirect")
         self.assertEqual(
             payload["confirmation"]["return_url"],
@@ -462,7 +464,16 @@ class BusinessLogicTest(unittest.TestCase):
         with patch.object(
             services.payments,
             "_fetch_yookassa_payment",
-            return_value={"id": "yk_payment_2", "status": "succeeded", "paid": True},
+            return_value={
+                "id": "yk_payment_2",
+                "status": "succeeded",
+                "paid": True,
+                "payment_method": {
+                    "id": "pm_saved_1",
+                    "type": "bank_card",
+                    "saved": True,
+                },
+            },
         ) as fetch:
             first = services.payments.process_yookassa_webhook(payload=payload)
             second = services.payments.process_yookassa_webhook(payload=payload)
@@ -473,6 +484,9 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertTrue(second.duplicate)
         self.assertEqual(fetch.call_count, 1)
         self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 100)
+        active = services.subscriptions.active_for_user(self.user["id"])
+        self.assertTrue(active["auto_renew"])
+        self.assertEqual(active["yookassa_payment_method_id"], "pm_saved_1")
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -485,6 +499,101 @@ class BusinessLogicTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(row["count"], 1)
         self.assertEqual(row["amount"], 100)
+
+    def test_yookassa_auto_renewal_charges_saved_payment_method(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            payment_provider="yookassa",
+            app_base_url="https://bot.example",
+            yookassa_shop_id="shop-test",
+            yookassa_secret_key="secret-test",
+        )
+        services = build_services(self.db, settings)
+
+        with patch.object(
+            services.payments,
+            "_yookassa_request",
+            return_value={
+                "id": "yk_initial",
+                "status": "pending",
+                "confirmation": {
+                    "type": "redirect",
+                    "confirmation_url": "https://yookassa.test/pay/initial",
+                },
+            },
+        ):
+            services.payments.create_payment(
+                user_id=self.user["id"],
+                plan_code="start",
+                payment_method="card_sbp",
+            )
+
+        with patch.object(
+            services.payments,
+            "_fetch_yookassa_payment",
+            return_value={
+                "id": "yk_initial",
+                "status": "succeeded",
+                "paid": True,
+                "payment_method": {"id": "pm_saved_2", "saved": True},
+            },
+        ):
+            services.payments.process_yookassa_webhook(
+                payload={
+                    "event": "payment.succeeded",
+                    "object": {"id": "yk_initial"},
+                }
+            )
+
+        active = services.subscriptions.active_for_user(self.user["id"])
+        renew_due_at = (utcnow() + timedelta(minutes=30)).isoformat()
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE subscriptions
+                SET ends_at = ?,
+                    auto_renew_last_attempt_at = NULL
+                WHERE id = ?
+                """,
+                (renew_due_at, active["id"]),
+            )
+
+        captured_payloads: list[dict] = []
+
+        def yookassa_request(method, path, *, payload=None, idempotence_key=None):
+            captured_payloads.append(payload or {})
+            return {
+                "id": "yk_auto_renewal",
+                "status": "succeeded",
+                "paid": True,
+                "payment_method": {"id": "pm_saved_2", "saved": True},
+            }
+
+        with patch.object(
+            services.payments,
+            "_yookassa_request",
+            side_effect=yookassa_request,
+        ):
+            results = services.payments.process_due_auto_renewals()
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].processed)
+        self.assertEqual(results[0].credited_coins, 100)
+        self.assertEqual(
+            captured_payloads[0]["payment_method_id"],
+            "pm_saved_2",
+        )
+        self.assertNotIn("confirmation", captured_payloads[0])
+        self.assertEqual(
+            services.subscriptions.balance_for_user(self.user["id"]),
+            200,
+        )
+        renewed = services.subscriptions.active_for_user(self.user["id"])
+        self.assertTrue(renewed["auto_renew"])
+        self.assertEqual(renewed["yookassa_payment_method_id"], "pm_saved_2")
 
     def test_start_referral_assigns_referrer_once_and_rejects_self(self) -> None:
         friend = self.services.users.ensure_telegram_user(
@@ -875,7 +984,10 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("⭐ Подписка: нет активной", profile)
         self.assertIn("📅 Срок действия: —", profile)
         self.assertIn(
-            "⭐ Подписка: нет активной\n📅 Срок действия: —\n\n👥 Приглашено: 1",
+            "⭐ Подписка: нет активной\n"
+            "📅 Срок действия: —\n"
+            "🔁 Автопродление: —\n\n"
+            "👥 Приглашено: 1",
             profile,
         )
         self.assertIn("👥 Приглашено: 1", profile)
@@ -887,12 +999,14 @@ class BusinessLogicTest(unittest.TestCase):
                 "coins_balance_cache": 42,
                 "plan_name": "Про",
                 "ends_at": "2026-06-24T17:16:00+00:00",
+                "auto_renew": True,
             },
             invited_users_count=2,
         )
         self.assertIn("💰 Баланс: 42 коина", active_profile)
         self.assertIn("⭐ Подписка: Про", active_profile)
         self.assertIn("📅 Срок действия: 24 июня 2026 года, 20:16", active_profile)
+        self.assertIn("🔁 Автопродление: включено", active_profile)
         self.assertIn("👥 Приглашено: 2", active_profile)
         self.assertNotIn("Про до", active_profile)
 
@@ -1298,11 +1412,13 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("💳 Стоимость выбранного тарифа — 699 ₽.", yookassa_payment_screen)
         self.assertIn("После оплаты вы получите 230 коинов.", yookassa_payment_screen)
         self.assertIn("Доступ к тарифу действует 30 дней.", yookassa_payment_screen)
+        self.assertIn("Подписка продлевается автоматически", yookassa_payment_screen)
+        self.assertIn("ещё на 30 дней за 699 ₽", yookassa_payment_screen)
         self.assertIn("Проверка платежа происходит автоматически.", yookassa_payment_screen)
         self.assertIn("Нажимая «Оплатить»", yookassa_payment_screen)
         self.assertIn("Публичная оферта: https://cea.ai/public-offer", yookassa_payment_screen)
-        self.assertIn("Автоматическое продление сейчас не подключено", yookassa_payment_screen)
-        self.assertIn("«Профиль» → «Подписка и тарифы»", yookassa_payment_screen)
+        self.assertIn("Отключить автоматическое продление", yookassa_payment_screen)
+        self.assertIn("«Профиль» → «Отключить автопродление»", yookassa_payment_screen)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 100, "basic": 230, "pro": 500},
@@ -1502,6 +1618,7 @@ class MigrationAndUITest(unittest.TestCase):
             [
                 "💳 Подписка и тарифы",
                 "🤝 Реферальная программа",
+                "🚫 Отключить автопродление",
                 "🆘 Поддержка",
                 "⬅️ Назад",
             ],
@@ -1528,6 +1645,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("ℹ️ ID:", profile_format_source)
         self.assertIn("💰 Баланс:", profile_format_source)
         self.assertIn("📅 Срок действия:", profile_format_source)
+        self.assertIn("🔁 Автопродление:", profile_format_source)
+        self.assertIn('callback_data="subscription:cancel_auto_renew"', keyboard_source)
+        self.assertIn('F.data == "subscription:cancel_auto_renew"', handlers_source)
+        self.assertIn("disable_auto_renew", handlers_source)
         self.assertIn("format_datetime_russian_minute", handlers_source)
         self.assertIn("👥 Приглашено:", profile_format_source)
         self.assertIn("Приглашайте друзей и зарабатывайте 30% с каждого пополнения!", profile_format_source)
@@ -2212,7 +2333,7 @@ class MigrationAndUITest(unittest.TestCase):
                 row = conn.execute(
                     "SELECT COUNT(*) AS count FROM schema_migrations"
                 ).fetchone()
-            self.assertEqual(row["count"], 6)
+            self.assertEqual(row["count"], 7)
         finally:
             db.close()
 

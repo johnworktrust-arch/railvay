@@ -4,6 +4,7 @@ import asyncio
 import json
 import logging
 import os
+from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
 from aiogram.types import BotCommand
@@ -60,6 +61,20 @@ async def payment_return(request: web.Request) -> web.Response:
         ),
         content_type="text/html",
     )
+
+
+async def auto_renewal_loop(services: AppServices) -> None:
+    interval_seconds = int(os.getenv("AUTO_RENEWAL_INTERVAL_SECONDS", "900"))
+    while True:
+        try:
+            results = await asyncio.to_thread(
+                services.payments.process_due_auto_renewals
+            )
+            if results:
+                logging.info("Processed %s YooKassa auto renewals", len(results))
+        except Exception:
+            logging.exception("YooKassa auto renewal loop failed")
+        await asyncio.sleep(max(60, interval_seconds))
 
 
 def _normalize_path(path: str) -> str:
@@ -249,11 +264,15 @@ async def run_webhook(
     port = int(os.getenv("PORT", "8080"))
     site = web.TCPSite(runner, host="0.0.0.0", port=port)
     await site.start()
+    auto_renewal_task = asyncio.create_task(auto_renewal_loop(services))
     logging.info("Webhook endpoint listening on 0.0.0.0:%s%s", port, webhook_path)
     logging.info("Health endpoint listening on 0.0.0.0:%s/healthz", port)
     try:
         await asyncio.Event().wait()
     finally:
+        auto_renewal_task.cancel()
+        with suppress(asyncio.CancelledError):
+            await auto_renewal_task
         await runner.cleanup()
 
 
@@ -294,7 +313,13 @@ async def main() -> None:
         else:
             health_server = await start_health_server(settings=settings, db=db)
             await bot.delete_webhook(drop_pending_updates=False)
-            await dispatcher.start_polling(bot)
+            auto_renewal_task = asyncio.create_task(auto_renewal_loop(services))
+            try:
+                await dispatcher.start_polling(bot)
+            finally:
+                auto_renewal_task.cancel()
+                with suppress(asyncio.CancelledError):
+                    await auto_renewal_task
     finally:
         if health_server is not None:
             health_server.close()

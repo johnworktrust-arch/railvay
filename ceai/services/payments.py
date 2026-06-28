@@ -12,6 +12,7 @@ import urllib.error
 import urllib.request
 import uuid
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Any, Dict
 
 from ceai.database import Database
@@ -24,6 +25,7 @@ from ceai.repositories.webhooks import WebhookLogRepository
 from ceai.services.coins import CoinService
 from ceai.services.exceptions import BusinessRuleError, NotFoundError
 from ceai.services.referrals import ReferralService
+from ceai.time_utils import utcnow
 
 
 YOOKASSA_PROVIDER = "yookassa"
@@ -36,6 +38,9 @@ YOOKASSA_NETWORK_ERRORS = (
     socket.timeout,
     ssl.SSLError,
 )
+AUTO_RENEWAL_LOOKAHEAD_SECONDS = 3600
+AUTO_RENEWAL_RETRY_INTERVAL_SECONDS = 6 * 3600
+AUTO_RENEWAL_BATCH_SIZE = 25
 CRYPTO_PAY_PROVIDER = "crypto_pay"
 CRYPTO_PAY_METHODS = {"crypto", "crypto_pay", "usdt_trc20"}
 TELEGRAM_STARS_PROVIDER = "telegram_stars"
@@ -276,6 +281,7 @@ class PaymentService:
                 "currency": "RUB",
             },
             "capture": True,
+            "save_payment_method": True,
             "confirmation": {
                 "type": "redirect",
                 "return_url": return_url,
@@ -321,6 +327,159 @@ class PaymentService:
                     "response": response,
                 },
             )
+
+    def process_due_auto_renewals(
+        self, *, limit: int = AUTO_RENEWAL_BATCH_SIZE
+    ) -> list[PaymentWebhookResult]:
+        now = utcnow()
+        due_at = (now + timedelta(seconds=AUTO_RENEWAL_LOOKAHEAD_SECONDS)).isoformat()
+        retry_before = (
+            now - timedelta(seconds=AUTO_RENEWAL_RETRY_INTERVAL_SECONDS)
+        ).isoformat()
+        with self.db.transaction() as conn:
+            due_subscriptions = self.subscriptions.list_due_auto_renewals(
+                conn,
+                due_at=due_at,
+                retry_before=retry_before,
+                limit=limit,
+            )
+
+        results: list[PaymentWebhookResult] = []
+        for subscription in due_subscriptions:
+            try:
+                result = self.create_yookassa_auto_renewal_payment(
+                    subscription=subscription,
+                )
+            except Exception as exc:
+                logging.warning(
+                    "YooKassa auto renewal failed for subscription %s: %s",
+                    subscription.get("id"),
+                    exc,
+                )
+                with self.db.transaction() as conn:
+                    self.subscriptions.mark_auto_renew_attempt(
+                        conn,
+                        subscription_id=int(subscription["id"]),
+                        error_message=str(exc)[:500],
+                    )
+                continue
+            results.append(result)
+        return results
+
+    def create_yookassa_auto_renewal_payment(
+        self, *, subscription: Dict[str, Any]
+    ) -> PaymentWebhookResult:
+        payment_method_id = str(
+            subscription.get("yookassa_payment_method_id") or ""
+        ).strip()
+        if not payment_method_id:
+            raise BusinessRuleError("У подписки нет сохранённого способа оплаты.")
+
+        plan = {
+            "id": int(subscription["plan_id"]),
+            "name": str(subscription.get("plan_name") or "тариф"),
+            "code": str(subscription.get("plan_code") or ""),
+            "price_rub": int(subscription.get("plan_price_rub") or 0),
+            "duration_days": int(subscription.get("plan_duration_days") or 30),
+            "coins_amount": int(subscription.get("plan_coins_amount") or 0),
+        }
+        amount_rub = int(plan["price_rub"])
+        idempotence_key = f"ceaai-auto-renew-{subscription['id']}-{uuid.uuid4().hex}"
+        payload = {
+            "amount": {
+                "value": f"{amount_rub}.00",
+                "currency": "RUB",
+            },
+            "capture": True,
+            "payment_method_id": payment_method_id,
+            "description": self._payment_description(plan),
+            "metadata": {
+                "kind": "subscription_auto_renewal",
+                "user_id": str(subscription["user_id"]),
+                "plan_id": str(plan["id"]),
+                "plan_code": str(plan["code"]),
+                "subscription_id": str(subscription["id"]),
+                "idempotence_key": idempotence_key,
+            },
+        }
+
+        with self.db.transaction() as conn:
+            self.subscriptions.mark_auto_renew_attempt(
+                conn,
+                subscription_id=int(subscription["id"]),
+                error_message=None,
+            )
+
+        response = self._yookassa_request(
+            "POST",
+            "/payments",
+            payload=payload,
+            idempotence_key=idempotence_key,
+        )
+        external_id = str(response.get("id") or "")
+        if not external_id:
+            raise BusinessRuleError("ЮKassa не вернула id автопродления.")
+
+        with self.db.transaction() as conn:
+            self.payments.create_pending(
+                conn,
+                user_id=int(subscription["user_id"]),
+                plan_id=plan["id"],
+                amount_rub=amount_rub,
+                external_id=external_id,
+                payment_url=f"yookassa://auto-renewal/{external_id}",
+                provider=YOOKASSA_PROVIDER,
+                meta={
+                    "kind": "yookassa_auto_renewal",
+                    "subscription_id": subscription["id"],
+                    "yookassa_payment_method_id": payment_method_id,
+                    "idempotence_key": idempotence_key,
+                    "request": payload,
+                    "response": response,
+                },
+            )
+
+        if not self._is_yookassa_payment_succeeded(response):
+            return PaymentWebhookResult(
+                processed=False,
+                duplicate=False,
+                payment=None,
+                subscription=None,
+                credited_coins=0,
+                message="Auto renewal payment created and waits for webhook",
+            )
+
+        webhook, should_process, duplicate = self._reserve_webhook(
+            provider=YOOKASSA_PROVIDER,
+            external_id=external_id,
+            event_type="payment.succeeded",
+            payload={
+                "event": "payment.succeeded",
+                "object": {"id": external_id},
+                "auto_renewal": response,
+            },
+        )
+        if not should_process:
+            return PaymentWebhookResult(
+                processed=False,
+                duplicate=duplicate,
+                payment=None,
+                subscription=None,
+                credited_coins=0,
+                message="Auto renewal already processed or received",
+            )
+        return self._process_successful_payment(
+            provider=YOOKASSA_PROVIDER,
+            external_id=external_id,
+            webhook_id=int(webhook["id"]),
+            payload={
+                "webhook": {
+                    "event": "payment.succeeded",
+                    "object": {"id": external_id},
+                },
+                "verified_payment": response,
+            },
+        )
 
     def process_mock_success_webhook(
         self, *, external_id: str
@@ -620,8 +779,9 @@ class PaymentService:
                 plan_id=plan["id"],
                 duration_days=plan["duration_days"],
             )
+            payment_meta = loads_dict(payment.get("meta"))
             paid_meta = {
-                **loads_dict(payment.get("meta")),
+                **payment_meta,
                 **payload,
             }
             payment = self.payments.mark_paid(
@@ -630,6 +790,17 @@ class PaymentService:
                 subscription_id=subscription["id"],
                 meta=paid_meta,
             )
+            yookassa_payment_method_id = self._yookassa_payment_method_id(
+                payload=payload,
+                payment_meta=payment_meta,
+            )
+            if provider == YOOKASSA_PROVIDER and yookassa_payment_method_id:
+                subscription = self.subscriptions.configure_auto_renew(
+                    conn,
+                    subscription_id=subscription["id"],
+                    payment_method_id=yookassa_payment_method_id,
+                    is_active=True,
+                )
             self.coins.credit_payment(
                 conn,
                 user_id=payment["user_id"],
@@ -767,6 +938,19 @@ class PaymentService:
     def _yookassa_auth_header(self) -> str:
         raw = f"{self.yookassa_shop_id}:{self.yookassa_secret_key}".encode("utf-8")
         return "Basic " + base64.b64encode(raw).decode("ascii")
+
+    @staticmethod
+    def _yookassa_payment_method_id(
+        *, payload: Dict[str, Any], payment_meta: Dict[str, Any]
+    ) -> str:
+        verified_payment = payload.get("verified_payment")
+        if isinstance(verified_payment, dict):
+            payment_method = verified_payment.get("payment_method")
+            if isinstance(payment_method, dict):
+                method_id = str(payment_method.get("id") or "").strip()
+                if method_id and payment_method.get("saved") is not False:
+                    return method_id
+        return str(payment_meta.get("yookassa_payment_method_id") or "").strip()
 
     def _crypto_pay_request(
         self, method_name: str, *, payload: Dict[str, Any] | None = None

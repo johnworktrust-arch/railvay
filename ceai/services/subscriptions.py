@@ -36,3 +36,10 @@ class SubscriptionService:
         if not subscription:
             return 0
         return int(subscription["coins_balance_cache"])
+
+    def disable_auto_renew(self, user_id: int) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            return self.subscriptions.disable_auto_renew_for_user(
+                conn,
+                user_id=user_id,
+            )

@@ -4,7 +4,7 @@ import sqlite3
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 
-from ceai.repositories.base import row_to_dict
+from ceai.repositories.base import row_to_dict, rows_to_dicts
 from ceai.time_utils import iso_now, parse_iso, utcnow
 
 
@@ -167,3 +167,98 @@ class SubscriptionRepository:
             """,
             (balance, iso_now(), subscription_id),
         )
+
+    def configure_auto_renew(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        subscription_id: int,
+        payment_method_id: str,
+        is_active: bool,
+    ) -> Dict[str, Any]:
+        now = iso_now()
+        conn.execute(
+            """
+            UPDATE subscriptions
+            SET auto_renew = ?,
+                yookassa_payment_method_id = ?,
+                auto_renew_last_error = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (bool(is_active), payment_method_id, now, subscription_id),
+        )
+        updated = self.get_by_id(conn, subscription_id)
+        if updated is None:
+            raise RuntimeError("Could not configure auto renewal")
+        return updated
+
+    def disable_auto_renew_for_user(
+        self, conn: sqlite3.Connection, *, user_id: int
+    ) -> Dict[str, Any] | None:
+        subscription = self.get_active_for_user(conn, user_id)
+        if subscription is None:
+            return None
+        conn.execute(
+            """
+            UPDATE subscriptions
+            SET auto_renew = FALSE,
+                auto_renew_last_error = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (iso_now(), subscription["id"]),
+        )
+        return self.get_by_id(conn, subscription["id"])
+
+    def mark_auto_renew_attempt(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        subscription_id: int,
+        error_message: str | None,
+    ) -> None:
+        conn.execute(
+            """
+            UPDATE subscriptions
+            SET auto_renew_last_attempt_at = ?,
+                auto_renew_last_error = ?,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (iso_now(), error_message, iso_now(), subscription_id),
+        )
+
+    def list_due_auto_renewals(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        due_at: str,
+        retry_before: str,
+        limit: int,
+    ) -> list[Dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT
+                s.*,
+                p.name AS plan_name,
+                p.code AS plan_code,
+                p.price_rub AS plan_price_rub,
+                p.duration_days AS plan_duration_days,
+                p.coins_amount AS plan_coins_amount
+            FROM subscriptions s
+            JOIN plans p ON p.id = s.plan_id
+            WHERE s.status = 'active'
+                AND s.auto_renew = TRUE
+                AND s.yookassa_payment_method_id IS NOT NULL
+                AND s.ends_at <= ?
+                AND (
+                    s.auto_renew_last_attempt_at IS NULL
+                    OR s.auto_renew_last_attempt_at <= ?
+                )
+            ORDER BY s.ends_at ASC
+            LIMIT ?
+            """,
+            (due_at, retry_before, limit),
+        ).fetchall()
+        return rows_to_dicts(rows)
