@@ -23,6 +23,7 @@ from ceai.services.referrals import ReferralService
 
 
 YOOKASSA_PROVIDER = "yookassa"
+YOOKASSA_METHODS = {"yookassa", "card", "cards", "card_sbp", "sbp"}
 CRYPTO_PAY_PROVIDER = "crypto_pay"
 CRYPTO_PAY_METHODS = {"crypto", "crypto_pay", "usdt_trc20"}
 TELEGRAM_STARS_PROVIDER = "telegram_stars"
@@ -103,6 +104,8 @@ class PaymentService:
                 plan_code=plan_code,
                 payment_method=normalized_method,
             )
+        if normalized_method in YOOKASSA_METHODS:
+            return self.create_yookassa_payment(user_id=user_id, plan_code=plan_code)
         if self.payment_provider == CRYPTO_PAY_PROVIDER:
             return self.create_crypto_pay_payment(
                 user_id=user_id,

@@ -140,6 +140,42 @@ class BusinessLogicTest(unittest.TestCase):
         )
         self.assertEqual(payload["metadata"]["plan_code"], "start")
 
+    def test_card_sbp_method_always_uses_yookassa_checkout(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            payment_provider="mock",
+            app_base_url="https://bot.example",
+            yookassa_shop_id="shop-test",
+            yookassa_secret_key="secret-test",
+        )
+        services = build_services(self.db, settings)
+
+        with patch.object(
+            services.payments,
+            "_yookassa_request",
+            return_value={
+                "id": "yk_payment_card_sbp",
+                "status": "pending",
+                "confirmation": {
+                    "type": "redirect",
+                    "confirmation_url": "https://yookassa.test/pay/card-sbp",
+                },
+            },
+        ) as api:
+            payment = services.payments.create_payment(
+                user_id=self.user["id"],
+                plan_code="start",
+                payment_method="card_sbp",
+            )
+
+        self.assertEqual(payment["provider"], "yookassa")
+        self.assertEqual(payment["external_id"], "yk_payment_card_sbp")
+        self.assertEqual(payment["payment_url"], "https://yookassa.test/pay/card-sbp")
+        self.assertEqual(api.call_count, 1)
+
     def test_crypto_pay_payment_creation_uses_invoice_url(self) -> None:
         settings = Settings(
             telegram_bot_token="test",
