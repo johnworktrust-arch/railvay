@@ -7,6 +7,7 @@ from typing import Any, Dict, List
 from ceai.config import Settings
 from ceai.database import Database
 from ceai.repositories.admin import AdminRepository
+from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.repositories.coins import CoinTransactionRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
 from ceai.repositories.users import UserRepository
@@ -15,6 +16,7 @@ from ceai.services.exceptions import BusinessRuleError, NotFoundError
 
 
 ADMIN_PAGE_SIZE = 10
+MAINTENANCE_MODE_KEY = "MAINTENANCE_MODE"
 
 
 class AdminService:
@@ -22,6 +24,7 @@ class AdminService:
         self.db = db
         self.settings = settings
         self.admins = AdminRepository()
+        self.app_settings = AppSettingsRepository()
         self.users = UserRepository()
         self.subscriptions = SubscriptionRepository()
         self.coin_transactions = CoinTransactionRepository()
@@ -55,6 +58,41 @@ class AdminService:
 
     def is_blocked_regular_user(self, user: Dict[str, Any]) -> bool:
         return bool(user.get("is_blocked")) and not self.has_admin_access(user)
+
+    def is_restricted_regular_user(self, user: Dict[str, Any]) -> bool:
+        if self.has_admin_access(user):
+            return False
+        return bool(user.get("is_blocked")) or self.is_maintenance_mode_active()
+
+    def is_maintenance_mode_active(self) -> bool:
+        with self.db.transaction() as conn:
+            values = self.app_settings.get_many(conn, [MAINTENANCE_MODE_KEY])
+        return values.get(MAINTENANCE_MODE_KEY) == "1"
+
+    def set_maintenance_mode(self, *, admin: Dict[str, Any], is_active: bool) -> bool:
+        if not self.can_manage(admin):
+            raise BusinessRuleError("Недостаточно прав")
+        with self.db.transaction() as conn:
+            self.app_settings.upsert(
+                conn,
+                key=MAINTENANCE_MODE_KEY,
+                value="1" if is_active else "0",
+                is_secret=False,
+            )
+            self.admins.log_action(
+                conn,
+                admin_user_id=admin["user_id"],
+                target_user_id=None,
+                action="maintenance_on" if is_active else "maintenance_off",
+                payload={"is_active": is_active},
+            )
+        return is_active
+
+    def toggle_maintenance_mode(self, *, admin: Dict[str, Any]) -> bool:
+        return self.set_maintenance_mode(
+            admin=admin,
+            is_active=not self.is_maintenance_mode_active(),
+        )
 
     def can_manage(self, admin: Dict[str, Any]) -> bool:
         return bool(admin and admin["is_active"] and admin["role"] in {"owner", "admin"})

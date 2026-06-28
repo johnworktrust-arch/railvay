@@ -348,12 +348,16 @@ def text_chat_prompt_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def admin_menu_keyboard() -> InlineKeyboardMarkup:
+def admin_menu_keyboard(*, maintenance_active: bool = False) -> InlineKeyboardMarkup:
+    maintenance_text = (
+        "🛠 Тех работы активированы" if maintenance_active else "🛠 Тех работы"
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:1")],
             [InlineKeyboardButton(text="🔎 Поиск", callback_data="admin:search")],
+            [InlineKeyboardButton(text=maintenance_text, callback_data="admin:maintenance")],
         ]
     )
 

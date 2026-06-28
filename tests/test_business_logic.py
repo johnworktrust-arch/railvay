@@ -1319,6 +1319,7 @@ class MigrationAndUITest(unittest.TestCase):
 
     def test_admin_inline_buttons_edit_existing_screen(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        keyboards_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         admin_callback_source = handlers_source.split(
             '@router.callback_query(F.data.startswith("admin:"))', 1
         )[1].split('@router.callback_query(F.data == "menu:home")', 1)[0]
@@ -1336,6 +1337,15 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("delete_current=True", admin_callback_source)
         self.assertIn("_show_screen(", admin_message_source)
         self.assertNotIn("delete_current=True", admin_message_source)
+        self.assertIn('callback_data="admin:maintenance"', keyboards_source)
+        self.assertIn("🛠 Тех работы", keyboards_source)
+        self.assertIn("🛠 Тех работы активированы", keyboards_source)
+        self.assertIn('elif action == "maintenance":', admin_callback_source)
+        self.assertIn("toggle_maintenance_mode", admin_callback_source)
+        self.assertIn("Тех работы включены", admin_callback_source)
+        self.assertIn("Тех работы выключены", admin_callback_source)
+        self.assertIn("is_restricted_regular_user", handlers_source)
+        self.assertIn("❌ Сейчас ведутся технические работы.", handlers_source)
 
     def test_menu_command_has_main_menu_copy(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
@@ -2257,6 +2267,21 @@ class AdminLogicTest(unittest.TestCase):
             telegram_id=9301, username="blocked"
         )
         self.assertFalse(self.services.admin.is_blocked_regular_user(unblocked))
+
+    def test_maintenance_mode_blocks_regular_users_but_not_admins(self) -> None:
+        regular = self._user(9351, "regular")
+
+        self.assertFalse(self.services.admin.is_maintenance_mode_active())
+        self.assertFalse(self.services.admin.is_restricted_regular_user(regular))
+
+        self.assertTrue(self.services.admin.toggle_maintenance_mode(admin=self.admin))
+        self.assertTrue(self.services.admin.is_maintenance_mode_active())
+        self.assertTrue(self.services.admin.is_restricted_regular_user(regular))
+        self.assertFalse(self.services.admin.is_restricted_regular_user(self.admin_user))
+
+        self.assertFalse(self.services.admin.toggle_maintenance_mode(admin=self.admin))
+        self.assertFalse(self.services.admin.is_maintenance_mode_active())
+        self.assertFalse(self.services.admin.is_restricted_regular_user(regular))
 
     def test_manual_credit_updates_balance_transaction_and_audit_log(self) -> None:
         target = self._user(9401, "credited")

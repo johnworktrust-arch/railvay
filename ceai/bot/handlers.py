@@ -1072,14 +1072,24 @@ async def _send_onboarding_greeting(
 
 
 async def _send_admin_home(
-    message: Message, services: AppServices, user_id: int, *, delete_current: bool = False
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+    notice: str | None = None,
 ) -> None:
+    text = "🛠 Админка CeaAI\nВыберите раздел."
+    if notice:
+        text = f"{notice}\n\n{text}"
     await _show_screen(
         message,
         services,
         user_id,
-        "🛠 Админка CeaAI\nВыберите раздел.",
-        reply_markup=admin_menu_keyboard(),
+        text,
+        reply_markup=admin_menu_keyboard(
+            maintenance_active=services.admin.is_maintenance_mode_active()
+        ),
         delete_current=delete_current,
     )
 
@@ -1104,6 +1114,17 @@ async def _send_menu_screen(
 async def _send_blocked_notice(
     message: Message, services: AppServices, user_id: int, *, delete_current: bool = True
 ) -> None:
+    user = services.users.get_by_id(user_id)
+    if user and services.admin.is_maintenance_mode_active() and not services.admin.has_admin_access(user):
+        await _show_screen(
+            message,
+            services,
+            user_id,
+            "❌ Сейчас ведутся технические работы.\n\nПожалуйста, попробуйте позже.",
+            reply_markup=None,
+            delete_current=delete_current,
+        )
+        return
     await _show_screen(
         message,
         services,
@@ -1115,7 +1136,7 @@ async def _send_blocked_notice(
 
 
 def _is_blocked_regular_user(services: AppServices, user: Dict[str, Any]) -> bool:
-    return services.admin.is_blocked_regular_user(user)
+    return services.admin.is_restricted_regular_user(user)
 
 
 def _record_message(handler: str, message: Message) -> None:
@@ -1882,6 +1903,18 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     "Введите @username, Telegram ID или внутренний user ID.",
                     reply_markup=admin_back_keyboard(),
+                )
+            elif action == "maintenance":
+                is_active = services.admin.toggle_maintenance_mode(admin=admin)
+                await _send_admin_home(
+                    callback.message,
+                    services,
+                    user["id"],
+                    notice=(
+                        "❌ Тех работы включены."
+                        if is_active
+                        else "✅ Тех работы выключены."
+                    ),
                 )
             else:
                 await callback.answer("Неизвестное действие", show_alert=True)
