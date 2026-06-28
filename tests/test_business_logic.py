@@ -1688,6 +1688,20 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("USDT", referral_source.upper())
         self.assertNotIn("🪁", handlers_source)
 
+    def test_support_screen_has_back_button_only(self) -> None:
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        support_source = handlers_source.split("async def _send_support(", 1)[1].split(
+            "async def _send_models_for_types", 1
+        )[0]
+
+        self.assertIn("Поддержка: @{support_username}", support_source)
+        self.assertIn(
+            "Напишите нам, если нужна помощь с аккаунтом, тарифом или генерацией.",
+            support_source,
+        )
+        self.assertIn("reply_markup=back_to_menu_keyboard()", support_source)
+        self.assertNotIn("reply_markup=main_menu_keyboard()", support_source)
+
     def test_subscription_required_message_has_plan_buttons_without_test_copy(self) -> None:
         from ceai.bot.handlers import _subscription_required_message
         from ceai.bot.keyboards import payment_keyboard, subscription_required_keyboard

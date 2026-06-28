@@ -1300,7 +1300,7 @@ async def _send_support(
         user_id,
         f"Поддержка: @{support_username}\n"
         "Напишите нам, если нужна помощь с аккаунтом, тарифом или генерацией.",
-        reply_markup=main_menu_keyboard(),
+        reply_markup=back_to_menu_keyboard(),
         delete_current=delete_current,
     )
 
