@@ -1339,6 +1339,20 @@ class MigrationAndUITest(unittest.TestCase):
         callbacks = [
             row[0].callback_data for row in plans_keyboard(PLANS).inline_keyboard
         ]
+        subscribed_plan_labels = [
+            row[0].text
+            for row in plans_keyboard(
+                PLANS,
+                has_active_subscription=True,
+            ).inline_keyboard
+        ]
+        subscribed_plan_callbacks = [
+            row[0].callback_data
+            for row in plans_keyboard(
+                PLANS,
+                has_active_subscription=True,
+            ).inline_keyboard
+        ]
         crystal_labels = [
             row[0].text for row in crystal_packages_keyboard().inline_keyboard
         ]
@@ -1379,6 +1393,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("🔥 Базовый - 699руб", labels)
         self.assertIn("⚡️ Про - 1490руб", labels)
         self.assertIn("Купить коины отдельно", labels)
+        self.assertNotIn("❌ Отменить подписку", labels)
+        self.assertIn("❌ Отменить подписку", subscribed_plan_labels)
+        self.assertIn("subscription:cancel_placeholder", subscribed_plan_callbacks)
         self.assertEqual(
             crystal_labels,
             [
@@ -1438,9 +1455,12 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(main_menu_button.callback_data, "menu:main")
         self.assertIn("💳 Выберите способ оплаты:", handlers_source)
         self.assertIn("_format_plan_details(plan)", handlers_source)
+        self.assertIn("has_active_subscription=subscription is not None", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
         self.assertIn("_format_yookassa_payment_screen(", handlers_source)
+        self.assertIn('F.data == "subscription:cancel_placeholder"', handlers_source)
+        self.assertIn("Отмена подписки пока не подключена", handlers_source)
         self.assertNotIn('payment_method == "card_sbp"', handlers_source)
         self.assertNotIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
         self.assertNotIn("reply_markup=payment_unavailable_keyboard()", handlers_source)

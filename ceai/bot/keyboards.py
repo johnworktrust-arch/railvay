@@ -154,7 +154,9 @@ def onboarding_links_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def plans_keyboard(plans: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
+def plans_keyboard(
+    plans: Iterable[Dict[str, Any]], *, has_active_subscription: bool = False
+) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -167,6 +169,15 @@ def plans_keyboard(plans: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
     rows.append(
         [InlineKeyboardButton(text=BUY_CRYSTALS_BUTTON, callback_data="coins:buy")]
     )
+    if has_active_subscription:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="❌ Отменить подписку",
+                    callback_data="subscription:cancel_placeholder",
+                )
+            ]
+        )
     rows.append(
         [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
     )

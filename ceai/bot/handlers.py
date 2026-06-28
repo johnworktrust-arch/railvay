@@ -1253,12 +1253,16 @@ async def _send_plans(
 ) -> None:
     _set_dialog_state(services, user_id, state="waiting_payment_choice")
     plans = services.catalog.list_plans()
+    subscription = services.subscriptions.active_for_user(user_id)
     await _show_screen(
         message,
         services,
         user_id,
         _format_plans(plans),
-        reply_markup=plans_keyboard(plans),
+        reply_markup=plans_keyboard(
+            plans,
+            has_active_subscription=subscription is not None,
+        ),
         delete_current=delete_current,
     )
 
@@ -2055,6 +2059,27 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 intro=notice,
+                delete_current=True,
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data == "subscription:cancel_placeholder")
+    async def cancel_subscription_placeholder(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if callback.message:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                "❌ Отмена подписки пока не подключена.\n\n"
+                "Если нужно остановить будущие списания, используйте кнопку "
+                "«Отключить автопродление» в профиле.",
+                reply_markup=back_to_menu_keyboard(),
                 delete_current=True,
             )
         await callback.answer()
