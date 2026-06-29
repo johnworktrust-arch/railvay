@@ -536,6 +536,14 @@ class PaymentService:
                 message="Webhook already processed or received",
             )
 
+        if event_type == "payment.canceled":
+            return self._process_canceled_payment(
+                provider=YOOKASSA_PROVIDER,
+                external_id=external_id,
+                webhook_id=int(webhook["id"]),
+                payload=payload,
+            )
+
         if event_type != "payment.succeeded":
             self._mark_webhook(
                 webhook_id=int(webhook["id"]),
@@ -701,6 +709,56 @@ class PaymentService:
             webhook_id=int(webhook["id"]),
             payload=payload,
         )
+
+    def _process_canceled_payment(
+        self,
+        *,
+        provider: str,
+        external_id: str,
+        webhook_id: int,
+        payload: Dict[str, Any],
+    ) -> PaymentWebhookResult:
+        with self.db.transaction() as conn:
+            payment = self.payments.get_by_external_id(conn, provider, external_id)
+            if payment is None:
+                self.webhooks.mark(
+                    conn,
+                    webhook_id=webhook_id,
+                    status="failed",
+                    error_message="Payment not found",
+                )
+                raise NotFoundError("Платеж не найден")
+
+            if payment["status"] == "pending":
+                meta = {
+                    **loads_dict(payment.get("meta")),
+                    "canceled_webhook": payload,
+                }
+                payment = self.payments.mark_status(
+                    conn,
+                    payment_id=payment["id"],
+                    status="cancelled",
+                    meta=meta,
+                )
+                self.webhooks.mark(conn, webhook_id=webhook_id, status="processed")
+                return PaymentWebhookResult(
+                    processed=True,
+                    duplicate=False,
+                    payment=payment,
+                    subscription=None,
+                    credited_coins=0,
+                    message="Payment canceled",
+                )
+
+            self.webhooks.mark(conn, webhook_id=webhook_id, status="ignored")
+            return PaymentWebhookResult(
+                processed=False,
+                duplicate=False,
+                payment=payment,
+                subscription=None,
+                credited_coins=0,
+                message=f"Payment status is {payment['status']}",
+            )
 
     def _reserve_webhook(
         self,

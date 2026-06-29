@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Dict
 
-from ceai.json_utils import dumps
+from ceai.json_utils import dumps, loads_dict
 from ceai.repositories.base import row_to_dict
 from ceai.time_utils import iso_now
 
@@ -118,6 +118,32 @@ class PaymentRepository:
         payment = self.get_by_id(conn, payment_id)
         if payment is None:
             raise RuntimeError("Could not mark payment paid")
+        return payment
+
+    def mark_status(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        payment_id: int,
+        status: str,
+        meta: Dict[str, Any] | None = None,
+    ) -> Dict[str, Any]:
+        payment = self.get_by_id(conn, payment_id)
+        if payment is None:
+            raise RuntimeError("Could not load payment")
+        next_meta = meta if meta is not None else loads_dict(payment.get("meta"))
+        conn.execute(
+            """
+            UPDATE payments
+            SET status = ?,
+                meta = ?::jsonb
+            WHERE id = ?
+            """,
+            (status, dumps(next_meta), payment_id),
+        )
+        payment = self.get_by_id(conn, payment_id)
+        if payment is None:
+            raise RuntimeError("Could not update payment status")
         return payment
 
     def set_subscription_id(

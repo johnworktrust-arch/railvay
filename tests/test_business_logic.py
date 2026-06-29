@@ -422,6 +422,8 @@ class BusinessLogicTest(unittest.TestCase):
             )
 
     def test_successful_yookassa_webhook_credits_coins_once(self) -> None:
+        from ceai.main import _format_payment_notification
+
         settings = Settings(
             telegram_bot_token="test",
             database_url="sqlite:///:memory:",
@@ -487,6 +489,14 @@ class BusinessLogicTest(unittest.TestCase):
         active = services.subscriptions.active_for_user(self.user["id"])
         self.assertTrue(active["auto_renew"])
         self.assertEqual(active["yookassa_payment_method_id"], "pm_saved_1")
+        self.assertEqual(
+            _format_payment_notification(first),
+            "✅ Оплата прошла успешно.\n\n"
+            "Начислено 100 коинов.\n"
+            "Текущий баланс: 100 коинов.\n\n"
+            "Тариф активирован. Можно возвращаться в главное меню.",
+        )
+        self.assertIsNone(_format_payment_notification(second))
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -499,6 +509,83 @@ class BusinessLogicTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(row["count"], 1)
         self.assertEqual(row["amount"], 100)
+
+    def test_canceled_yookassa_webhook_marks_payment_and_notifies_user(self) -> None:
+        from ceai.main import _format_payment_notification
+
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            payment_provider="yookassa",
+            app_base_url="https://bot.example",
+            yookassa_shop_id="shop-test",
+            yookassa_secret_key="secret-test",
+        )
+        services = build_services(self.db, settings)
+
+        with patch.object(
+            services.payments,
+            "_yookassa_request",
+            return_value={
+                "id": "yk_payment_cancelled",
+                "status": "pending",
+                "confirmation": {
+                    "type": "redirect",
+                    "confirmation_url": "https://yookassa.test/pay/cancelled",
+                },
+            },
+        ):
+            payment = services.payments.create_payment(
+                user_id=self.user["id"],
+                plan_code="start",
+                payment_method="card_sbp",
+            )
+
+        payload = {
+            "type": "notification",
+            "event": "payment.canceled",
+            "object": {
+                "id": "yk_payment_cancelled",
+                "status": "canceled",
+                "paid": False,
+                "cancellation_details": {"reason": "canceled_by_user"},
+            },
+        }
+        first = services.payments.process_yookassa_webhook(payload=payload)
+        second = services.payments.process_yookassa_webhook(payload=payload)
+
+        self.assertTrue(first.processed)
+        self.assertEqual(first.message, "Payment canceled")
+        self.assertEqual(first.credited_coins, 0)
+        self.assertFalse(second.processed)
+        self.assertTrue(second.duplicate)
+        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 0)
+        self.assertEqual(
+            _format_payment_notification(first),
+            "❌ Оплата не завершена.\n\n"
+            "Коины не начислены. Если вы закрыли страницу оплаты случайно, "
+            "выберите тариф и попробуйте ещё раз.",
+        )
+        self.assertIsNone(_format_payment_notification(second))
+
+        with self.db.transaction() as conn:
+            stored = conn.execute(
+                "SELECT status, meta FROM payments WHERE id = ?",
+                (payment["id"],),
+            ).fetchone()
+            credits = conn.execute(
+                """
+                SELECT COUNT(*) AS count
+                FROM coin_transactions
+                WHERE payment_id = ? AND type = 'credit'
+                """,
+                (payment["id"],),
+            ).fetchone()
+        self.assertEqual(stored["status"], "cancelled")
+        self.assertIn("canceled_webhook", loads_dict(stored["meta"]))
+        self.assertEqual(credits["count"], 0)
 
     def test_yookassa_auto_renewal_charges_saved_payment_method(self) -> None:
         settings = Settings(
