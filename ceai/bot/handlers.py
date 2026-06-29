@@ -524,16 +524,10 @@ def _format_menu(
             "📅 Срок действия: "
             f"{escape(format_datetime_russian_minute(subscription.get('ends_at')))}"
         )
-        auto_renew_line = (
-            "🔁 Автопродление: включено"
-            if subscription.get("auto_renew")
-            else "🔁 Автопродление: выключено"
-        )
     else:
         balance = 0
         sub_line = "⭐ Подписка: нет активной"
         expires_line = "📅 Срок действия: —"
-        auto_renew_line = "🔁 Автопродление: —"
     invited_line = f"👥 Приглашено: {invited_users_count}"
     if invited_users_count <= 0:
         invited_line += (
@@ -544,8 +538,7 @@ def _format_menu(
         f"ℹ️ ID: {user.get('telegram_id') or user.get('id')}\n"
         f"💰 Баланс: {format_coin_amount(balance)}\n"
         f"{sub_line}\n"
-        f"{expires_line}\n"
-        f"{auto_renew_line}\n\n"
+        f"{expires_line}\n\n"
         f"{invited_line}"
     )
 
@@ -741,8 +734,7 @@ def _format_yookassa_payment_screen(
         "Нажимая «Оплатить», вы подтверждаете согласие с условиями "
         "обработки данных и публичной офертой.\n\n"
         f"Публичная оферта: {offer_url}\n\n"
-        "Отключить автоматическое продление можно в разделе "
-        "«Профиль» → «Отключить автопродление»."
+        "Если потребуется отключить автоматическое продление, напишите в поддержку."
     )
 
 
@@ -2181,8 +2173,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "❌ Отмена подписки пока не подключена.\n\n"
-                "Если нужно остановить будущие списания, используйте кнопку "
-                "«Отключить автопродление» в профиле.",
+                "Если нужно остановить будущие списания, напишите в поддержку.",
                 reply_markup=back_to_menu_keyboard(),
                 delete_current=True,
             )

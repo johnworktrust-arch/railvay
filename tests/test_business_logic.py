@@ -1116,10 +1116,11 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn(
             "⭐ Подписка: нет активной\n"
             "📅 Срок действия: —\n"
-            "🔁 Автопродление: —\n\n"
+            "\n"
             "👥 Приглашено: 1",
             profile,
         )
+        self.assertNotIn("Автопродление", profile)
         self.assertIn("👥 Приглашено: 1", profile)
         self.assertNotIn("зарабатывайте 30%", profile.casefold())
 
@@ -1136,7 +1137,7 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("💰 Баланс: 42 коина", active_profile)
         self.assertIn("⭐ Подписка: Про", active_profile)
         self.assertIn("📅 Срок действия: 24 июня 2026 года, 20:16", active_profile)
-        self.assertIn("🔁 Автопродление: включено", active_profile)
+        self.assertNotIn("Автопродление", active_profile)
         self.assertIn("👥 Приглашено: 2", active_profile)
         self.assertNotIn("Про до", active_profile)
 
@@ -1564,8 +1565,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Проверка платежа происходит автоматически.", yookassa_payment_screen)
         self.assertIn("Нажимая «Оплатить»", yookassa_payment_screen)
         self.assertIn("Публичная оферта: https://cea.ai/public-offer", yookassa_payment_screen)
-        self.assertIn("Отключить автоматическое продление", yookassa_payment_screen)
-        self.assertIn("«Профиль» → «Отключить автопродление»", yookassa_payment_screen)
+        self.assertIn("отключить автоматическое продление", yookassa_payment_screen)
+        self.assertIn("напишите в поддержку", yookassa_payment_screen)
+        self.assertNotIn("«Профиль» → «Отключить автопродление»", yookassa_payment_screen)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 100, "basic": 230, "pro": 500},
@@ -1768,7 +1770,6 @@ class MigrationAndUITest(unittest.TestCase):
             [
                 "💳 Подписка и тарифы",
                 "🤝 Реферальная программа",
-                "🚫 Отключить автопродление",
                 "🆘 Поддержка",
                 "⬅️ Назад",
             ],
@@ -1795,8 +1796,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("ℹ️ ID:", profile_format_source)
         self.assertIn("💰 Баланс:", profile_format_source)
         self.assertIn("📅 Срок действия:", profile_format_source)
-        self.assertIn("🔁 Автопродление:", profile_format_source)
-        self.assertIn('callback_data="subscription:cancel_auto_renew"', keyboard_source)
+        self.assertNotIn("🔁 Автопродление:", profile_format_source)
+        self.assertNotIn('callback_data="subscription:cancel_auto_renew"', keyboard_source)
+        self.assertNotIn("🚫 Отключить автопродление", keyboard_source)
         self.assertIn('F.data == "subscription:cancel_auto_renew"', handlers_source)
         self.assertIn("disable_auto_renew", handlers_source)
         self.assertIn("format_datetime_russian_minute", handlers_source)

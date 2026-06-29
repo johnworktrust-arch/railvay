@@ -72,12 +72,6 @@ def profile_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="🚫 Отключить автопродление",
-                    callback_data="subscription:cancel_auto_renew",
-                )
-            ],
-            [
-                InlineKeyboardButton(
                     text="🆘 Поддержка", callback_data="menu:support"
                 )
             ],
