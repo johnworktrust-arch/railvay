@@ -422,7 +422,7 @@ class BusinessLogicTest(unittest.TestCase):
             )
 
     def test_successful_yookassa_webhook_credits_coins_once(self) -> None:
-        from ceai.main import _format_payment_notification
+        from ceai.payment_notifications import format_payment_notification
 
         settings = Settings(
             telegram_bot_token="test",
@@ -490,13 +490,13 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertTrue(active["auto_renew"])
         self.assertEqual(active["yookassa_payment_method_id"], "pm_saved_1")
         self.assertEqual(
-            _format_payment_notification(first),
+            format_payment_notification(first),
             "✅ Оплата прошла успешно.\n\n"
             "Начислено 100 коинов.\n"
             "Текущий баланс: 100 коинов.\n\n"
             "Тариф активирован. Можно возвращаться в главное меню.",
         )
-        self.assertIsNone(_format_payment_notification(second))
+        self.assertIsNone(format_payment_notification(second))
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -511,7 +511,7 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(row["amount"], 100)
 
     def test_canceled_yookassa_webhook_marks_payment_and_notifies_user(self) -> None:
-        from ceai.main import _format_payment_notification
+        from ceai.payment_notifications import format_payment_notification
 
         settings = Settings(
             telegram_bot_token="test",
@@ -563,12 +563,12 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertTrue(second.duplicate)
         self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 0)
         self.assertEqual(
-            _format_payment_notification(first),
+            format_payment_notification(first),
             "❌ Оплата не завершена.\n\n"
             "Коины не начислены. Если вы закрыли страницу оплаты случайно, "
             "выберите тариф и попробуйте ещё раз.",
         )
-        self.assertIsNone(_format_payment_notification(second))
+        self.assertIsNone(format_payment_notification(second))
 
         with self.db.transaction() as conn:
             stored = conn.execute(

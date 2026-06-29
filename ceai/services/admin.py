@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import math
 import uuid
-from typing import Any, Dict, List
+from typing import Any, Dict
 
 from ceai.config import Settings
 from ceai.database import Database

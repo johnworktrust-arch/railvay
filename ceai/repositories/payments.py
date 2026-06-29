@@ -48,7 +48,9 @@ class PaymentRepository:
             raise RuntimeError("Could not create payment")
         return payment
 
-    def get_by_id(self, conn: sqlite3.Connection, payment_id: int) -> Dict[str, Any] | None:
+    def get_by_id(
+        self, conn: sqlite3.Connection, payment_id: int
+    ) -> Dict[str, Any] | None:
         return row_to_dict(
             conn.execute("SELECT * FROM payments WHERE id = ?", (payment_id,)).fetchone()
         )
