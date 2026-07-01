@@ -370,14 +370,24 @@ async def _show_screen(
 ) -> Message:
     state, payload = _session_state_payload(services, user_id)
     tracked_ids = _tracked_message_ids(payload)
-    last_message_id = tracked_ids[-1] if tracked_ids else None
+    current_bot_message_id = (
+        message.message_id
+        if message.message_id and not _is_user_message(message)
+        else None
+    )
+    last_message_id = (
+        current_bot_message_id
+        if current_bot_message_id is not None
+        else tracked_ids[-1] if tracked_ids else None
+    )
     await _remove_legacy_reply_keyboard(message, payload, reply_markup)
     replace_current = isinstance(
         reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove)
     ) or (delete_current and _is_user_message(message))
 
     # Bottom-keyboard actions arrive as user messages, so they should replace
-    # the previous bot screen. Inline callback actions keep editing the message.
+    # the previous bot screen. Inline callback actions edit the message that
+    # owns the pressed button, even if an old session points at another screen.
     if replace_current:
         if tracked_ids:
             await _delete_screen_messages(message, tracked_ids)
