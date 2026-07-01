@@ -1744,8 +1744,11 @@ class MigrationAndUITest(unittest.TestCase):
     def test_menu_command_has_main_menu_copy(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
-        self.assertIn("🏠 Главное меню", handlers_source)
-        self.assertIn("Выберите нужный раздел 👇", handlers_source)
+        self.assertIn("🏠 Главное меню Cea AI", handlers_source)
+        self.assertIn(
+            "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇",
+            handlers_source,
+        )
         self.assertIn("Command(\"menu\")", handlers_source)
 
     def test_profile_screen_has_inline_actions_and_no_bottom_prompt(self) -> None:
