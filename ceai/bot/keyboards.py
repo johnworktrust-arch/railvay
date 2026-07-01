@@ -11,12 +11,14 @@ from ceai.formatting import format_coin_amount
 
 
 PROFILE_BUTTON = "👤 Профиль"
+START_WORK_BUTTON = "🔥 Начать работу"
 TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"
 PHOTO_AI_BUTTON = "🖼 Фото с AI"
 VIDEO_AI_BUTTON = "🎬 Видео с AI"
 VOICE_AI_BUTTON = "🎙 Озвучка с AI"
 HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
+REFERRAL_BUTTON = "🤝 Реферальная программа"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
 MAIN_MENU_BUTTON = "🏠 Главное меню"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
@@ -25,12 +27,14 @@ BUY_CRYSTALS_BUTTON = "Купить коины отдельно"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
+    START_WORK_BUTTON,
     TEXT_AI_BUTTON,
     PHOTO_AI_BUTTON,
     VIDEO_AI_BUTTON,
     VOICE_AI_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
+    REFERRAL_BUTTON,
     BACK_TO_MENU_BUTTON,
 }
 
@@ -39,6 +43,16 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
+            [InlineKeyboardButton(text=START_WORK_BUTTON, callback_data="menu:work")],
+            [InlineKeyboardButton(text=REFERRAL_BUTTON, callback_data="menu:referral")],
+            [InlineKeyboardButton(text=HELP_BUTTON, callback_data="menu:support")],
+        ]
+    )
+
+
+def work_menu_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [InlineKeyboardButton(text=TEXT_AI_BUTTON, callback_data="models:type:text")],
             [
                 InlineKeyboardButton(
@@ -51,8 +65,8 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=VOICE_AI_BUTTON, callback_data="models:type:tts")],
             [
                 InlineKeyboardButton(text=HISTORY_BUTTON, callback_data="menu:history"),
-                InlineKeyboardButton(text=HELP_BUTTON, callback_data="menu:support"),
             ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
 
@@ -67,7 +81,7 @@ def profile_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text="🤝 Реферальная программа", callback_data="menu:referral"
+                    text=REFERRAL_BUTTON, callback_data="menu:referral"
                 )
             ],
             [

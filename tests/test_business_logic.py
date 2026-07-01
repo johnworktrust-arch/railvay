@@ -1742,6 +1742,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("❌ Сейчас ведутся технические работы.", handlers_source)
 
     def test_menu_command_has_main_menu_copy(self) -> None:
+        from ceai.bot.keyboards import main_menu_keyboard, work_menu_keyboard
+
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
         self.assertIn("🏠 Главное меню Cea AI", handlers_source)
@@ -1749,7 +1751,35 @@ class MigrationAndUITest(unittest.TestCase):
             "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇",
             handlers_source,
         )
+        self.assertIn("🔥 Начать работу", handlers_source)
+        self.assertIn("Выберите инструмент ниже 👇", handlers_source)
+        self.assertIn('F.data == "menu:work"', handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
+        self.assertEqual(
+            [row[0].text for row in main_menu_keyboard().inline_keyboard],
+            [
+                "👤 Профиль",
+                "🔥 Начать работу",
+                "🤝 Реферальная программа",
+                "🆘 Помощь",
+            ],
+        )
+        self.assertEqual(
+            [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
+            ["menu:home", "menu:work", "menu:referral", "menu:support"],
+        )
+        work_rows = work_menu_keyboard().inline_keyboard
+        self.assertEqual(work_rows[0][0].callback_data, "models:type:text")
+        self.assertEqual(
+            [button.callback_data for button in work_rows[1]],
+            ["models:type:image", "models:type:video"],
+        )
+        self.assertEqual(work_rows[2][0].callback_data, "models:type:tts")
+        self.assertEqual(work_rows[3][0].callback_data, "menu:history")
+        self.assertEqual(work_rows[4][0].callback_data, "menu:main")
+        work_labels = [button.text for row in work_rows for button in row]
+        self.assertNotIn("👤 Профиль", work_labels)
+        self.assertNotIn("🆘 Помощь", work_labels)
 
     def test_profile_screen_has_inline_actions_and_no_bottom_prompt(self) -> None:
         from ceai.bot.keyboards import profile_keyboard, referral_keyboard

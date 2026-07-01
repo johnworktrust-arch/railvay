@@ -32,7 +32,9 @@ from ceai.bot.keyboards import (
     HISTORY_BUTTON,
     PHOTO_AI_BUTTON,
     PROFILE_BUTTON,
+    REFERRAL_BUTTON,
     REPLY_MENU_BUTTONS,
+    START_WORK_BUTTON,
     TEXT_AI_BUTTON,
     VIDEO_AI_BUTTON,
     VOICE_AI_BUTTON,
@@ -59,6 +61,7 @@ from ceai.bot.keyboards import (
     text_chat_keyboard,
     text_chat_label,
     text_chat_prompt_keyboard,
+    work_menu_keyboard,
 )
 from ceai.config import DEFAULT_PUBLIC_OFFER_URL
 from ceai.formatting import (
@@ -682,6 +685,10 @@ def _format_main_menu() -> str:
     )
 
 
+def _format_work_menu() -> str:
+    return "🔥 Начать работу\n\nВыберите инструмент ниже 👇"
+
+
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
     return (
         "💳 Выберите тариф с подпиской.\n\n"
@@ -1235,6 +1242,23 @@ async def _send_menu_screen(
         user_id,
         _format_main_menu(),
         reply_markup=main_menu_keyboard(),
+        delete_current=delete_current,
+    )
+
+
+async def _send_work_menu(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+) -> None:
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_work_menu(),
+        reply_markup=work_menu_keyboard(),
         delete_current=delete_current,
     )
 
@@ -1807,6 +1831,16 @@ async def _handle_reply_menu(
         await _send_plans(message, services, user["id"], delete_current=True)
         return True
 
+    if text_lower == "начать работу" or text == START_WORK_BUTTON:
+        _clear_dialog_state(services, user["id"])
+        await _send_work_menu(message, services, user["id"], delete_current=True)
+        return True
+
+    if text_lower == "реферальная программа" or text == REFERRAL_BUTTON:
+        _clear_dialog_state(services, user["id"])
+        await _send_referral(message, services, user["id"], delete_current=True)
+        return True
+
     if text_lower == "история" or text == HISTORY_BUTTON:
         _clear_dialog_state(services, user["id"])
         await _send_history(message, services, user["id"], delete_current=True)
@@ -2127,6 +2161,21 @@ def create_router(services: AppServices) -> Router:
         _clear_dialog_state(services, user["id"])
         if callback.message:
             await _send_menu_screen(
+                callback.message, services, user["id"], delete_current=True
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:work")
+    async def menu_work(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        _clear_dialog_state(services, user["id"])
+        if callback.message:
+            await _send_work_menu(
                 callback.message, services, user["id"], delete_current=True
             )
         await callback.answer()
