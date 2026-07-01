@@ -50,7 +50,6 @@ from ceai.bot.keyboards import (
     model_choice_label,
     models_keyboard,
     onboarding_continue_keyboard,
-    onboarding_links_keyboard,
     payment_keyboard,
     payment_methods_keyboard,
     plans_keyboard,
@@ -92,8 +91,8 @@ LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
 TELEGRAM_STARS_INVOICE_MESSAGE_ID = "telegram_stars_invoice_message_id"
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
-ONBOARDING_PROMO_IMAGE_PATH = (
-    Path(__file__).resolve().parents[1] / "assets" / "onboarding_promo.jpeg"
+START_SCREEN_IMAGE_PATH = (
+    Path(__file__).resolve().parents[1] / "assets" / "start_screen.jpeg"
 )
 MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
 DEFAULT_IMAGE_EDIT_PROMPT = "Улучши изображение, сохранив основной сюжет."
@@ -436,6 +435,69 @@ async def _show_screen(
     return sent
 
 
+async def _show_photo_screen(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    image_path: Path,
+    caption: str,
+    reply_markup: Any | None = None,
+    delete_current: bool = False,
+    parse_mode: str | None = None,
+) -> Message:
+    state, payload = _session_state_payload(services, user_id)
+    tracked_ids = _tracked_message_ids(payload)
+    await _remove_legacy_reply_keyboard(message, payload, reply_markup)
+    if tracked_ids:
+        await _delete_screen_messages(message, tracked_ids)
+    elif delete_current and message.message_id and not _is_user_message(message):
+        try:
+            await message.bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+    if image_path.exists():
+        try:
+            sent = await message.bot.send_photo(
+                chat_id=message.chat.id,
+                photo=FSInputFile(image_path),
+                caption=caption,
+                parse_mode=parse_mode,
+                reply_markup=reply_markup,
+            )
+            _remember_screen_message(
+                services,
+                user_id,
+                state=state,
+                payload=payload,
+                message_id=sent.message_id,
+                reply_markup=reply_markup,
+            )
+            return sent
+        except (TelegramBadRequest, TelegramForbiddenError, FileNotFoundError):
+            pass
+
+    sent = await _send_screen_message(
+        message,
+        text=caption,
+        reply_markup=reply_markup,
+        parse_mode=parse_mode,
+    )
+    _remember_screen_message(
+        services,
+        user_id,
+        state=state,
+        payload=payload,
+        message_id=sent.message_id,
+        reply_markup=reply_markup,
+    )
+    return sent
+
+
 async def _show_onboarding_followup(
     message: Message,
     services: AppServices,
@@ -443,7 +505,11 @@ async def _show_onboarding_followup(
     *,
     delete_current: bool = False,
 ) -> None:
-    if message.message_id:
+    _, payload = _session_state_payload(services, user_id)
+    tracked_ids = _tracked_message_ids(payload)
+    if tracked_ids:
+        await _delete_screen_messages(message, tracked_ids)
+    elif delete_current and message.message_id:
         try:
             await message.bot.delete_message(
                 chat_id=message.chat.id,
@@ -459,37 +525,8 @@ async def _show_onboarding_followup(
             except (TelegramBadRequest, TelegramForbiddenError):
                 pass
 
-    hint = await message.bot.send_message(
-        chat_id=message.chat.id,
-        text=_format_onboarding_hint(),
-    )
-    promo_keyboard = onboarding_links_keyboard(
-        info_channel_url=services.settings.info_channel_url,
-        support_username=services.settings.support_username,
-    )
-    try:
-        await message.bot.send_photo(
-            chat_id=message.chat.id,
-            photo=FSInputFile(ONBOARDING_PROMO_IMAGE_PATH),
-            caption=_format_onboarding_promo(),
-            reply_markup=promo_keyboard,
-        )
-    except (TelegramBadRequest, TelegramForbiddenError, FileNotFoundError):
-        await message.bot.send_message(
-            chat_id=message.chat.id,
-            text=_format_onboarding_promo(),
-            reply_markup=promo_keyboard,
-        )
-    menu = await message.bot.send_message(
-        chat_id=message.chat.id,
-        text=_format_main_menu(),
-        reply_markup=main_menu_keyboard(),
-    )
-    services.users.set_session(
-        user_id,
-        state="idle",
-        payload={LAST_BOT_MESSAGE_IDS: [menu.message_id]},
-    )
+    services.users.set_session(user_id, state="idle", payload={})
+    await _send_menu_screen(message, services, user_id)
 
 
 def _profile_link(user: Dict[str, Any]) -> str:
@@ -612,28 +649,19 @@ def _format_referral_withdrawal_available(
 def _format_onboarding_greeting(public_offer_url: str) -> str:
     offer_url = public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
     return (
-        "👋 Приветствую в Cea AI!\n\n"
-        "Продолжая, вы соглашаетесь с условиями использования сервиса "
-        f"(Документ оферты здесь: {offer_url})."
-    )
-
-
-def _format_onboarding_hint() -> str:
-    return (
-        "ℹ️ Чтобы узнать больше о своём аккаунте и тарифах, нажмите кнопку "
-        "«Профиль»."
-    )
-
-
-def _format_onboarding_promo() -> str:
-    return (
-        "В двух словах об основных инструментах чат-бота:\n\n"
-        "Cea AI предоставляет доступ к самым современным и мощным "
-        "AI-инструментам в одном Telegram-боте: текстовые нейросети, "
-        "генерация фото, генерация видео и озвучка текста передовыми "
-        "нейросетями.\n\n"
-        "👇 Следите за обновлениями в нашем канале. Если возникнут вопросы "
-        "или проблемы, обращайтесь в поддержку."
+        "Что умеет этот бот?\n\n"
+        "🔥 Cea AI — доступ к самым современным и мощным AI-инструментам!\n\n"
+        "В боте можно:\n"
+        "• общаться с DeepSeek V4 Flash\n"
+        "• задавать вопросы ChatGPT GPT-5.5\n"
+        "• создавать и редактировать изображения через GPT Image 2\n"
+        "• генерировать видео с помощью Kling 3.0\n"
+        "• озвучивать текст неотличимыми от реальных голосами\n"
+        "• оплачивать Telegram Stars, картой или СБП\n"
+        "\n"
+        "🚀 Нажмите /start, чтобы перейти к боту.\n\n"
+        "Продолжая, вы соглашаетесь с публичной офертой:\n"
+        f"{offer_url}"
     )
 
 
@@ -1147,11 +1175,12 @@ async def _send_onboarding_greeting(
     delete_current: bool = False,
 ) -> None:
     _set_dialog_state(services, user_id, state="onboarding_waiting_continue")
-    await _show_screen(
+    await _show_photo_screen(
         message,
         services,
         user_id,
-        _format_onboarding_greeting(services.settings.public_offer_url),
+        image_path=START_SCREEN_IMAGE_PATH,
+        caption=_format_onboarding_greeting(services.settings.public_offer_url),
         reply_markup=onboarding_continue_keyboard(),
         delete_current=delete_current,
     )

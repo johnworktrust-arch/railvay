@@ -130,7 +130,12 @@ def referral_keyboard() -> InlineKeyboardMarkup:
 def onboarding_continue_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="Продолжить", callback_data="onboarding:continue")]
+            [
+                InlineKeyboardButton(
+                    text="🚀 Открыть меню",
+                    callback_data="onboarding:continue",
+                )
+            ]
         ]
     )
 

@@ -2005,32 +2005,39 @@ class MigrationAndUITest(unittest.TestCase):
     def test_start_onboarding_copy_and_continue_callback_are_present(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
-        self.assertIn("Приветствую в Cea AI", handlers_source)
-        self.assertIn("Документ оферты здесь", handlers_source)
-        self.assertIn("(Документ оферты здесь: {offer_url}).", handlers_source)
+        self.assertIn("Что умеет этот бот?", handlers_source)
+        self.assertIn("Cea AI — доступ к самым современным и мощным", handlers_source)
+        self.assertIn("DeepSeek V4 Flash", handlers_source)
+        self.assertIn("ChatGPT GPT-5.5", handlers_source)
+        self.assertIn("GPT Image 2", handlers_source)
+        self.assertIn("Kling 3.0", handlers_source)
+        self.assertIn("неотличимыми от реальных голосами", handlers_source)
+        self.assertIn("Telegram Stars, картой или СБП", handlers_source)
+        self.assertIn("Нажмите /start", handlers_source)
+        self.assertIn("Продолжая, вы соглашаетесь с публичной офертой", handlers_source)
+        self.assertIn("f\"{offer_url}\"", handlers_source)
         self.assertIn("DEFAULT_PUBLIC_OFFER_URL", handlers_source)
-        self.assertIn("Чтобы узнать больше о своём аккаунте и тарифах", handlers_source)
-        self.assertIn("«Профиль».", handlers_source)
         self.assertNotIn("«Меню» снизу слева от поля ввода текста", handlers_source)
-        self.assertIn("В двух словах об основных инструментах", handlers_source)
-        self.assertNotIn("☝️ В двух словах об основных инструментах", handlers_source)
-        self.assertIn("ONBOARDING_PROMO_IMAGE_PATH", handlers_source)
+        self.assertNotIn("В двух словах об основных инструментах", handlers_source)
+        self.assertIn("START_SCREEN_IMAGE_PATH", handlers_source)
         self.assertIn("assets", handlers_source)
-        self.assertIn("onboarding_promo.jpeg", handlers_source)
-        self.assertIn("FSInputFile(ONBOARDING_PROMO_IMAGE_PATH)", handlers_source)
+        self.assertIn("start_screen.jpeg", handlers_source)
+        self.assertIn("FSInputFile(image_path)", handlers_source)
         self.assertIn("send_photo", handlers_source)
-        self.assertIn("caption=_format_onboarding_promo()", handlers_source)
-        self.assertIn("самым современным и мощным", handlers_source)
-        self.assertIn("генерация фото, генерация видео", handlers_source)
-        self.assertIn("Если возникнут вопросы", handlers_source)
-        self.assertIn("обращайтесь в поддержку", handlers_source)
-        self.assertTrue(Path("ceai/assets/onboarding_promo.jpeg").exists())
+        self.assertIn("caption=_format_onboarding_greeting", handlers_source)
+        self.assertIn("image_path=START_SCREEN_IMAGE_PATH", handlers_source)
         self.assertIn("_format_main_menu()", handlers_source)
-        self.assertIn("menu.message_id", handlers_source)
         onboarding_followup_source = handlers_source.split(
             "async def _show_onboarding_followup", 1
         )[1].split("def _profile_link", 1)[0]
-        self.assertIn("LAST_BOT_MESSAGE_IDS: [menu.message_id]", onboarding_followup_source)
+        self.assertIn(
+            "await _delete_screen_messages(message, tracked_ids)",
+            onboarding_followup_source,
+        )
+        self.assertIn(
+            "await _send_menu_screen(message, services, user_id)",
+            onboarding_followup_source,
+        )
         self.assertNotIn("hint.message_id", onboarding_followup_source)
         self.assertNotIn("promo.message_id", onboarding_followup_source)
         self.assertIn('F.data == "onboarding:continue"', handlers_source)
@@ -2084,7 +2091,7 @@ class MigrationAndUITest(unittest.TestCase):
     def test_onboarding_keyboards_have_expected_buttons_only(self) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
-        self.assertIn("Продолжить", keyboard_source)
+        self.assertIn("🚀 Открыть меню", keyboard_source)
         self.assertIn("onboarding:continue", keyboard_source)
         self.assertIn("Cea Family", keyboard_source)
         self.assertIn("Поддержка", keyboard_source)
