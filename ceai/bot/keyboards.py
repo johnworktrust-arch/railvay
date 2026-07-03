@@ -146,7 +146,7 @@ def onboarding_continue_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="🚀 Открыть меню",
+                    text="Продолжить",
                     callback_data="onboarding:continue",
                 )
             ]
