@@ -11,6 +11,7 @@ from ceai.formatting import format_coin_amount
 
 
 PROFILE_BUTTON = "👤 Профиль"
+GIFT_BUTTON = "🚀 Забрать подарок"
 START_WORK_BUTTON = "🔥 Начать работу"
 TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"
 PHOTO_AI_BUTTON = "🖼 Фото с AI"
@@ -27,6 +28,7 @@ BUY_CRYSTALS_BUTTON = "Купить коины отдельно"
 
 REPLY_MENU_BUTTONS = {
     PROFILE_BUTTON,
+    GIFT_BUTTON,
     START_WORK_BUTTON,
     TEXT_AI_BUTTON,
     PHOTO_AI_BUTTON,
@@ -42,6 +44,7 @@ REPLY_MENU_BUTTONS = {
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text=GIFT_BUTTON, callback_data="menu:gift")],
             [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
             [InlineKeyboardButton(text=START_WORK_BUTTON, callback_data="menu:work")],
             [InlineKeyboardButton(text=REFERRAL_BUTTON, callback_data="menu:referral")],
@@ -133,10 +136,8 @@ def inline_back_to_menu_keyboard() -> InlineKeyboardMarkup:
 def referral_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [
-                InlineKeyboardButton(text="💰 Вывести", callback_data="referral:withdraw"),
-                InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main"),
-            ]
+            [InlineKeyboardButton(text="💰 Вывести", callback_data="referral:withdraw")],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
 

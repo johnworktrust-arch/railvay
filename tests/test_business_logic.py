@@ -1745,19 +1745,25 @@ class MigrationAndUITest(unittest.TestCase):
         from ceai.bot.keyboards import main_menu_keyboard, work_menu_keyboard
 
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
         self.assertIn("🏠 Главное меню Cea AI", handlers_source)
         self.assertIn(
             "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇",
             handlers_source,
         )
+        self.assertIn("🚀 Забрать подарок", keyboard_source)
+        self.assertIn("Подарок от Cea AI", handlers_source)
+        self.assertIn('F.data == "menu:gift"', handlers_source)
         self.assertIn("🔥 Начать работу", handlers_source)
-        self.assertIn("Выберите инструмент ниже 👇", handlers_source)
+        self.assertIn("Начать работу с AI-инструментами", handlers_source)
+        self.assertIn("создать фото, открыть видео/озвучку", handlers_source)
         self.assertIn('F.data == "menu:work"', handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
         self.assertEqual(
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
             [
+                "🚀 Забрать подарок",
                 "👤 Профиль",
                 "🔥 Начать работу",
                 "🤝 Реферальная программа",
@@ -1766,7 +1772,7 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertEqual(
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
-            ["menu:home", "menu:work", "menu:referral", "menu:support"],
+            ["menu:gift", "menu:home", "menu:work", "menu:referral", "menu:support"],
         )
         work_rows = work_menu_keyboard().inline_keyboard
         self.assertEqual(work_rows[0][0].callback_data, "models:type:text")
@@ -1807,10 +1813,18 @@ class MigrationAndUITest(unittest.TestCase):
                 "⬅️ Назад",
             ],
         )
-        referral_row = referral_keyboard().inline_keyboard[0]
-        self.assertEqual([button.text for button in referral_row], ["💰 Вывести", "⬅️ Назад"])
         self.assertEqual(
-            [button.callback_data for button in referral_row],
+            [
+                row[0].text
+                for row in referral_keyboard().inline_keyboard
+            ],
+            ["💰 Вывести", "⬅️ Назад"],
+        )
+        self.assertEqual(
+            [
+                row[0].callback_data
+                for row in referral_keyboard().inline_keyboard
+            ],
             ["referral:withdraw", "menu:main"],
         )
         self.assertIn("Подписка и тарифы", keyboard_source)

@@ -28,6 +28,7 @@ from ceai.bot.keyboards import (
     ADD_TEXT_CHAT_BUTTON,
     BACK_TO_MENU_BUTTON,
     DELETE_CURRENT_TEXT_CHAT_BUTTON,
+    GIFT_BUTTON,
     HELP_BUTTON,
     HISTORY_BUTTON,
     PHOTO_AI_BUTTON,
@@ -680,7 +681,20 @@ def _format_main_menu() -> str:
 
 
 def _format_work_menu() -> str:
-    return "🔥 Начать работу\n\nВыберите инструмент ниже 👇"
+    return (
+        "🔥 Начать работу с AI-инструментами\n\n"
+        "Выберите, что хотите сделать прямо сейчас: написать текст, "
+        "создать фото, открыть видео/озвучку или посмотреть историю генераций 👇"
+    )
+
+
+def _format_gift_screen() -> str:
+    return (
+        "🚀 Подарок от Cea AI\n\n"
+        "Бонусный стартовый доступ скоро будет доступен прямо здесь.\n\n"
+        "Пока можно начать работу с доступными AI-инструментами или вернуться "
+        "в главное меню."
+    )
 
 
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
@@ -1257,6 +1271,23 @@ async def _send_work_menu(
     )
 
 
+async def _send_gift(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+) -> None:
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        _format_gift_screen(),
+        reply_markup=back_to_menu_keyboard(),
+        delete_current=delete_current,
+    )
+
+
 async def _send_blocked_notice(
     message: Message, services: AppServices, user_id: int, *, delete_current: bool = True
 ) -> None:
@@ -1825,6 +1856,11 @@ async def _handle_reply_menu(
         await _send_plans(message, services, user["id"], delete_current=True)
         return True
 
+    if text_lower == "забрать подарок" or text == GIFT_BUTTON:
+        _clear_dialog_state(services, user["id"])
+        await _send_gift(message, services, user["id"], delete_current=True)
+        return True
+
     if text_lower == "начать работу" or text == START_WORK_BUTTON:
         _clear_dialog_state(services, user["id"])
         await _send_work_menu(message, services, user["id"], delete_current=True)
@@ -2155,6 +2191,21 @@ def create_router(services: AppServices) -> Router:
         _clear_dialog_state(services, user["id"])
         if callback.message:
             await _send_menu_screen(
+                callback.message, services, user["id"], delete_current=True
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:gift")
+    async def menu_gift(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        _clear_dialog_state(services, user["id"])
+        if callback.message:
+            await _send_gift(
                 callback.message, services, user["id"], delete_current=True
             )
         await callback.answer()
