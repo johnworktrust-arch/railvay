@@ -1754,7 +1754,8 @@ class MigrationAndUITest(unittest.TestCase):
             "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇",
             handlers_source,
         )
-        self.assertIn("🟢 🚀 Забрать подарок", keyboard_source)
+        self.assertIn('GIFT_BUTTON = "🚀 Забрать подарок"', keyboard_source)
+        self.assertIn('style="success"', keyboard_source)
         self.assertIn("Подарок от Cea AI", handlers_source)
         self.assertIn('F.data == "menu:gift"', handlers_source)
         self.assertIn("🔥 Начать работу", handlers_source)
@@ -1765,11 +1766,17 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
             [
-                "🟢 🚀 Забрать подарок",
+                "🚀 Забрать подарок",
                 "👤 Профиль",
                 "🔥 Начать работу",
                 "🆘 Помощь",
             ],
+        )
+        self.assertEqual(
+            main_menu_keyboard().inline_keyboard[0][0].model_dump(
+                exclude_none=True
+            )["style"],
+            "success",
         )
         self.assertEqual(
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],

@@ -11,7 +11,7 @@ from ceai.formatting import format_coin_amount
 
 
 PROFILE_BUTTON = "👤 Профиль"
-GIFT_BUTTON = "🟢 🚀 Забрать подарок"
+GIFT_BUTTON = "🚀 Забрать подарок"
 START_WORK_BUTTON = "🔥 Начать работу"
 TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"
 PHOTO_AI_BUTTON = "🖼 Фото с AI"
@@ -44,7 +44,13 @@ REPLY_MENU_BUTTONS = {
 def main_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=GIFT_BUTTON, callback_data="menu:gift")],
+            [
+                InlineKeyboardButton(
+                    text=GIFT_BUTTON,
+                    callback_data="menu:gift",
+                    style="success",
+                )
+            ],
             [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
             [InlineKeyboardButton(text=START_WORK_BUTTON, callback_data="menu:work")],
             [InlineKeyboardButton(text=HELP_BUTTON, callback_data="menu:support")],
