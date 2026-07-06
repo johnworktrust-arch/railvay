@@ -19,7 +19,7 @@ VIDEO_AI_BUTTON = "🎬 Видео с AI"
 VOICE_AI_BUTTON = "🎙 Озвучка с AI"
 HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
-REFERRAL_BUTTON = "🤝 Реферальная программа"
+REFERRAL_BUTTON = "🤝 Заработать"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
 MAIN_MENU_BUTTON = "🏠 Главное меню"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
@@ -92,6 +92,7 @@ def profile_keyboard() -> InlineKeyboardMarkup:
                     text="🆘 Поддержка", callback_data="menu:support"
                 )
             ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
 
@@ -112,6 +113,29 @@ def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")]
+        ]
+    )
+
+
+def gift_subscription_keyboard(
+    *, info_channel_url: str = "https://t.me/ceafamily"
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📣 Подписаться на канал",
+                    url=info_channel_url,
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="✅ Проверить подписку",
+                    callback_data="gift:check",
+                    style="success",
+                )
+            ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
 

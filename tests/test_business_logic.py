@@ -95,6 +95,49 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(row["count"], 1)
         self.assertEqual(row["amount"], 100)
 
+    def test_channel_gift_grants_trial_once(self) -> None:
+        first = self.services.subscriptions.grant_channel_gift(
+            user_id=self.user["id"],
+            plan_code="start",
+            duration_days=2,
+            coins_amount=10,
+            gift_key="ceafamily",
+        )
+
+        self.assertTrue(first["created"])
+        self.assertEqual(first["credited_coins"], 10)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
+
+        second = self.services.subscriptions.grant_channel_gift(
+            user_id=self.user["id"],
+            plan_code="start",
+            duration_days=2,
+            coins_amount=10,
+            gift_key="ceafamily",
+        )
+
+        self.assertFalse(second["created"])
+        self.assertEqual(second["credited_coins"], 0)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
+
+    def test_channel_gift_does_not_downgrade_active_subscription(self) -> None:
+        self._buy_plan("pro")
+
+        result = self.services.subscriptions.grant_channel_gift(
+            user_id=self.user["id"],
+            plan_code="start",
+            duration_days=2,
+            coins_amount=10,
+            gift_key="ceafamily",
+        )
+
+        self.assertTrue(result["created"])
+        subscription = self.services.subscriptions.active_for_user(self.user["id"])
+        self.assertIsNotNone(subscription)
+        assert subscription is not None
+        self.assertEqual(subscription["plan_code"], "pro")
+        self.assertEqual(subscription["coins_balance_cache"], 510)
+
     def test_yookassa_payment_creation_uses_redirect_checkout(self) -> None:
         settings = Settings(
             telegram_bot_token="test",
@@ -1744,7 +1787,11 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("❌ Сейчас ведутся технические работы.", handlers_source)
 
     def test_menu_command_has_main_menu_copy(self) -> None:
-        from ceai.bot.keyboards import main_menu_keyboard, work_menu_keyboard
+        from ceai.bot.keyboards import (
+            gift_subscription_keyboard,
+            main_menu_keyboard,
+            work_menu_keyboard,
+        )
 
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
@@ -1756,7 +1803,14 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertIn('GIFT_BUTTON = "🚀 Забрать подарок"', keyboard_source)
         self.assertIn('style="success"', keyboard_source)
-        self.assertIn("Подарок от Cea AI", handlers_source)
+        self.assertIn("GIFT_DURATION_DAYS = 2", handlers_source)
+        self.assertIn("дня бесплатно", handlers_source)
+        self.assertIn("@{GIFT_CHANNEL_USERNAME}", handlers_source)
+        self.assertIn("GIFT_CHANNEL_USERNAME = \"ceafamily\"", handlers_source)
+        self.assertIn("gift_subscription_keyboard", handlers_source)
+        self.assertIn("gift:check", handlers_source)
+        self.assertIn("get_chat_member", handlers_source)
+        self.assertIn("grant_channel_gift", handlers_source)
         self.assertIn('F.data == "menu:gift"', handlers_source)
         self.assertIn("🔥 Начать работу", handlers_source)
         self.assertIn("Начать работу с AI-инструментами", handlers_source)
@@ -1769,7 +1823,7 @@ class MigrationAndUITest(unittest.TestCase):
                 "🚀 Забрать подарок",
                 "🔥 Начать работу",
                 "👤 Профиль",
-                "🤝 Реферальная программа",
+                "🤝 Заработать",
             ],
         )
         self.assertEqual(
@@ -1782,6 +1836,15 @@ class MigrationAndUITest(unittest.TestCase):
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
             ["menu:gift", "menu:work", "menu:home", "menu:referral"],
         )
+        gift_rows = gift_subscription_keyboard().inline_keyboard
+        self.assertEqual(gift_rows[0][0].text, "📣 Подписаться на канал")
+        self.assertEqual(gift_rows[0][0].url, "https://t.me/ceafamily")
+        self.assertEqual(gift_rows[1][0].callback_data, "gift:check")
+        self.assertEqual(
+            gift_rows[1][0].model_dump(exclude_none=True)["style"],
+            "success",
+        )
+        self.assertEqual(gift_rows[2][0].callback_data, "menu:main")
         work_rows = work_menu_keyboard().inline_keyboard
         self.assertEqual(work_rows[0][0].callback_data, "models:type:text")
         self.assertEqual(
@@ -1817,6 +1880,7 @@ class MigrationAndUITest(unittest.TestCase):
             [
                 "💳 Подписка и тарифы",
                 "🆘 Поддержка",
+                "⬅️ Назад",
             ],
         )
         self.assertEqual(
@@ -1837,7 +1901,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("🏠 Главное меню", labels)
         self.assertIn("BACK_TO_MENU_BUTTON", keyboard_source)
         self.assertIn("Поддержка", keyboard_source)
-        self.assertIn("Реферальная программа", keyboard_source)
+        self.assertIn("Заработать", keyboard_source)
         self.assertIn('callback_data="menu:referral"', keyboard_source)
         self.assertIn("reply_markup=profile_keyboard()", send_profile_source)
         self.assertIn("services.users.get_by_id", send_profile_source)

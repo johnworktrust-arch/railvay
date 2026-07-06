@@ -45,6 +45,7 @@ from ceai.bot.keyboards import (
     admin_users_keyboard,
     back_to_menu_keyboard,
     crystal_packages_keyboard,
+    gift_subscription_keyboard,
     history_keyboard,
     history_result_keyboard,
     inline_back_to_menu_keyboard,
@@ -101,6 +102,12 @@ START_SCREEN_IMAGE_PATH = (
 MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
 DEFAULT_IMAGE_EDIT_PROMPT = "Улучши изображение, сохранив основной сюжет."
 HISTORY_PAGE_SIZE = 3
+GIFT_CHANNEL_USERNAME = "ceafamily"
+GIFT_CHANNEL_CHAT_ID = f"@{GIFT_CHANNEL_USERNAME}"
+GIFT_CHANNEL_URL = f"https://t.me/{GIFT_CHANNEL_USERNAME}"
+GIFT_DURATION_DAYS = 2
+GIFT_COINS_AMOUNT = 10
+GIFT_PLAN_CODE = "start"
 
 
 def _is_start_text(text: str | None) -> bool:
@@ -690,10 +697,49 @@ def _format_work_menu() -> str:
 
 def _format_gift_screen() -> str:
     return (
-        "🚀 Подарок от Cea AI\n\n"
-        "Бонусный стартовый доступ скоро будет доступен прямо здесь.\n\n"
-        "Пока можно начать работу с доступными AI-инструментами или вернуться "
-        "в главное меню."
+        f"🎁 {GIFT_DURATION_DAYS} дня бесплатно\n\n"
+        f"Чтобы получить пробный доступ к Cea AI, подпишитесь на канал "
+        f"@{GIFT_CHANNEL_USERNAME}.\n\n"
+        "▶️ После подписки нажмите «Проверить подписку»."
+    )
+
+
+def _format_gift_not_subscribed() -> str:
+    return (
+        "❌ Подписка на канал не найдена.\n\n"
+        f"Подпишитесь на @{GIFT_CHANNEL_USERNAME} и нажмите "
+        "«Проверить подписку» ещё раз."
+    )
+
+
+def _format_gift_check_unavailable() -> str:
+    return (
+        "❌ Не удалось проверить подписку на канал.\n\n"
+        f"Проверьте, что бот добавлен администратором в @{GIFT_CHANNEL_USERNAME}, "
+        "или попробуйте ещё раз позже."
+    )
+
+
+def _format_gift_activated(result: Dict[str, Any]) -> str:
+    subscription = result.get("subscription") or {}
+    balance = subscription.get("coins_balance_cache", 0)
+    return (
+        "✅ Подарок активирован.\n\n"
+        f"Начислено: {format_coin_amount(result.get('credited_coins'))}\n"
+        f"Доступ: {GIFT_DURATION_DAYS} дня\n"
+        f"Баланс: {format_coin_amount(balance)}\n\n"
+        "Можно переходить к работе с AI-инструментами."
+    )
+
+
+def _format_gift_already_claimed(result: Dict[str, Any]) -> str:
+    subscription = result.get("subscription") or {}
+    balance = subscription.get("coins_balance_cache", 0)
+    return (
+        "✅ Подписка на канал подтверждена.\n\n"
+        "Подарок уже был активирован на этом аккаунте, повторное начисление "
+        "недоступно.\n"
+        f"Текущий баланс: {format_coin_amount(balance)}"
     )
 
 
@@ -1277,6 +1323,23 @@ async def _send_work_menu(
     )
 
 
+async def _check_gift_channel_subscription(bot: Any, telegram_id: int) -> tuple[bool, bool]:
+    try:
+        member = await bot.get_chat_member(
+            chat_id=GIFT_CHANNEL_CHAT_ID,
+            user_id=telegram_id,
+        )
+    except (TelegramBadRequest, TelegramForbiddenError):
+        return False, False
+
+    status = getattr(getattr(member, "status", ""), "value", getattr(member, "status", ""))
+    if status in {"creator", "administrator", "member"}:
+        return True, True
+    if status == "restricted" and bool(getattr(member, "is_member", False)):
+        return True, True
+    return True, False
+
+
 async def _send_gift(
     message: Message,
     services: AppServices,
@@ -1289,7 +1352,7 @@ async def _send_gift(
         services,
         user_id,
         _format_gift_screen(),
-        reply_markup=back_to_menu_keyboard(),
+        reply_markup=gift_subscription_keyboard(info_channel_url=GIFT_CHANNEL_URL),
         delete_current=delete_current,
     )
 
@@ -1872,7 +1935,7 @@ async def _handle_reply_menu(
         await _send_work_menu(message, services, user["id"], delete_current=True)
         return True
 
-    if text_lower == "реферальная программа" or text == REFERRAL_BUTTON:
+    if text_lower in {"заработать", "реферальная программа"} or text == REFERRAL_BUTTON:
         _clear_dialog_state(services, user["id"])
         await _send_referral(message, services, user["id"], delete_current=True)
         return True
@@ -2214,6 +2277,67 @@ def create_router(services: AppServices) -> Router:
             await _send_gift(
                 callback.message, services, user["id"], delete_current=True
             )
+        await callback.answer()
+
+    @router.callback_query(F.data == "gift:check")
+    async def gift_check(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if not callback.message:
+            await callback.answer("Откройте меню подарка ещё раз.", show_alert=True)
+            return
+
+        can_check, is_subscribed = await _check_gift_channel_subscription(
+            callback.bot,
+            callback.from_user.id,
+        )
+        if not can_check:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                _format_gift_check_unavailable(),
+                reply_markup=gift_subscription_keyboard(
+                    info_channel_url=GIFT_CHANNEL_URL
+                ),
+            )
+            await callback.answer()
+            return
+        if not is_subscribed:
+            await _show_screen(
+                callback.message,
+                services,
+                user["id"],
+                _format_gift_not_subscribed(),
+                reply_markup=gift_subscription_keyboard(
+                    info_channel_url=GIFT_CHANNEL_URL
+                ),
+            )
+            await callback.answer()
+            return
+
+        result = services.subscriptions.grant_channel_gift(
+            user_id=user["id"],
+            plan_code=GIFT_PLAN_CODE,
+            duration_days=GIFT_DURATION_DAYS,
+            coins_amount=GIFT_COINS_AMOUNT,
+            gift_key=GIFT_CHANNEL_USERNAME,
+        )
+        await _show_screen(
+            callback.message,
+            services,
+            user["id"],
+            (
+                _format_gift_activated(result)
+                if result["created"]
+                else _format_gift_already_claimed(result)
+            ),
+            reply_markup=main_menu_button_keyboard(),
+        )
         await callback.answer()
 
     @router.callback_query(F.data == "menu:work")
