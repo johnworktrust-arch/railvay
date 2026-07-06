@@ -47,7 +47,6 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=GIFT_BUTTON, callback_data="menu:gift")],
             [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
             [InlineKeyboardButton(text=START_WORK_BUTTON, callback_data="menu:work")],
-            [InlineKeyboardButton(text=REFERRAL_BUTTON, callback_data="menu:referral")],
             [InlineKeyboardButton(text=HELP_BUTTON, callback_data="menu:support")],
         ]
     )

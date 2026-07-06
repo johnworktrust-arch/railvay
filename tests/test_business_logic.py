@@ -1768,13 +1768,12 @@ class MigrationAndUITest(unittest.TestCase):
                 "🟢 🚀 Забрать подарок",
                 "👤 Профиль",
                 "🔥 Начать работу",
-                "🤝 Реферальная программа",
                 "🆘 Помощь",
             ],
         )
         self.assertEqual(
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
-            ["menu:gift", "menu:home", "menu:work", "menu:referral", "menu:support"],
+            ["menu:gift", "menu:home", "menu:work", "menu:support"],
         )
         work_rows = work_menu_keyboard().inline_keyboard
         self.assertEqual(work_rows[0][0].callback_data, "models:type:text")
