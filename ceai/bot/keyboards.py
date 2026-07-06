@@ -11,7 +11,7 @@ from ceai.formatting import format_coin_amount
 
 
 PROFILE_BUTTON = "👤 Профиль"
-GIFT_BUTTON = "🚀 Забрать подарок"
+GIFT_BUTTON = "🟢 🚀 Забрать подарок"
 START_WORK_BUTTON = "🔥 Начать работу"
 TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"
 PHOTO_AI_BUTTON = "🖼 Фото с AI"
@@ -434,7 +434,9 @@ def history_result_keyboard(*, page: int) -> InlineKeyboardMarkup:
 
 def admin_menu_keyboard(*, maintenance_active: bool = False) -> InlineKeyboardMarkup:
     maintenance_text = (
-        "🛠 Тех работы активированы" if maintenance_active else "🛠 Тех работы"
+        "🛠 Тех работы включены"
+        if maintenance_active
+        else "🛠 Тех работы выключены"
     )
     return InlineKeyboardMarkup(
         inline_keyboard=[

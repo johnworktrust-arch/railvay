@@ -1732,8 +1732,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("_show_screen(", admin_message_source)
         self.assertNotIn("delete_current=True", admin_message_source)
         self.assertIn('callback_data="admin:maintenance"', keyboards_source)
-        self.assertIn("🛠 Тех работы", keyboards_source)
-        self.assertIn("🛠 Тех работы активированы", keyboards_source)
+        self.assertIn("Статус техработ: {maintenance_status}.", handlers_source)
+        self.assertIn('"включены" if maintenance_active else "выключены"', handlers_source)
+        self.assertIn("🛠 Тех работы включены", keyboards_source)
+        self.assertIn("🛠 Тех работы выключены", keyboards_source)
         self.assertIn('elif action == "maintenance":', admin_callback_source)
         self.assertIn("toggle_maintenance_mode", admin_callback_source)
         self.assertIn("Тех работы включены", admin_callback_source)
@@ -1752,7 +1754,7 @@ class MigrationAndUITest(unittest.TestCase):
             "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇",
             handlers_source,
         )
-        self.assertIn("🚀 Забрать подарок", keyboard_source)
+        self.assertIn("🟢 🚀 Забрать подарок", keyboard_source)
         self.assertIn("Подарок от Cea AI", handlers_source)
         self.assertIn('F.data == "menu:gift"', handlers_source)
         self.assertIn("🔥 Начать работу", handlers_source)
@@ -1763,7 +1765,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
             [
-                "🚀 Забрать подарок",
+                "🟢 🚀 Забрать подарок",
                 "👤 Профиль",
                 "🔥 Начать работу",
                 "🤝 Реферальная программа",

@@ -1222,7 +1222,13 @@ async def _send_admin_home(
     delete_current: bool = False,
     notice: str | None = None,
 ) -> None:
-    text = "🛠 Админка CeaAI\nВыберите раздел."
+    maintenance_active = services.admin.is_maintenance_mode_active()
+    maintenance_status = "включены" if maintenance_active else "выключены"
+    text = (
+        "🛠 Админка CeaAI\n\n"
+        f"Статус техработ: {maintenance_status}.\n"
+        "Выберите раздел."
+    )
     if notice:
         text = f"{notice}\n\n{text}"
     await _show_screen(
@@ -1231,7 +1237,7 @@ async def _send_admin_home(
         user_id,
         text,
         reply_markup=admin_menu_keyboard(
-            maintenance_active=services.admin.is_maintenance_mode_active()
+            maintenance_active=maintenance_active
         ),
         delete_current=delete_current,
     )
