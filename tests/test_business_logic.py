@@ -1767,9 +1767,9 @@ class MigrationAndUITest(unittest.TestCase):
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
             [
                 "🚀 Забрать подарок",
-                "👤 Профиль",
                 "🔥 Начать работу",
-                "🆘 Помощь",
+                "👤 Профиль",
+                "🤝 Реферальная программа",
             ],
         )
         self.assertEqual(
@@ -1780,7 +1780,7 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertEqual(
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
-            ["menu:gift", "menu:home", "menu:work", "menu:support"],
+            ["menu:gift", "menu:work", "menu:home", "menu:referral"],
         )
         work_rows = work_menu_keyboard().inline_keyboard
         self.assertEqual(work_rows[0][0].callback_data, "models:type:text")
@@ -1816,9 +1816,7 @@ class MigrationAndUITest(unittest.TestCase):
             labels,
             [
                 "💳 Подписка и тарифы",
-                "🤝 Реферальная программа",
                 "🆘 Поддержка",
-                "⬅️ Назад",
             ],
         )
         self.assertEqual(
@@ -1841,7 +1839,6 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Поддержка", keyboard_source)
         self.assertIn("Реферальная программа", keyboard_source)
         self.assertIn('callback_data="menu:referral"', keyboard_source)
-        self.assertIn('callback_data="menu:main"', keyboard_source)
         self.assertIn("reply_markup=profile_keyboard()", send_profile_source)
         self.assertIn("services.users.get_by_id", send_profile_source)
         self.assertIn("services.referrals.stats", send_profile_source)

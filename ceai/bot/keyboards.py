@@ -51,9 +51,9 @@ def main_menu_keyboard() -> InlineKeyboardMarkup:
                     style="success",
                 )
             ],
-            [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
             [InlineKeyboardButton(text=START_WORK_BUTTON, callback_data="menu:work")],
-            [InlineKeyboardButton(text=HELP_BUTTON, callback_data="menu:support")],
+            [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
+            [InlineKeyboardButton(text=REFERRAL_BUTTON, callback_data="menu:referral")],
         ]
     )
 
@@ -89,17 +89,7 @@ def profile_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text=REFERRAL_BUTTON, callback_data="menu:referral"
-                )
-            ],
-            [
-                InlineKeyboardButton(
                     text="🆘 Поддержка", callback_data="menu:support"
-                )
-            ],
-            [
-                InlineKeyboardButton(
-                    text=BACK_TO_MENU_BUTTON, callback_data="menu:main"
                 )
             ],
         ]
