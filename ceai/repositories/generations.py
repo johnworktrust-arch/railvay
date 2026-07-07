@@ -129,6 +129,26 @@ class GenerationRepository:
             raise RuntimeError("Could not mark generation completed")
         return generation
 
+    def update_result(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        generation_id: int,
+        result: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        conn.execute(
+            """
+            UPDATE generations
+            SET result = ?::jsonb
+            WHERE id = ?
+            """,
+            (dumps(result), generation_id),
+        )
+        generation = self.get_by_id(conn, generation_id)
+        if generation is None:
+            raise RuntimeError("Could not update generation result")
+        return generation
+
     def mark_failed(
         self,
         conn: sqlite3.Connection,

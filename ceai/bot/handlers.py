@@ -94,6 +94,7 @@ from ceai.services.referrals import (
 LAST_BOT_MESSAGE_ID = "last_bot_message_id"
 LAST_BOT_MESSAGE_IDS = "last_bot_message_ids"
 LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
+LAST_SCREEN_HAS_MEDIA = "last_screen_has_media"
 TELEGRAM_STARS_INVOICE_MESSAGE_ID = "telegram_stars_invoice_message_id"
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
 START_SCREEN_IMAGE_PATH = (
@@ -235,9 +236,14 @@ def _remember_screen_message(
     payload: Dict[str, Any],
     message_id: int,
     reply_markup: Any | None,
+    is_media: bool = False,
 ) -> None:
     payload.pop(LAST_BOT_MESSAGE_ID, None)
     payload[LAST_BOT_MESSAGE_IDS] = [message_id]
+    if is_media:
+        payload[LAST_SCREEN_HAS_MEDIA] = True
+    else:
+        payload.pop(LAST_SCREEN_HAS_MEDIA, None)
     reply_signature = _reply_keyboard_signature(reply_markup)
     if reply_signature is not None:
         payload[LAST_REPLY_KEYBOARD_SIGNATURE] = reply_signature
@@ -381,6 +387,7 @@ async def _show_screen(
 ) -> Message:
     state, payload = _session_state_payload(services, user_id)
     tracked_ids = _tracked_message_ids(payload)
+    last_screen_has_media = bool(payload.get(LAST_SCREEN_HAS_MEDIA))
     current_bot_message_id = (
         message.message_id
         if message.message_id and not _is_user_message(message)
@@ -394,7 +401,7 @@ async def _show_screen(
     await _remove_legacy_reply_keyboard(message, payload, reply_markup)
     replace_current = isinstance(
         reply_markup, (ReplyKeyboardMarkup, ReplyKeyboardRemove)
-    ) or (delete_current and _is_user_message(message))
+    ) or (delete_current and _is_user_message(message)) or last_screen_has_media
 
     # Bottom-keyboard actions arrive as user messages, so they should replace
     # the previous bot screen. Inline callback actions edit the message that
@@ -1081,6 +1088,37 @@ def _telegram_caption(text: str, *, limit: int = 1024) -> str:
     return text[: limit - 3].rstrip() + "..."
 
 
+def _sent_photo_file_id(sent: Message) -> str | None:
+    photos = getattr(sent, "photo", None) or []
+    if not photos:
+        return None
+    file_id = getattr(photos[-1], "file_id", None)
+    return str(file_id).strip() if file_id else None
+
+
+def _sent_video_file_id(sent: Message) -> str | None:
+    video = getattr(sent, "video", None)
+    file_id = getattr(video, "file_id", None) if video else None
+    return str(file_id).strip() if file_id else None
+
+
+async def _remember_generation_media_file(
+    services: AppServices,
+    *,
+    generation_id: int | None,
+    kind: str,
+    file_id: str | None,
+) -> None:
+    if generation_id is None or not file_id:
+        return
+    await asyncio.to_thread(
+        services.generations.remember_telegram_media_file,
+        generation_id=generation_id,
+        kind=kind,
+        file_id=file_id,
+    )
+
+
 async def _show_generation_result(
     message: Message,
     services: AppServices,
@@ -1090,6 +1128,7 @@ async def _show_generation_result(
     reply_markup: Any | None = None,
     image_caption: str | None = None,
     video_caption: str | None = None,
+    generation_id: int | None = None,
 ) -> Message:
     if result.get("kind") == "image" and result.get("image_b64"):
         state, payload = _session_state_payload(services, user_id)
@@ -1112,6 +1151,12 @@ async def _show_generation_result(
             payload.pop(LAST_BOT_MESSAGE_ID, None)
             payload.pop(LAST_BOT_MESSAGE_IDS, None)
             services.users.set_session(user_id, state=state, payload=payload)
+            await _remember_generation_media_file(
+                services,
+                generation_id=generation_id,
+                kind="image",
+                file_id=_sent_photo_file_id(sent),
+            )
             return sent
         except (binascii.Error, TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
@@ -1135,6 +1180,12 @@ async def _show_generation_result(
             payload.pop(LAST_BOT_MESSAGE_ID, None)
             payload.pop(LAST_BOT_MESSAGE_IDS, None)
             services.users.set_session(user_id, state=state, payload=payload)
+            await _remember_generation_media_file(
+                services,
+                generation_id=generation_id,
+                kind="video",
+                file_id=_sent_video_file_id(sent),
+            )
             return sent
         except (TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
@@ -1242,8 +1293,10 @@ def _format_history(rows: list[Dict[str, Any]]) -> str:
     return "\n".join(lines)
 
 
-def _format_history_result(row: Dict[str, Any]) -> str:
-    html_links = _generation_result_has_media_link(row)
+def _format_history_result(
+    row: Dict[str, Any], *, include_media_link: bool = True
+) -> str:
+    html_links = include_media_link and _generation_result_has_media_link(row)
     result_text = _generation_result_text(row, html_links=html_links)
     if not html_links:
         result_text = _short_history_text(result_text, limit=2400)
@@ -1262,6 +1315,122 @@ def _format_history_result(row: Dict[str, Any]) -> str:
         f"Промпт - {prompt}\n\n"
         f"Результат:\n{result_text}"
     )
+
+
+def _history_image_sources(result: Dict[str, Any]) -> list[Any]:
+    sources: list[Any] = []
+    file_id = str(result.get("telegram_photo_file_id") or "").strip()
+    if file_id:
+        sources.append(file_id)
+    if result.get("image_b64"):
+        try:
+            image_bytes = base64.b64decode(str(result["image_b64"]), validate=True)
+            sources.append(
+                BufferedInputFile(
+                    image_bytes,
+                    filename=str(result.get("file_name") or "cea-ai.png"),
+                )
+            )
+        except (binascii.Error, ValueError):
+            pass
+    url = str(result.get("url") or "").strip()
+    if url:
+        sources.append(url)
+    return sources
+
+
+def _history_video_sources(result: Dict[str, Any]) -> list[str]:
+    sources: list[str] = []
+    file_id = str(result.get("telegram_video_file_id") or "").strip()
+    if file_id:
+        sources.append(file_id)
+    url = str(result.get("url") or "").strip()
+    if url:
+        sources.append(url)
+    return sources
+
+
+async def _show_history_media_result(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    generation: Dict[str, Any],
+    *,
+    page: int,
+    delete_current: bool = False,
+) -> bool:
+    result = _generation_result_payload(generation)
+    kind = str(result.get("kind") or "")
+    if kind not in {"image", "video"}:
+        return False
+
+    sources = (
+        _history_image_sources(result)
+        if kind == "image"
+        else _history_video_sources(result)
+    )
+    if not sources:
+        return False
+
+    state, payload = _session_state_payload(services, user_id)
+    tracked_ids = _tracked_message_ids(payload)
+    reply_markup = history_result_keyboard(page=page)
+    await _remove_legacy_reply_keyboard(message, payload, reply_markup)
+    if tracked_ids:
+        await _delete_screen_messages(message, tracked_ids)
+    elif delete_current and message.message_id and not _is_user_message(message):
+        try:
+            await message.bot.delete_message(
+                chat_id=message.chat.id,
+                message_id=message.message_id,
+            )
+        except (TelegramBadRequest, TelegramForbiddenError):
+            pass
+
+    caption = _telegram_caption(
+        _format_history_result(generation, include_media_link=False)
+    )
+    for source in sources:
+        try:
+            if kind == "image":
+                sent = await message.bot.send_photo(
+                    chat_id=message.chat.id,
+                    photo=source,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                )
+                await _remember_generation_media_file(
+                    services,
+                    generation_id=int(generation["id"]),
+                    kind="image",
+                    file_id=_sent_photo_file_id(sent),
+                )
+            else:
+                sent = await message.bot.send_video(
+                    chat_id=message.chat.id,
+                    video=str(source),
+                    caption=caption,
+                    reply_markup=reply_markup,
+                )
+                await _remember_generation_media_file(
+                    services,
+                    generation_id=int(generation["id"]),
+                    kind="video",
+                    file_id=_sent_video_file_id(sent),
+                )
+            _remember_screen_message(
+                services,
+                user_id,
+                state=state,
+                payload=payload,
+                message_id=sent.message_id,
+                reply_markup=reply_markup,
+                is_media=True,
+            )
+            return True
+        except (TelegramBadRequest, TelegramForbiddenError, ValueError):
+            continue
+    return False
 
 
 def _format_admin_stats(stats: Dict[str, Any]) -> str:
@@ -1651,6 +1820,15 @@ async def _send_history_result(
             page=page,
             delete_current=delete_current,
         )
+        return
+    if await _show_history_media_result(
+        message,
+        services,
+        user_id,
+        generation,
+        page=page,
+        delete_current=delete_current,
+    ):
         return
     has_media_link = _generation_result_has_media_link(generation)
     await _show_screen(
@@ -3475,6 +3653,7 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 generation.result,
                 reply_markup=chat_keyboard,
+                generation_id=int(generation.generation["id"]),
             )
             return
 
@@ -3649,6 +3828,7 @@ def create_router(services: AppServices) -> Router:
                 if generation.model["generation_type"] == "video"
                 else None
             ),
+            generation_id=int(generation.generation["id"]),
         )
 
     return router

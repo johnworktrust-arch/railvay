@@ -213,6 +213,34 @@ class GenerationService:
             )
             return _hydrate_generation_row(row) if row else None
 
+    def remember_telegram_media_file(
+        self, *, generation_id: int, kind: str, file_id: str
+    ) -> None:
+        file_id = file_id.strip()
+        if kind not in {"image", "video"} or not file_id:
+            return
+
+        with self.db.transaction() as conn:
+            generation = self.generations.get_by_id(conn, generation_id)
+            if generation is None:
+                return
+            result = loads_dict(generation.get("result"))
+            if result.get("kind") != kind:
+                return
+            key = (
+                "telegram_photo_file_id"
+                if kind == "image"
+                else "telegram_video_file_id"
+            )
+            if result.get(key) == file_id:
+                return
+            result[key] = file_id
+            self.generations.update_result(
+                conn,
+                generation_id=generation_id,
+                result=result,
+            )
+
 
 def _hydrate_generation_row(row: Dict[str, Any]) -> Dict[str, Any]:
     row["prompt_payload"] = loads_dict(row.get("prompt"))

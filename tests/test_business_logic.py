@@ -982,6 +982,37 @@ class BusinessLogicTest(unittest.TestCase):
             )
         )
 
+    def test_generation_history_stores_telegram_media_file_id(self) -> None:
+        self._buy_plan("start")
+        model = self._model("deepseek-v4-flash")
+        generation = self.services.generations.generate(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            prompt_text="Создай фото логотипа",
+        )
+        with self.db.transaction() as conn:
+            self.services.generations.generations.update_result(
+                conn,
+                generation_id=generation.generation["id"],
+                result={"kind": "image", "caption": "Готовое фото"},
+            )
+
+        self.services.generations.remember_telegram_media_file(
+            generation_id=generation.generation["id"],
+            kind="image",
+            file_id="telegram-photo-file-id",
+        )
+        loaded = self.services.generations.get_for_user(
+            user_id=self.user["id"],
+            generation_id=generation.generation["id"],
+        )
+
+        self.assertIsNotNone(loaded)
+        self.assertEqual(
+            loaded["result_payload"]["telegram_photo_file_id"],
+            "telegram-photo-file-id",
+        )
+
     def test_openai_image_provider_uses_edit_endpoint_for_image_input(self) -> None:
         provider = OpenAIImageProvider(api_key="test-key")
         calls = []
@@ -2015,6 +2046,7 @@ class MigrationAndUITest(unittest.TestCase):
         from ceai.bot.handlers import _format_history_result
         from ceai.bot.handlers import _format_video_generation_result
 
+        handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         video_url = "https://cdn.example/video.mp4?Expires=1&Signature=very-long"
         video_text = _format_video_generation_result(
             prompt_text="Сделай <видео>",
@@ -2063,6 +2095,14 @@ class MigrationAndUITest(unittest.TestCase):
             history_text,
         )
         self.assertNotIn("🎬 Видео: https://", history_text)
+        self.assertIn("async def _show_history_media_result", handlers_source)
+        self.assertIn("_history_image_sources(result)", handlers_source)
+        self.assertIn("_history_video_sources(result)", handlers_source)
+        self.assertIn("telegram_photo_file_id", handlers_source)
+        self.assertIn("telegram_video_file_id", handlers_source)
+        self.assertIn("message.bot.send_photo(", handlers_source)
+        self.assertIn("message.bot.send_video(", handlers_source)
+        self.assertIn("include_media_link=False", handlers_source)
 
     def test_history_screen_has_paged_generation_buttons(self) -> None:
         from ceai.bot.handlers import _format_history, _format_history_result
