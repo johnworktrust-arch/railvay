@@ -1480,6 +1480,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("_image_input_from_message", handlers_source)
         self.assertIn("DEFAULT_IMAGE_EDIT_PROMPT", handlers_source)
         self.assertIn("_format_image_generation_caption", handlers_source)
+        self.assertIn("_format_video_generation_result", handlers_source)
+        self.assertIn("send_video(", handlers_source)
         self.assertIn("payload.pop(LAST_BOT_MESSAGE_IDS, None)", handlers_source)
         self.assertIn("_show_generation_result(", handlers_source)
         self.assertIn("BufferedInputFile", handlers_source)

@@ -1060,6 +1060,7 @@ async def _show_generation_result(
     *,
     reply_markup: Any | None = None,
     image_caption: str | None = None,
+    video_caption: str | None = None,
 ) -> Message:
     if result.get("kind") == "image" and result.get("image_b64"):
         state, payload = _session_state_payload(services, user_id)
@@ -1084,6 +1085,27 @@ async def _show_generation_result(
             services.users.set_session(user_id, state=state, payload=payload)
             return sent
         except (binascii.Error, TelegramBadRequest, TelegramForbiddenError, ValueError):
+            pass
+
+    if result.get("kind") == "video" and result.get("url"):
+        state, payload = _session_state_payload(services, user_id)
+        tracked_ids = _tracked_message_ids(payload)
+        if tracked_ids:
+            await _delete_screen_messages(message, tracked_ids)
+        try:
+            sent = await message.bot.send_video(
+                chat_id=message.chat.id,
+                video=str(result["url"]),
+                caption=_telegram_caption(
+                    str(video_caption or result.get("caption") or "Готово.")
+                ),
+                reply_markup=None,
+            )
+            payload.pop(LAST_BOT_MESSAGE_ID, None)
+            payload.pop(LAST_BOT_MESSAGE_IDS, None)
+            services.users.set_session(user_id, state=state, payload=payload)
+            return sent
+        except (TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
 
     return await _show_screen(
@@ -3523,22 +3545,6 @@ def create_router(services: AppServices) -> Router:
             )
             return
 
-        if generation.model["generation_type"] == "video":
-            await _show_screen(
-                message,
-                services,
-                user["id"],
-                _format_video_generation_result(
-                    prompt_text=prompt_text,
-                    model=generation.model,
-                    coins_charged=generation.generation["coins_charged"],
-                    balance_after=generation.balance_after,
-                    result=generation.result,
-                ),
-                reply_markup=back_to_menu_keyboard(),
-            )
-            return
-
         await _show_generation_result(
             message,
             services,
@@ -3557,6 +3563,17 @@ def create_router(services: AppServices) -> Router:
                     balance_after=generation.balance_after,
                 )
                 if generation.model["generation_type"] == "image"
+                else None
+            ),
+            video_caption=(
+                _format_video_generation_result(
+                    prompt_text=prompt_text,
+                    model=generation.model,
+                    coins_charged=generation.generation["coins_charged"],
+                    balance_after=generation.balance_after,
+                    result=generation.result,
+                )
+                if generation.model["generation_type"] == "video"
                 else None
             ),
         )
