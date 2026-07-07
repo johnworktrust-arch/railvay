@@ -2535,7 +2535,7 @@ class MigrationAndUITest(unittest.TestCase):
                     "deepseek-v4-flash": 1,
                     "gpt-4o-mini": 3,
                     "gpt-image-2-medium": 2,
-                    "kling-3": 25,
+                    "kling-3": 35,
                     "elevenlabs-tts": 5,
                 },
             )
@@ -2556,6 +2556,7 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(kling_config["mode"], "std")
             self.assertEqual(kling_config["sound"], "off")
             self.assertEqual(kling_config["aspect_ratio"], "16:9")
+            self.assertEqual(kling_config["provider_cost_amount"], 65)
         finally:
             db.close()
 
@@ -2843,7 +2844,7 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["providers"]["kling_video_configured"])
             self.assertTrue(payload["models"]["kling_3_active"])
-            self.assertEqual(payload["models"]["kling_3_cost"], 25)
+            self.assertEqual(payload["models"]["kling_3_cost"], 35)
             self.assertIn(
                 "KLINGAI_API_KEY",
                 payload["diagnostics"]["supported_kling_key_names"],
