@@ -349,6 +349,30 @@ async def _send_screen_message(
     )
 
 
+async def _send_generation_menu_followup(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+) -> Message:
+    state, payload = _session_state_payload(services, user_id)
+    reply_markup = main_menu_keyboard()
+    await _remove_legacy_reply_keyboard(message, payload, reply_markup)
+    sent = await _send_screen_message(
+        message,
+        text=_format_main_menu(),
+        reply_markup=reply_markup,
+    )
+    _remember_screen_message(
+        services,
+        user_id,
+        state=state,
+        payload=payload,
+        message_id=sent.message_id,
+        reply_markup=reply_markup,
+    )
+    return sent
+
+
 async def _remove_legacy_reply_keyboard(
     message: Message, payload: Dict[str, Any], reply_markup: Any | None
 ) -> None:
@@ -1129,6 +1153,7 @@ async def _show_generation_result(
     image_caption: str | None = None,
     video_caption: str | None = None,
     generation_id: int | None = None,
+    send_menu_followup: bool = False,
 ) -> Message:
     if result.get("kind") == "image" and result.get("image_b64"):
         state, payload = _session_state_payload(services, user_id)
@@ -1157,6 +1182,8 @@ async def _show_generation_result(
                 kind="image",
                 file_id=_sent_photo_file_id(sent),
             )
+            if send_menu_followup:
+                await _send_generation_menu_followup(message, services, user_id)
             return sent
         except (binascii.Error, TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
@@ -1186,6 +1213,8 @@ async def _show_generation_result(
                 kind="video",
                 file_id=_sent_video_file_id(sent),
             )
+            if send_menu_followup:
+                await _send_generation_menu_followup(message, services, user_id)
             return sent
         except (TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
@@ -1195,7 +1224,7 @@ async def _show_generation_result(
         if result.get("kind") == "video" and video_caption
         else _format_generation_result(result)
     )
-    return await _show_screen(
+    shown = await _show_screen(
         message,
         services,
         user_id,
@@ -1207,6 +1236,9 @@ async def _show_generation_result(
             else None
         ),
     )
+    if send_menu_followup and result.get("kind") in {"image", "video"}:
+        await _send_generation_menu_followup(message, services, user_id)
+    return shown
 
 
 def _short_history_text(text: str, *, limit: int = 180) -> str:
@@ -3804,7 +3836,7 @@ def create_router(services: AppServices) -> Router:
             generation.result,
             reply_markup=(
                 None
-                if generation.model["generation_type"] == "image"
+                if generation.model["generation_type"] in {"image", "video"}
                 else back_to_menu_keyboard()
             ),
             image_caption=(
@@ -3829,6 +3861,9 @@ def create_router(services: AppServices) -> Router:
                 else None
             ),
             generation_id=int(generation.generation["id"]),
+            send_menu_followup=(
+                generation.model["generation_type"] in {"image", "video"}
+            ),
         )
 
     return router
