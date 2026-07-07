@@ -9,6 +9,18 @@ from typing import Dict, Tuple
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_PUBLIC_OFFER_URL = "https://cea.ai/public-offer"
 DEFAULT_INFO_CHANNEL_URL = "https://t.me/ceafamily"
+KLING_API_KEY_NAMES = (
+    "KLING_API_KEY",
+    "KLINGAI_API_KEY",
+    "KLING_AI_API_KEY",
+    "KLING_KEY",
+    "KLING_API",
+    "KLING_API_TOKEN",
+    "KLING_TOKEN",
+    "KLING_ACCESS_KEY",
+    "KLING_SECRET_KEY",
+    "API_KEY_KLING",
+)
 
 
 def _load_dotenv(path: Path) -> Dict[str, str]:
@@ -91,6 +103,20 @@ def load_settings() -> Settings:
     def read(name: str, default: str = "") -> str:
         return os.getenv(name) or dotenv_values.get(name, default)
 
+    def read_any(names: Tuple[str, ...], default: str = "") -> str:
+        for name in names:
+            value = read(name)
+            if value.strip():
+                return value.strip()
+
+        normalized_names = {name.strip().upper().rstrip(";") for name in names}
+        for source in (os.environ, dotenv_values):
+            for key, value in source.items():
+                normalized_key = key.strip().upper().rstrip(";")
+                if normalized_key in normalized_names and value.strip():
+                    return value.strip().strip('"').strip("'")
+        return default
+
     def read_int_list(name: str) -> Tuple[int, ...]:
         values: list[int] = []
         for item in read(name).split(","):
@@ -147,7 +173,7 @@ def load_settings() -> Settings:
         openai_api_key=read("OPENAI_API_KEY"),
         openai_image_api_key=read("OPENAI_IMAGE_API_KEY"),
         openai_base_url=read("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-        kling_api_key=read("KLING_API_KEY"),
+        kling_api_key=read_any(KLING_API_KEY_NAMES),
         kling_base_url=read(
             "KLING_BASE_URL", "https://api-singapore.klingai.com"
         ).rstrip("/"),

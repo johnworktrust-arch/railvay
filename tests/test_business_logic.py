@@ -2476,6 +2476,22 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.yookassa_request_timeout_seconds, 9)
         self.assertTrue(settings.allow_ephemeral_sqlite)
 
+    def test_kling_api_key_env_aliases_are_read(self) -> None:
+        from ceai.config import load_settings
+
+        with patch.dict(
+            "os.environ",
+            {
+                "TELEGRAM_BOT_TOKEN": "test",
+                "KLINGAI_API_KEY": "kling-alias-test",
+                "CEAI_ALLOW_EPHEMERAL_SQLITE": "true",
+            },
+            clear=True,
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.kling_api_key, "kling-alias-test")
+
     def test_seed_openai_models_are_configured_for_real_api(self) -> None:
         db = Database("sqlite:///:memory:")
         try:
@@ -2635,7 +2651,7 @@ class MigrationAndUITest(unittest.TestCase):
                 )
                 repo.upsert(
                     conn,
-                    key="KLING_API_KEY",
+                    key="KLINGAI_API_KEY",
                     value="saved-kling-key",
                     is_secret=True,
                 )
@@ -2755,7 +2771,7 @@ class MigrationAndUITest(unittest.TestCase):
                             "DEEPSEEK_API_KEY": "deepseek-test",
                             "OPENAI_API_KEY": "openai-test",
                             "OPENAI_IMAGE_API_KEY": "openai-image-test",
-                            "KLING_API_KEY": "kling-test",
+                            "KLINGAI_API_KEY": "kling-test",
                         }
                     }
                 ).encode("utf-8"),
@@ -2771,13 +2787,13 @@ class MigrationAndUITest(unittest.TestCase):
                         "DEEPSEEK_API_KEY",
                         "OPENAI_API_KEY",
                         "OPENAI_IMAGE_API_KEY",
-                        "KLING_API_KEY",
+                        "KLINGAI_API_KEY",
                     ),
                 )
             self.assertEqual(saved["DEEPSEEK_API_KEY"], "deepseek-test")
             self.assertEqual(saved["OPENAI_API_KEY"], "openai-test")
             self.assertEqual(saved["OPENAI_IMAGE_API_KEY"], "openai-image-test")
-            self.assertEqual(saved["KLING_API_KEY"], "kling-test")
+            self.assertEqual(saved["KLINGAI_API_KEY"], "kling-test")
         finally:
             db.close()
 
@@ -2828,6 +2844,10 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertTrue(payload["providers"]["kling_video_configured"])
             self.assertTrue(payload["models"]["kling_3_active"])
             self.assertEqual(payload["models"]["kling_3_cost"], 25)
+            self.assertIn(
+                "KLINGAI_API_KEY",
+                payload["diagnostics"]["supported_kling_key_names"],
+            )
             self.assertNotIn("kling-secret", body)
         finally:
             db.close()

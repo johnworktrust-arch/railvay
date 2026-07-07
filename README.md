@@ -40,7 +40,7 @@ OPENAI_IMAGE_API_KEY=your-openai-image-api-key
 KLING_API_KEY=your-kling-api-key
 ```
 
-`OPENAI_API_KEY` используется для ChatGPT-текста, `OPENAI_IMAGE_API_KEY` — для GPT Image, `KLING_API_KEY` — для видео через Kling. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI/Kling работают через реальные API при наличии ключей, а неподключенная озвучка остаётся на mock-заглушке. OpenAI GPT Image и Kling без ключа не отдают mock-результат, а завершают генерацию ошибкой с возвратом коинов. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
+`OPENAI_API_KEY` используется для ChatGPT-текста, `OPENAI_IMAGE_API_KEY` — для GPT Image, `KLING_API_KEY` — для видео через Kling. Если в Railway ключ Kling уже назван иначе, бот также подхватит `KLINGAI_API_KEY`, `KLING_AI_API_KEY`, `KLING_KEY`, `KLING_API`, `KLING_API_TOKEN`, `KLING_TOKEN`, `KLING_ACCESS_KEY`, `KLING_SECRET_KEY` или `API_KEY_KLING`. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI/Kling работают через реальные API при наличии ключей, а неподключенная озвучка остаётся на mock-заглушке. OpenAI GPT Image и Kling без ключа не отдают mock-результат, а завершают генерацию ошибкой с возвратом коинов. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
 
 Создать БД и заполнить тарифы/модели можно отдельно:
 

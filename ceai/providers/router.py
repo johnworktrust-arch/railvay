@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from ceai.config import Settings
+from ceai.config import KLING_API_KEY_NAMES, Settings
 from ceai.database import Database
 from ceai.providers.base import AIProvider, ImageInput, ProviderError, ProviderResult
 from ceai.providers.deepseek import DeepSeekProvider
@@ -21,7 +21,7 @@ PROVIDER_SETTING_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_IMAGE_API_KEY",
     "OPENAI_BASE_URL",
-    "KLING_API_KEY",
+    *KLING_API_KEY_NAMES,
     "KLING_BASE_URL",
     "KLING_POLL_INTERVAL_SECONDS",
     "KLING_POLL_TIMEOUT_SECONDS",
@@ -63,8 +63,8 @@ class AIProviderRouter:
         openai_base_url = (
             saved_settings.get("OPENAI_BASE_URL") or self.settings.openai_base_url
         )
-        kling_api_key = self.settings.kling_api_key or saved_settings.get(
-            "KLING_API_KEY", ""
+        kling_api_key = self.settings.kling_api_key or self._read_saved_setting_any(
+            saved_settings, KLING_API_KEY_NAMES
         )
         kling_base_url = (
             saved_settings.get("KLING_BASE_URL") or self.settings.kling_base_url
@@ -197,3 +197,16 @@ class AIProviderRouter:
             except ValueError:
                 pass
         return default
+
+    def _read_saved_setting_any(
+        self, saved_settings: Dict[str, str], keys: tuple[str, ...]
+    ) -> str:
+        for key in keys:
+            value = saved_settings.get(key, "")
+            if value.strip():
+                return value.strip()
+        normalized = {key.strip().upper().rstrip(";") for key in keys}
+        for key, value in saved_settings.items():
+            if key.strip().upper().rstrip(";") in normalized and value.strip():
+                return value.strip()
+        return ""

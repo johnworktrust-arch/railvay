@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import hmac
+import os
 from json import JSONDecodeError
 from typing import Mapping, Tuple
 
 from ceai.config import Settings
+from ceai.config import KLING_API_KEY_NAMES
 from ceai.database import Database
 from ceai.json_utils import dumps, loads_dict
 from ceai.providers.base import ProviderError
@@ -17,7 +19,7 @@ SECRET_SETTING_KEYS = {
     "DEEPSEEK_API_KEY",
     "OPENAI_API_KEY",
     "OPENAI_IMAGE_API_KEY",
-    "KLING_API_KEY",
+    *KLING_API_KEY_NAMES,
 }
 TEXT_PROVIDER_MODELS = (
     ("deepseek", "deepseek-v4-flash"),
@@ -105,6 +107,10 @@ def handle_provider_status_request(
                     int(kling_model["coins_cost"]) if kling_model else None
                 ),
             },
+            "diagnostics": {
+                "kling_env_keys_present": _kling_env_key_names(),
+                "supported_kling_key_names": list(KLING_API_KEY_NAMES),
+            },
         },
     )
 
@@ -145,6 +151,15 @@ def _is_authorized(headers: Mapping[str, str], expected_token: str) -> bool:
     if not token:
         token = header_values.get("x-ceaai-admin-token", "").strip()
     return hmac.compare_digest(token, expected_token)
+
+
+def _kling_env_key_names() -> list[str]:
+    names = []
+    for key in os.environ:
+        normalized = key.strip().upper()
+        if "KLING" in normalized or normalized in {"API_KEY_KLING"}:
+            names.append(key)
+    return sorted(names)
 
 
 def _json_response(status: int, body: dict[str, object]) -> Tuple[int, str, str]:
