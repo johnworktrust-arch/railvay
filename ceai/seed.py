@@ -104,6 +104,10 @@ MODEL_PRICES = [
         "generation_type": "video",
         "coins_cost": 25,
         "config": {
+            "api_model": "kling-v3",
+            "mode": "std",
+            "sound": "off",
+            "aspect_ratio": "16:9",
             "provider_cost_amount": 92,
             "provider_cost_currency": "RUB",
             "duration_seconds": 10,

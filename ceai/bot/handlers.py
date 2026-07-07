@@ -919,8 +919,13 @@ def _format_direct_prompt_screen(model: Dict[str, Any]) -> str:
             "Введите текст для генерации или изображение которое хотите изменить.\n\n"
             "🔎Чтобы получить изображение 4К, добавьте «4К» в текст запроса"
         )
+    if str(model["generation_type"]) == "video":
+        return (
+            f"Модель: {model['display_name']}\n\n"
+            f"Стоимость 1 запроса: {_format_coin_unit(model['coins_cost'])}\n\n"
+            "Введите текст для генерации видео."
+        )
     prompt_copy = {
-        "video": "Опишите видео, которое хотите получить.",
         "tts": "Отправьте текст для озвучки.",
     }.get(str(model["generation_type"]), "Отправьте prompt для выбранной модели.")
     return (
@@ -1016,6 +1021,29 @@ def _format_image_generation_caption(
         f"{_format_coin_unit(coins_charged)}  "
         f"Баланс: {_format_coin_balance_unit(balance_after)}"
     )
+
+
+def _format_video_generation_result(
+    *,
+    prompt_text: str,
+    model: Dict[str, Any],
+    coins_charged: Any,
+    balance_after: Any,
+    result: Dict[str, Any],
+) -> str:
+    url = str(result.get("url") or "").strip()
+    lines = [
+        f"📍 Ваш запрос: {prompt_text.strip() or '—'}",
+        "",
+        f"🎛️ Инструмент: {model['display_name']}",
+        "",
+        "ℹ️ Списано: "
+        f"{_format_coin_unit(coins_charged)}  "
+        f"Баланс: {_format_coin_balance_unit(balance_after)}",
+    ]
+    if url:
+        lines.extend(["", f"🎬 Видео: {url}"])
+    return "\n".join(lines)
 
 
 def _telegram_caption(text: str, *, limit: int = 1024) -> str:
@@ -1988,12 +2016,13 @@ async def _handle_reply_menu(
         return True
 
     if text_lower == "видео с ai" or text == VIDEO_AI_BUTTON:
-        await _show_screen(
+        await _send_models_for_types(
             message,
             services,
             user["id"],
-            _feature_temporarily_unavailable_message("Видео с AI"),
-            reply_markup=back_to_menu_keyboard(),
+            generation_types={"video"},
+            title="Выберите модель для видео с AI.",
+            skip_single_model_choice=True,
             delete_current=True,
         )
         return True
@@ -2707,20 +2736,19 @@ def create_router(services: AppServices) -> Router:
         config = {
             "text": ("💡Выберите текстовую модель:", False),
             "image": ("Выберите модель для фото с AI.", True),
-            "video": ("Выберите модель для видео с AI.", False),
+            "video": ("Выберите модель для видео с AI.", True),
             "tts": ("Выберите модель для озвучки текста.", False),
         }.get(generation_type)
         if config is None:
             await callback.answer("Неизвестный раздел", show_alert=True)
             return
-        if generation_type in {"video", "tts"}:
-            feature_name = "Видео с AI" if generation_type == "video" else "Озвучка с AI"
+        if generation_type == "tts":
             _clear_dialog_state(services, user["id"])
             await _show_screen(
                 callback.message,
                 services,
                 user["id"],
-                _feature_temporarily_unavailable_message(feature_name),
+                _feature_temporarily_unavailable_message("Озвучка с AI"),
                 reply_markup=back_to_menu_keyboard(),
             )
             await callback.answer()
@@ -3297,7 +3325,8 @@ def create_router(services: AppServices) -> Router:
                 delete_current=True,
             )
             try:
-                generation = services.generations.generate(
+                generation = await asyncio.to_thread(
+                    services.generations.generate,
                     user_id=user["id"],
                     model_price_id=model_price_id,
                     prompt_text=prompt_text,
@@ -3437,12 +3466,17 @@ def create_router(services: AppServices) -> Router:
             message,
             services,
             user["id"],
-            "Запускаю генерацию...",
+            (
+                "Запускаю генерацию видео. Это может занять несколько минут..."
+                if model["generation_type"] == "video"
+                else "Запускаю генерацию..."
+            ),
             reply_markup=None,
             delete_current=True,
         )
         try:
-            generation = services.generations.generate(
+            generation = await asyncio.to_thread(
+                services.generations.generate,
                 user_id=user["id"],
                 model_price_id=model_price_id,
                 prompt_text=prompt_text,
@@ -3485,6 +3519,22 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 str(exc),
+                reply_markup=back_to_menu_keyboard(),
+            )
+            return
+
+        if generation.model["generation_type"] == "video":
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                _format_video_generation_result(
+                    prompt_text=prompt_text,
+                    model=generation.model,
+                    coins_charged=generation.generation["coins_charged"],
+                    balance_after=generation.balance_after,
+                    result=generation.result,
+                ),
                 reply_markup=back_to_menu_keyboard(),
             )
             return

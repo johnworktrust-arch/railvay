@@ -17,6 +17,7 @@ from ceai.internal_api import handle_provider_settings_request
 from ceai.json_utils import dumps, loads_dict
 from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.providers.base import ImageInput, ProviderError
+from ceai.providers.kling_video import KlingVideoProvider
 from ceai.providers.openai_image import OpenAIImageProvider
 from ceai.providers.router import AIProviderRouter
 from ceai.seed import seed_reference_data
@@ -1019,6 +1020,57 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.result["kind"], "image")
         self.assertIn("Изменение изображения", result.result["caption"])
 
+    def test_kling_video_provider_creates_and_polls_text_to_video_task(self) -> None:
+        provider = KlingVideoProvider(api_key="test-key", poll_interval_seconds=0)
+        calls = []
+
+        def fake_request_json(method, path, *, payload=None):
+            calls.append((method, path, payload))
+            if method == "POST":
+                return {
+                    "code": 0,
+                    "data": {"task_id": "task-123", "task_status": "submitted"},
+                }
+            return {
+                "code": 0,
+                "data": {
+                    "task_id": "task-123",
+                    "task_status": "succeed",
+                    "task_result": {
+                        "videos": [{"url": "https://cdn.test/video.mp4", "duration": "10"}]
+                    },
+                },
+            }
+
+        provider._request_json = fake_request_json
+
+        result = provider.generate(
+            model={
+                "provider": "kling",
+                "model_key": "kling-3",
+                "display_name": "Kling 3.0",
+                "generation_type": "video",
+                "config": {
+                    "api_model": "kling-v3",
+                    "duration_seconds": 10,
+                    "mode": "std",
+                    "sound": "off",
+                    "aspect_ratio": "16:9",
+                },
+            },
+            prompt_text="Сделай короткое видео с логотипом Cea AI",
+        )
+
+        self.assertEqual(calls[0][0], "POST")
+        self.assertEqual(calls[0][1], "/v1/videos/text2video")
+        self.assertEqual(calls[0][2]["model_name"], "kling-v3")
+        self.assertEqual(calls[0][2]["duration"], "10")
+        self.assertEqual(calls[0][2]["sound"], "off")
+        self.assertEqual(calls[1], ("GET", "/v1/videos/text2video/task-123", None))
+        self.assertEqual(result.provider_job_id, "task-123")
+        self.assertEqual(result.result["kind"], "video")
+        self.assertEqual(result.result["url"], "https://cdn.test/video.mp4")
+
     def test_generation_recovers_active_subscription_from_paid_payment(self) -> None:
         payment = self.services.payments.create_mock_payment(
             user_id=self.user["id"], plan_code="start"
@@ -1331,13 +1383,13 @@ class BusinessLogicTest(unittest.TestCase):
 
     def test_cannot_generate_when_coins_are_insufficient(self) -> None:
         self._buy_plan("start")
-        model = self._model("kling-3")
+        model = self._model("deepseek-v4-flash")
 
-        for index in range(4):
+        for index in range(100):
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
-                prompt_text=f"Видео {index}",
+                prompt_text=f"Текст {index}",
             )
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
 
@@ -1345,7 +1397,7 @@ class BusinessLogicTest(unittest.TestCase):
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
-                prompt_text="Еще одно видео",
+                prompt_text="Еще один текст",
             )
 
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 0)
@@ -1409,10 +1461,12 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Стоимость 1 запроса 4К", handlers_source)
         self.assertIn("🔎Чтобы получить изображение 4К", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
-        launch_blocks = handlers_source.split('"Запускаю генерацию..."')[1:]
-        self.assertGreaterEqual(len(launch_blocks), 2)
-        for block in launch_blocks:
-            self.assertIn("reply_markup=None", block.split(")", 1)[0])
+        self.assertIn(
+            '"Запускаю генерацию видео. Это может занять несколько минут..."',
+            handlers_source,
+        )
+        self.assertIn("reply_markup=None", handlers_source)
+        self.assertIn("await asyncio.to_thread(", handlers_source)
         self.assertNotIn(
             '"Запускаю генерацию...",\n'
             "                reply_markup=back_to_menu_keyboard()",
@@ -1470,14 +1524,15 @@ class MigrationAndUITest(unittest.TestCase):
             "ℹ️ Списано: 3 Coin  Баланс: 146.000 Coin",
         )
 
-    def test_video_and_tts_sections_show_unavailable_stub(self) -> None:
+    def test_video_section_is_enabled_and_tts_section_shows_unavailable_stub(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
         self.assertIn("_feature_temporarily_unavailable_message", handlers_source)
         self.assertIn("❌ Функция временно недоступна.", handlers_source)
         self.assertIn("находится в технической подготовке", handlers_source)
-        self.assertIn('generation_type in {"video", "tts"}', handlers_source)
-        self.assertIn('_feature_temporarily_unavailable_message("Видео с AI")', handlers_source)
+        self.assertIn('generation_types={"video"}', handlers_source)
+        self.assertIn('"video": ("Выберите модель для видео с AI.", True)', handlers_source)
+        self.assertNotIn('_feature_temporarily_unavailable_message("Видео с AI")', handlers_source)
         self.assertIn('_feature_temporarily_unavailable_message("Озвучка с AI")', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
 
@@ -2382,6 +2437,10 @@ class MigrationAndUITest(unittest.TestCase):
                 "OPENAI_API_KEY": "openai-test",
                 "OPENAI_IMAGE_API_KEY": "openai-image-test",
                 "OPENAI_BASE_URL": "https://openai.test/v1",
+                "KLING_API_KEY": "kling-test",
+                "KLING_BASE_URL": "https://kling.test",
+                "KLING_POLL_INTERVAL_SECONDS": "7",
+                "KLING_POLL_TIMEOUT_SECONDS": "123",
                 "PAYMENT_PROVIDER": "yookassa",
                 "YOOKASSA_SHOP_ID": "shop-test",
                 "YOOKASSA_SECRET_KEY": "secret-test",
@@ -2400,6 +2459,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(settings.openai_api_key, "openai-test")
         self.assertEqual(settings.openai_image_api_key, "openai-image-test")
         self.assertEqual(settings.openai_base_url, "https://openai.test/v1")
+        self.assertEqual(settings.kling_api_key, "kling-test")
+        self.assertEqual(settings.kling_base_url, "https://kling.test")
+        self.assertEqual(settings.kling_poll_interval_seconds, 7)
+        self.assertEqual(settings.kling_poll_timeout_seconds, 123)
         self.assertEqual(settings.payment_provider, "yookassa")
         self.assertEqual(settings.yookassa_shop_id, "shop-test")
         self.assertEqual(settings.yookassa_secret_key, "secret-test")
@@ -2425,6 +2488,10 @@ class MigrationAndUITest(unittest.TestCase):
                 image = conn.execute(
                     "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
                     ("openai", "gpt-image-2-medium"),
+                ).fetchone()
+                kling = conn.execute(
+                    "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
+                    ("kling", "kling-3"),
                 ).fetchone()
                 costs = {
                     row["model_key"]: row["coins_cost"]
@@ -2461,6 +2528,13 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(image_config["size"], "1024x1024")
             self.assertEqual(image_config["output_format"], "png")
             self.assertEqual(image_config["four_k_coins_cost"], 3)
+            kling_config = loads_dict(kling["config"])
+            self.assertEqual(kling["display_name"], "Kling 3.0")
+            self.assertEqual(kling["generation_type"], "video")
+            self.assertEqual(kling_config["api_model"], "kling-v3")
+            self.assertEqual(kling_config["mode"], "std")
+            self.assertEqual(kling_config["sound"], "off")
+            self.assertEqual(kling_config["aspect_ratio"], "16:9")
         finally:
             db.close()
 
@@ -2508,6 +2582,28 @@ class MigrationAndUITest(unittest.TestCase):
                 prompt_text="Нарисуй кота",
             )
 
+    def test_kling_video_does_not_fall_back_to_mock_without_key(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            ai_provider_mode="auto",
+        )
+        router = AIProviderRouter(settings)
+
+        with self.assertRaisesRegex(ProviderError, "KLING_API_KEY"):
+            router.generate(
+                model={
+                    "provider": "kling",
+                    "model_key": "kling-3",
+                    "display_name": "Kling 3.0",
+                    "generation_type": "video",
+                    "config": "{}",
+                },
+                prompt_text="Сделай короткое видео",
+            )
+
     def test_ai_provider_router_uses_saved_provider_keys(self) -> None:
         db = Database("sqlite:///:memory:")
         try:
@@ -2532,6 +2628,18 @@ class MigrationAndUITest(unittest.TestCase):
                     value="saved-openai-image-key",
                     is_secret=True,
                 )
+                repo.upsert(
+                    conn,
+                    key="KLING_API_KEY",
+                    value="saved-kling-key",
+                    is_secret=True,
+                )
+                repo.upsert(
+                    conn,
+                    key="KLING_BASE_URL",
+                    value="https://saved-kling.test",
+                    is_secret=False,
+                )
 
             settings = Settings(
                 telegram_bot_token="test",
@@ -2545,7 +2653,10 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertIsNotNone(router.deepseek)
             self.assertIsNotNone(router.openai)
             self.assertIsNotNone(router.openai_image)
+            self.assertIsNotNone(router.kling_video)
             self.assertEqual(router.openai_image.api_key, "saved-openai-image-key")
+            self.assertEqual(router.kling_video.api_key, "saved-kling-key")
+            self.assertEqual(router.kling_video.base_url, "https://saved-kling.test")
         finally:
             db.close()
 
@@ -2564,6 +2675,7 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertIsNone(router.deepseek)
             self.assertIsNone(router.openai)
             self.assertIsNone(router.openai_image)
+            self.assertIsNone(router.kling_video)
 
             with db.transaction() as conn:
                 repo = AppSettingsRepository()
@@ -2579,11 +2691,18 @@ class MigrationAndUITest(unittest.TestCase):
                     value="saved-openai-key",
                     is_secret=True,
                 )
+                repo.upsert(
+                    conn,
+                    key="KLING_API_KEY",
+                    value="saved-kling-key",
+                    is_secret=True,
+                )
             router.reload_settings()
 
             self.assertIsNotNone(router.deepseek)
             self.assertIsNotNone(router.openai)
             self.assertIsNotNone(router.openai_image)
+            self.assertIsNotNone(router.kling_video)
         finally:
             db.close()
 
@@ -2631,6 +2750,7 @@ class MigrationAndUITest(unittest.TestCase):
                             "DEEPSEEK_API_KEY": "deepseek-test",
                             "OPENAI_API_KEY": "openai-test",
                             "OPENAI_IMAGE_API_KEY": "openai-image-test",
+                            "KLING_API_KEY": "kling-test",
                         }
                     }
                 ).encode("utf-8"),
@@ -2646,11 +2766,13 @@ class MigrationAndUITest(unittest.TestCase):
                         "DEEPSEEK_API_KEY",
                         "OPENAI_API_KEY",
                         "OPENAI_IMAGE_API_KEY",
+                        "KLING_API_KEY",
                     ),
                 )
             self.assertEqual(saved["DEEPSEEK_API_KEY"], "deepseek-test")
             self.assertEqual(saved["OPENAI_API_KEY"], "openai-test")
             self.assertEqual(saved["OPENAI_IMAGE_API_KEY"], "openai-image-test")
+            self.assertEqual(saved["KLING_API_KEY"], "kling-test")
         finally:
             db.close()
 

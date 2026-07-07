@@ -65,6 +65,10 @@ class Settings:
     openai_api_key: str = ""
     openai_image_api_key: str = ""
     openai_base_url: str = "https://api.openai.com/v1"
+    kling_api_key: str = ""
+    kling_base_url: str = "https://api-singapore.klingai.com"
+    kling_poll_interval_seconds: int = 10
+    kling_poll_timeout_seconds: int = 600
     yookassa_shop_id: str = ""
     yookassa_secret_key: str = ""
     yookassa_api_base_url: str = "https://api.yookassa.ru/v3"
@@ -143,6 +147,12 @@ def load_settings() -> Settings:
         openai_api_key=read("OPENAI_API_KEY"),
         openai_image_api_key=read("OPENAI_IMAGE_API_KEY"),
         openai_base_url=read("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+        kling_api_key=read("KLING_API_KEY"),
+        kling_base_url=read(
+            "KLING_BASE_URL", "https://api-singapore.klingai.com"
+        ).rstrip("/"),
+        kling_poll_interval_seconds=read_int("KLING_POLL_INTERVAL_SECONDS", 10),
+        kling_poll_timeout_seconds=read_int("KLING_POLL_TIMEOUT_SECONDS", 600),
         yookassa_shop_id=read("YOOKASSA_SHOP_ID"),
         yookassa_secret_key=read("YOOKASSA_SECRET_KEY"),
         yookassa_api_base_url=read(

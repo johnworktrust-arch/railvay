@@ -2,14 +2,14 @@
 
 ## Быстрый запуск технического MVP
 
-В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами для локальной разработки, YooKassa-платежами для прода, реальными AI-провайдерами DeepSeek/OpenAI для текста и OpenAI GPT Image для картинок, а также mock-заглушками для остальных типов генераций.
+В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами для локальной разработки, YooKassa-платежами для прода, реальными AI-провайдерами DeepSeek/OpenAI для текста, OpenAI GPT Image для картинок и Kling для видео, а также mock-заглушкой для озвучки.
 
 ### Что внутри
 
 - `ceai/bot` — команды, меню и callback handlers Telegram-бота.
 - `ceai/services` — бизнес-логика пользователей, подписок, платежей, коинов и генераций.
 - `ceai/repositories` — доступ к SQLite-таблицам из модели данных.
-- `ceai/providers` — реальные провайдеры DeepSeek/OpenAI для текста, OpenAI GPT Image для картинок и mock-заглушки video/tts.
+- `ceai/providers` — реальные провайдеры DeepSeek/OpenAI для текста, OpenAI GPT Image для картинок, Kling для видео и mock-заглушка tts.
 - `migrations/001_init.sql` — схема БД из `Документация.md`.
 - `migrations/postgres/001_init.sql` — та же схема для Postgres.
 - `ceai/seed.py` — стартовые тарифы и цены моделей.
@@ -37,9 +37,10 @@ AI_PROVIDER_MODE=auto
 DEEPSEEK_API_KEY=your-deepseek-api-key
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_IMAGE_API_KEY=your-openai-image-api-key
+KLING_API_KEY=your-kling-api-key
 ```
 
-`OPENAI_API_KEY` используется для ChatGPT-текста, `OPENAI_IMAGE_API_KEY` — для GPT Image. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI работают через реальные API при наличии ключей, а неподключенные типы генераций остаются на mock-заглушках. OpenAI GPT Image без ключа не отдаёт mock-картинку, а завершает генерацию ошибкой с возвратом коинов. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
+`OPENAI_API_KEY` используется для ChatGPT-текста, `OPENAI_IMAGE_API_KEY` — для GPT Image, `KLING_API_KEY` — для видео через Kling. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI/Kling работают через реальные API при наличии ключей, а неподключенная озвучка остаётся на mock-заглушке. OpenAI GPT Image и Kling без ключа не отдают mock-результат, а завершают генерацию ошибкой с возвратом коинов. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
 
 Создать БД и заполнить тарифы/модели можно отдельно:
 
@@ -80,6 +81,7 @@ AI_PROVIDER_MODE=auto
 DEEPSEEK_API_KEY=your-deepseek-api-key
 OPENAI_API_KEY=your-openai-api-key
 OPENAI_IMAGE_API_KEY=your-openai-image-api-key
+KLING_API_KEY=your-kling-api-key
 ADMIN_TELEGRAM_USERNAMES=samescam
 SUPPORT_USERNAME=cea_help
 ```

@@ -6,6 +6,7 @@ from ceai.config import Settings
 from ceai.database import Database
 from ceai.providers.base import AIProvider, ImageInput, ProviderError, ProviderResult
 from ceai.providers.deepseek import DeepSeekProvider
+from ceai.providers.kling_video import KlingVideoProvider
 from ceai.providers.mock import MockAIProvider
 from ceai.providers.openai_image import OpenAIImageProvider
 from ceai.providers.openai_text import OpenAITextProvider
@@ -20,6 +21,10 @@ PROVIDER_SETTING_KEYS = (
     "OPENAI_API_KEY",
     "OPENAI_IMAGE_API_KEY",
     "OPENAI_BASE_URL",
+    "KLING_API_KEY",
+    "KLING_BASE_URL",
+    "KLING_POLL_INTERVAL_SECONDS",
+    "KLING_POLL_TIMEOUT_SECONDS",
 )
 
 
@@ -32,6 +37,7 @@ class AIProviderRouter:
         self.deepseek: AIProvider | None = None
         self.openai: AIProvider | None = None
         self.openai_image: AIProvider | None = None
+        self.kling_video: AIProvider | None = None
         self.reload_settings()
 
     def reload_settings(self) -> None:
@@ -56,6 +62,22 @@ class AIProviderRouter:
         )
         openai_base_url = (
             saved_settings.get("OPENAI_BASE_URL") or self.settings.openai_base_url
+        )
+        kling_api_key = self.settings.kling_api_key or saved_settings.get(
+            "KLING_API_KEY", ""
+        )
+        kling_base_url = (
+            saved_settings.get("KLING_BASE_URL") or self.settings.kling_base_url
+        )
+        kling_poll_interval_seconds = self._read_int_setting(
+            saved_settings,
+            "KLING_POLL_INTERVAL_SECONDS",
+            self.settings.kling_poll_interval_seconds,
+        )
+        kling_poll_timeout_seconds = self._read_int_setting(
+            saved_settings,
+            "KLING_POLL_TIMEOUT_SECONDS",
+            self.settings.kling_poll_timeout_seconds,
         )
         self.deepseek = (
             DeepSeekProvider(
@@ -82,6 +104,17 @@ class AIProviderRouter:
                 timeout_seconds=timeout_seconds,
             )
             if openai_image_api_key
+            else None
+        )
+        self.kling_video = (
+            KlingVideoProvider(
+                api_key=kling_api_key,
+                base_url=kling_base_url,
+                timeout_seconds=timeout_seconds,
+                poll_interval_seconds=kling_poll_interval_seconds,
+                poll_timeout_seconds=kling_poll_timeout_seconds,
+            )
+            if kling_api_key
             else None
         )
 
@@ -117,6 +150,8 @@ class AIProviderRouter:
             real_provider = self.openai
         elif provider_key == "openai" and generation_type == "image":
             real_provider = self.openai_image
+        elif provider_key == "kling" and generation_type == "video":
+            real_provider = self.kling_video
 
         if real_provider is not None:
             return real_provider
@@ -124,6 +159,10 @@ class AIProviderRouter:
             raise ProviderError(
                 "OpenAI Image provider is not configured. "
                 "Set OPENAI_IMAGE_API_KEY or OPENAI_API_KEY."
+            )
+        if provider_key == "kling" and generation_type == "video":
+            raise ProviderError(
+                "Kling video provider is not configured. Set KLING_API_KEY."
             )
         if mode == "real":
             raise ProviderError(
@@ -147,3 +186,14 @@ class AIProviderRouter:
             except ValueError:
                 pass
         return settings.ai_request_timeout_seconds
+
+    def _read_int_setting(
+        self, saved_settings: Dict[str, str], key: str, default: int
+    ) -> int:
+        raw = saved_settings.get(key)
+        if raw:
+            try:
+                return int(raw)
+            except ValueError:
+                pass
+        return default

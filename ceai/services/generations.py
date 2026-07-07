@@ -274,4 +274,19 @@ def _provider_error_message(*, provider_error: str, generation_type: str) -> str
             )
         if "openai image api" in normalized:
             return f"OpenAI Image сейчас не смог создать фото. {suffix}"
+    if generation_type == "video":
+        if "kling_api_key" in normalized or "not configured" in normalized:
+            return (
+                "Генерация видео сейчас не настроена: не задан ключ Kling. "
+                f"{suffix}"
+            )
+        if "http 401" in normalized:
+            return f"Kling не принял API-ключ для генерации видео. {suffix}"
+        if "timed out" in normalized or "timeout" in normalized:
+            return (
+                "Kling не успел завершить видео за отведённое время. "
+                f"{suffix}"
+            )
+        if "kling api" in normalized or "kling task" in normalized:
+            return f"Kling сейчас не смог создать видео. {suffix}"
     return f"Не получилось выполнить генерацию. {suffix}"
