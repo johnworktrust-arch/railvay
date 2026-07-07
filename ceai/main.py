@@ -14,7 +14,10 @@ from aiohttp import ClientSession, ClientTimeout, web
 from ceai.config import Settings, load_settings
 from ceai.database import Database
 from ceai.health import start_health_server
-from ceai.internal_api import handle_provider_settings_request
+from ceai.internal_api import (
+    handle_provider_settings_request,
+    handle_provider_status_request,
+)
 from ceai.payment_notifications import notify_payment_result
 from ceai.public_offer import PUBLIC_OFFER_TEXT
 from ceai.runtime_diagnostics import (
@@ -176,7 +179,17 @@ async def run_webhook(
         )
         return web.Response(status=status, text=response, content_type=content_type)
 
+    async def provider_status(request: web.Request) -> web.Response:
+        status, content_type, response = await asyncio.to_thread(
+            handle_provider_status_request,
+            settings=settings,
+            db=db,
+            headers=request.headers,
+        )
+        return web.Response(status=status, text=response, content_type=content_type)
+
     app.router.add_post("/internal/provider-settings", provider_settings)
+    app.router.add_get("/internal/provider-status", provider_status)
 
     async def yookassa_webhook(request: web.Request) -> web.Response:
         try:

@@ -7,7 +7,10 @@ from typing import Mapping
 
 from ceai.config import Settings
 from ceai.database import Database
-from ceai.internal_api import handle_provider_settings_request
+from ceai.internal_api import (
+    handle_provider_settings_request,
+    handle_provider_status_request,
+)
 from ceai.public_offer import PUBLIC_OFFER_TEXT
 
 
@@ -53,6 +56,22 @@ async def _handle_health_request(
                 db=db,
                 headers=request_headers,
                 body=body_start,
+            )
+        status = _http_status(code)
+        body = response.encode("utf-8")
+    elif path == "/internal/provider-status" and method == "GET":
+        if settings is None or db is None:
+            code, content_type, response = (
+                503,
+                "application/json",
+                '{"ok": false, "error": "not_configured"}\n',
+            )
+        else:
+            code, content_type, response = await asyncio.to_thread(
+                handle_provider_status_request,
+                settings=settings,
+                db=db,
+                headers=request_headers,
             )
         status = _http_status(code)
         body = response.encode("utf-8")

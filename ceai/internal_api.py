@@ -74,6 +74,41 @@ def handle_provider_settings_request(
     return _json_response(200, result)
 
 
+def handle_provider_status_request(
+    *,
+    settings: Settings,
+    db: Database,
+    headers: Mapping[str, str],
+) -> Tuple[int, str, str]:
+    if not _is_authorized(headers, settings.telegram_bot_token):
+        return _json_response(401, {"ok": False, "error": "unauthorized"})
+
+    router = AIProviderRouter(settings, db)
+    model_repo = ModelPriceRepository()
+    with db.transaction() as conn:
+        kling_model = model_repo.get_by_provider_key(conn, "kling", "kling-3")
+
+    return _json_response(
+        200,
+        {
+            "ok": True,
+            "ai_provider_mode": settings.ai_provider_mode,
+            "providers": {
+                "deepseek_text_configured": router.deepseek is not None,
+                "openai_text_configured": router.openai is not None,
+                "openai_image_configured": router.openai_image is not None,
+                "kling_video_configured": router.kling_video is not None,
+            },
+            "models": {
+                "kling_3_active": bool(kling_model and kling_model["is_active"]),
+                "kling_3_cost": (
+                    int(kling_model["coins_cost"]) if kling_model else None
+                ),
+            },
+        },
+    )
+
+
 def _verify_text_providers(settings: Settings, db: Database) -> dict[str, str]:
     router = AIProviderRouter(settings, db)
     model_repo = ModelPriceRepository()

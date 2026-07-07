@@ -13,7 +13,10 @@ from unittest.mock import patch
 
 from ceai.config import DEFAULT_INFO_CHANNEL_URL, DEFAULT_PUBLIC_OFFER_URL, Settings
 from ceai.database import Database
-from ceai.internal_api import handle_provider_settings_request
+from ceai.internal_api import (
+    handle_provider_settings_request,
+    handle_provider_status_request,
+)
 from ceai.json_utils import dumps, loads_dict
 from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.providers.base import ImageInput, ProviderError
@@ -2793,6 +2796,56 @@ class MigrationAndUITest(unittest.TestCase):
                 db=db,
                 headers={},
                 body=dumps({"settings": {"AI_PROVIDER_MODE": "auto"}}).encode("utf-8"),
+            )
+
+            self.assertEqual(status, 401)
+            self.assertFalse(loads(body)["ok"])
+        finally:
+            db.close()
+
+    def test_internal_provider_status_reports_kling_without_exposing_secrets(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            seed_reference_data(db)
+            settings = Settings(
+                telegram_bot_token="secret-token",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+                kling_api_key="kling-secret",
+            )
+            status, content_type, body = handle_provider_status_request(
+                settings=settings,
+                db=db,
+                headers={"Authorization": "Bearer secret-token"},
+            )
+
+            payload = loads(body)
+            self.assertEqual(status, 200)
+            self.assertEqual(content_type, "application/json")
+            self.assertTrue(payload["ok"])
+            self.assertTrue(payload["providers"]["kling_video_configured"])
+            self.assertTrue(payload["models"]["kling_3_active"])
+            self.assertEqual(payload["models"]["kling_3_cost"], 25)
+            self.assertNotIn("kling-secret", body)
+        finally:
+            db.close()
+
+    def test_internal_provider_status_requires_auth(self) -> None:
+        db = Database("sqlite:///:memory:")
+        try:
+            db.migrate()
+            settings = Settings(
+                telegram_bot_token="secret-token",
+                database_url="sqlite:///:memory:",
+                app_env="test",
+                mock_payment_base_url="https://mock-payments.test/pay",
+            )
+            status, _, body = handle_provider_status_request(
+                settings=settings,
+                db=db,
+                headers={},
             )
 
             self.assertEqual(status, 401)
