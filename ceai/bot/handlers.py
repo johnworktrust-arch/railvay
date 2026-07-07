@@ -999,12 +999,41 @@ def _format_generation_result(result: Dict[str, Any]) -> str:
     if kind == "text":
         body = str(result.get("text", ""))
     elif kind in {"image", "video"}:
-        body = f"{result.get('caption', 'Mock result')}\n{result.get('url')}"
+        url = str(result.get("url") or "")
+        caption = str(result.get("caption") or "Готово.")
+        if url.strip():
+            caption = escape(caption)
+        link = _format_media_link(kind=str(kind), url=url)
+        body = "\n".join(part for part in (caption, link) if part)
     elif kind == "tts":
         body = f"{result.get('message', 'Mock TTS result')}\n{result.get('url')}"
     else:
         body = str(result)
     return body
+
+
+def _format_media_link(*, kind: str, url: str) -> str:
+    cleaned_url = url.strip()
+    if not cleaned_url:
+        return ""
+    label = "ссылка на видео" if kind == "video" else "ссылка на фото"
+    prefix = "🎬 Видео" if kind == "video" else "🖼 Фото"
+    return f'{prefix}: <a href="{escape(cleaned_url, quote=True)}">{label}</a>'
+
+
+def _result_uses_html_links(result: Dict[str, Any]) -> bool:
+    return str(result.get("kind") or "") in {"image", "video"} and bool(
+        str(result.get("url") or "").strip()
+    )
+
+
+def _caption_without_media_link(text: str) -> str:
+    lines = [
+        line
+        for line in text.splitlines()
+        if not line.startswith("🎬 Видео:") and not line.startswith("🖼 Фото:")
+    ]
+    return "\n".join(lines).strip()
 
 
 def _format_image_generation_caption(
@@ -1033,16 +1062,16 @@ def _format_video_generation_result(
 ) -> str:
     url = str(result.get("url") or "").strip()
     lines = [
-        f"📍 Ваш запрос: {prompt_text.strip() or '—'}",
+        f"📍 Ваш запрос: {escape(prompt_text.strip() or '—')}",
         "",
-        f"🎛️ Инструмент: {model['display_name']}",
+        f"🎛️ Инструмент: {escape(str(model['display_name']))}",
         "",
         "ℹ️ Списано: "
         f"{_format_coin_unit(coins_charged)}  "
         f"Баланс: {_format_coin_balance_unit(balance_after)}",
     ]
     if url:
-        lines.extend(["", f"🎬 Видео: {url}"])
+        lines.extend(["", _format_media_link(kind="video", url=url)])
     return "\n".join(lines)
 
 
@@ -1093,12 +1122,14 @@ async def _show_generation_result(
         if tracked_ids:
             await _delete_screen_messages(message, tracked_ids)
         try:
+            caption_source = str(video_caption or result.get("caption") or "Готово.")
+            if video_caption:
+                caption_source = _caption_without_media_link(caption_source)
             sent = await message.bot.send_video(
                 chat_id=message.chat.id,
                 video=str(result["url"]),
-                caption=_telegram_caption(
-                    str(video_caption or result.get("caption") or "Готово.")
-                ),
+                caption=_telegram_caption(caption_source),
+                parse_mode="HTML" if video_caption else None,
                 reply_markup=None,
             )
             payload.pop(LAST_BOT_MESSAGE_ID, None)
@@ -1108,12 +1139,22 @@ async def _show_generation_result(
         except (TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
 
+    fallback_text = (
+        video_caption
+        if result.get("kind") == "video" and video_caption
+        else _format_generation_result(result)
+    )
     return await _show_screen(
         message,
         services,
         user_id,
-        _format_generation_result(result),
+        fallback_text,
         reply_markup=reply_markup,
+        parse_mode=(
+            "HTML"
+            if (video_caption or _result_uses_html_links(result))
+            else None
+        ),
     )
 
 
@@ -1132,10 +1173,22 @@ def _generation_prompt_text(row: Dict[str, Any]) -> str:
     return str(prompt or "").strip()
 
 
-def _generation_result_text(row: Dict[str, Any]) -> str:
+def _generation_result_payload(row: Dict[str, Any]) -> Dict[str, Any]:
     result_payload = row.get("result_payload")
     if not isinstance(result_payload, dict):
         result_payload = loads_dict(row.get("result"))
+    return result_payload
+
+
+def _generation_result_has_media_link(row: Dict[str, Any]) -> bool:
+    result_payload = _generation_result_payload(row)
+    return str(result_payload.get("kind") or "") in {"image", "video"} and bool(
+        str(result_payload.get("url") or "").strip()
+    )
+
+
+def _generation_result_text(row: Dict[str, Any], *, html_links: bool = False) -> str:
+    result_payload = _generation_result_payload(row)
     if not result_payload:
         return str(row.get("error_message") or "Результат пока не сохранён.")
 
@@ -1144,11 +1197,20 @@ def _generation_result_text(row: Dict[str, Any]) -> str:
     if kind == "text":
         parts.append(str(result_payload.get("text") or "").strip())
     elif kind in {"image", "video"}:
-        parts.append(str(result_payload.get("caption") or "").strip())
+        caption = str(result_payload.get("caption") or "").strip()
+        parts.append(escape(caption) if html_links else caption)
         if result_payload.get("url"):
-            parts.append(str(result_payload["url"]).strip())
+            if html_links:
+                parts.append(
+                    _format_media_link(kind=str(kind), url=str(result_payload["url"]))
+                )
+            else:
+                parts.append(str(result_payload["url"]).strip())
         if result_payload.get("revised_prompt"):
-            parts.append(f"Уточнённый prompt: {result_payload['revised_prompt']}")
+            revised_prompt = str(result_payload["revised_prompt"])
+            if html_links:
+                revised_prompt = escape(revised_prompt)
+            parts.append(f"Уточнённый prompt: {revised_prompt}")
     elif kind == "tts":
         parts.append(str(result_payload.get("message") or "").strip())
         if result_payload.get("url"):
@@ -1181,12 +1243,21 @@ def _format_history(rows: list[Dict[str, Any]]) -> str:
 
 
 def _format_history_result(row: Dict[str, Any]) -> str:
-    result_text = _short_history_text(_generation_result_text(row), limit=2400)
+    html_links = _generation_result_has_media_link(row)
+    result_text = _generation_result_text(row, html_links=html_links)
+    if not html_links:
+        result_text = _short_history_text(result_text, limit=2400)
     prompt = _short_history_text(_generation_prompt_text(row), limit=800)
+    model_name = str(row["model_display_name"])
+    status = str(row["status"])
+    if html_links:
+        prompt = escape(prompt)
+        model_name = escape(model_name)
+        status = escape(status)
     return (
         f"Генерация #{row['id']}\n\n"
-        f"Модель - {row['model_display_name']}\n"
-        f"Статус - {row['status']}\n"
+        f"Модель - {model_name}\n"
+        f"Статус - {status}\n"
         f"Списано - {format_coin_amount(row.get('coins_charged'))}\n"
         f"Промпт - {prompt}\n\n"
         f"Результат:\n{result_text}"
@@ -1581,6 +1652,7 @@ async def _send_history_result(
             delete_current=delete_current,
         )
         return
+    has_media_link = _generation_result_has_media_link(generation)
     await _show_screen(
         message,
         services,
@@ -1588,6 +1660,7 @@ async def _send_history_result(
         _format_history_result(generation),
         reply_markup=history_result_keyboard(page=page),
         delete_current=delete_current,
+        parse_mode="HTML" if has_media_link else None,
     )
 
 

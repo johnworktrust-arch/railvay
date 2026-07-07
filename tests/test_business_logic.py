@@ -2010,6 +2010,60 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("reply_markup=back_to_menu_keyboard()", support_source)
         self.assertNotIn("reply_markup=main_menu_keyboard()", support_source)
 
+    def test_media_result_links_are_hidden_behind_short_labels(self) -> None:
+        from ceai.bot.handlers import _format_generation_result
+        from ceai.bot.handlers import _format_history_result
+        from ceai.bot.handlers import _format_video_generation_result
+
+        video_url = "https://cdn.example/video.mp4?Expires=1&Signature=very-long"
+        video_text = _format_video_generation_result(
+            prompt_text="Сделай <видео>",
+            model={"display_name": "Kling 3.0"},
+            coins_charged=35,
+            balance_after=177,
+            result={"kind": "video", "url": video_url},
+        )
+        self.assertIn(
+            '🎬 Видео: <a href="https://cdn.example/video.mp4?Expires=1&amp;Signature=very-long">ссылка на видео</a>',
+            video_text,
+        )
+        self.assertIn("Сделай &lt;видео&gt;", video_text)
+        self.assertNotIn("🎬 Видео: https://", video_text)
+
+        image_text = _format_generation_result(
+            {
+                "kind": "image",
+                "caption": "Фото <готово>",
+                "url": "https://cdn.example/image.png?x=1&y=2",
+            }
+        )
+        self.assertIn("Фото &lt;готово&gt;", image_text)
+        self.assertIn(
+            '🖼 Фото: <a href="https://cdn.example/image.png?x=1&amp;y=2">ссылка на фото</a>',
+            image_text,
+        )
+        self.assertNotIn("🖼 Фото: https://", image_text)
+
+        history_text = _format_history_result(
+            {
+                "id": 7,
+                "model_display_name": "Kling 3.0",
+                "status": "completed",
+                "coins_charged": 35,
+                "prompt_payload": {"text": "Видео с логотипом"},
+                "result_payload": {
+                    "kind": "video",
+                    "caption": "Готовое видео",
+                    "url": video_url,
+                },
+            }
+        )
+        self.assertIn(
+            '🎬 Видео: <a href="https://cdn.example/video.mp4?Expires=1&amp;Signature=very-long">ссылка на видео</a>',
+            history_text,
+        )
+        self.assertNotIn("🎬 Видео: https://", history_text)
+
     def test_history_screen_has_paged_generation_buttons(self) -> None:
         from ceai.bot.handlers import _format_history, _format_history_result
         from ceai.bot.keyboards import history_keyboard, history_result_keyboard
