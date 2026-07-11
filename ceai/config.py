@@ -61,15 +61,21 @@ class Settings:
     database_url: str
     app_env: str
     mock_payment_base_url: str
+    vpn_telegram_bot_token: str = ""
     payment_provider: str = "mock"
     app_base_url: str = ""
     telegram_webhook_path: str = "/telegram/webhook"
     telegram_webhook_secret: str = ""
+    vpn_telegram_webhook_path: str = "/telegram/vpn/webhook"
+    vpn_telegram_webhook_secret: str = ""
+    vpn_bot_username: str = ""
     admin_telegram_ids: Tuple[int, ...] = ()
     admin_telegram_usernames: Tuple[str, ...] = ()
     public_offer_url: str = DEFAULT_PUBLIC_OFFER_URL
     info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
     support_username: str = "cea_help"
+    vpn_support_username: str = "cea_help"
+    vpn_channel_url: str = "https://t.me/ceafamily"
     ai_provider_mode: str = "auto"
     ai_request_timeout_seconds: int = 60
     deepseek_api_key: str = ""
@@ -150,6 +156,7 @@ def load_settings() -> Settings:
 
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
+        vpn_telegram_bot_token=read("VPN_TELEGRAM_BOT_TOKEN"),
         database_url=read("DATABASE_URL", "sqlite:///./data/ceai.sqlite3"),
         app_env=read("APP_ENV", "local"),
         mock_payment_base_url=read(
@@ -159,6 +166,11 @@ def load_settings() -> Settings:
         app_base_url=app_base_url,
         telegram_webhook_path=read("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook"),
         telegram_webhook_secret=read("TELEGRAM_WEBHOOK_SECRET"),
+        vpn_telegram_webhook_path=read(
+            "VPN_TELEGRAM_WEBHOOK_PATH", "/telegram/vpn/webhook"
+        ),
+        vpn_telegram_webhook_secret=read("VPN_TELEGRAM_WEBHOOK_SECRET"),
+        vpn_bot_username=read("VPN_BOT_USERNAME").strip().lstrip("@"),
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
         public_offer_url=read("PUBLIC_OFFER_URL", public_offer_default),
@@ -166,6 +178,12 @@ def load_settings() -> Settings:
             read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL)
         ),
         support_username=read("SUPPORT_USERNAME", "cea_help").strip().lstrip("@"),
+        vpn_support_username=read(
+            "VPN_SUPPORT_USERNAME", read("SUPPORT_USERNAME", "cea_help")
+        ).strip().lstrip("@"),
+        vpn_channel_url=_normalize_telegram_url(
+            read("VPN_CHANNEL_URL", read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL))
+        ),
         ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),
         ai_request_timeout_seconds=read_int("AI_REQUEST_TIMEOUT_SECONDS", 60),
         deepseek_api_key=read("DEEPSEEK_API_KEY"),

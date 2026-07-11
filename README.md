@@ -60,6 +60,22 @@ python -m ceai.main
 
 Railway использует `Dockerfile` и `railway.json`. В проде бот работает через Telegram webhook, поэтому у сервиса должен быть публичный домен.
 
+Один сервис может одновременно обслуживать агрегатор и визуальный VPN-бот. Для
+второго бота добавьте в тот же Railway service:
+
+```env
+VPN_TELEGRAM_BOT_TOKEN=токен_второго_бота
+VPN_BOT_USERNAME=имя_бота_без_собаки
+VPN_TELEGRAM_WEBHOOK_SECRET=отдельная_случайная_строка
+VPN_SUPPORT_USERNAME=cea_help
+VPN_CHANNEL_URL=https://t.me/ceafamily
+```
+
+Основной бот продолжит использовать `TELEGRAM_BOT_TOKEN` и путь
+`/telegram/webhook`, а VPN-бот получит отдельный webhook
+`/telegram/vpn/webhook`. Отдельный Railway service не нужен. Если
+`VPN_TELEGRAM_BOT_TOKEN` не задан, запускается только агрегатор.
+
 1. Создайте проект Railway из GitHub-репозитория.
 2. В сервисе откройте `Settings -> Networking` и нажмите `Generate Domain`.
 3. Добавьте Postgres в Railway и подключите `DATABASE_URL` к сервису. В продакшене SQLite запрещён по умолчанию: файл внутри контейнера может быть пересоздан при деплое, и тогда пропадут пользователи, подписки, платежи и балансы.

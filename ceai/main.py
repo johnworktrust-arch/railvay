@@ -28,6 +28,7 @@ from ceai.seed import seed_reference_data
 from ceai.services.app import AppServices, build_services
 from ceai.services.exceptions import BusinessRuleError
 from ceai.bot.handlers import create_router
+from ceai.vpn_bot.handlers import create_vpn_router
 
 
 BOT_COMMANDS = [
@@ -144,6 +145,11 @@ async def run_webhook(
     webhook_url: str,
     webhook_path: str,
     webhook_secret: str,
+    vpn_bot: Bot | None = None,
+    vpn_dispatcher: Dispatcher | None = None,
+    vpn_webhook_url: str = "",
+    vpn_webhook_path: str = "",
+    vpn_webhook_secret: str = "",
 ) -> None:
     @web.middleware
     async def diagnostics_middleware(
@@ -268,11 +274,26 @@ async def run_webhook(
     ).register(app, path=webhook_path)
     setup_application(app, dispatcher, bot=bot)
 
+    if vpn_bot and vpn_dispatcher and vpn_webhook_path:
+        SimpleRequestHandler(
+            dispatcher=vpn_dispatcher,
+            bot=vpn_bot,
+            handle_in_background=True,
+            secret_token=vpn_webhook_secret or None,
+        ).register(app, path=vpn_webhook_path)
+        setup_application(app, vpn_dispatcher, bot=vpn_bot)
+
     await bot.set_webhook(
         webhook_url,
         secret_token=webhook_secret or None,
         allowed_updates=dispatcher.resolve_used_update_types(),
     )
+    if vpn_bot and vpn_dispatcher and vpn_webhook_url:
+        await vpn_bot.set_webhook(
+            vpn_webhook_url,
+            secret_token=vpn_webhook_secret or None,
+            allowed_updates=vpn_dispatcher.resolve_used_update_types(),
+        )
 
     runner = web.AppRunner(app)
     await runner.setup()
@@ -307,6 +328,12 @@ async def main() -> None:
     await bot.set_my_commands(BOT_COMMANDS)
     dispatcher = Dispatcher()
     dispatcher.include_router(create_router(services))
+    vpn_bot = None
+    vpn_dispatcher = None
+    if settings.vpn_telegram_bot_token:
+        vpn_bot = Bot(token=settings.vpn_telegram_bot_token)
+        vpn_dispatcher = Dispatcher()
+        vpn_dispatcher.include_router(create_vpn_router(services))
     health_server = None
 
     try:
@@ -315,6 +342,7 @@ async def main() -> None:
             if not webhook_path.startswith("/"):
                 webhook_path = "/" + webhook_path
             webhook_url = settings.app_base_url.rstrip("/") + webhook_path
+            vpn_webhook_path = _normalize_path(settings.vpn_telegram_webhook_path)
             await run_webhook(
                 bot=bot,
                 dispatcher=dispatcher,
@@ -324,13 +352,28 @@ async def main() -> None:
                 webhook_url=webhook_url,
                 webhook_path=webhook_path,
                 webhook_secret=settings.telegram_webhook_secret,
+                vpn_bot=vpn_bot,
+                vpn_dispatcher=vpn_dispatcher,
+                vpn_webhook_url=(
+                    settings.app_base_url.rstrip("/") + vpn_webhook_path
+                    if vpn_bot else ""
+                ),
+                vpn_webhook_path=vpn_webhook_path if vpn_bot else "",
+                vpn_webhook_secret=settings.vpn_telegram_webhook_secret,
             )
         else:
             health_server = await start_health_server(settings=settings, db=db)
             await bot.delete_webhook(drop_pending_updates=False)
             auto_renewal_task = asyncio.create_task(auto_renewal_loop(services))
             try:
-                await dispatcher.start_polling(bot)
+                if vpn_bot and vpn_dispatcher:
+                    await vpn_bot.delete_webhook(drop_pending_updates=False)
+                    await asyncio.gather(
+                        dispatcher.start_polling(bot),
+                        vpn_dispatcher.start_polling(vpn_bot),
+                    )
+                else:
+                    await dispatcher.start_polling(bot)
             finally:
                 auto_renewal_task.cancel()
                 with suppress(asyncio.CancelledError):
@@ -340,6 +383,8 @@ async def main() -> None:
             health_server.close()
             await health_server.wait_closed()
         await bot.session.close()
+        if vpn_bot is not None:
+            await vpn_bot.session.close()
         db.close()
 
 
