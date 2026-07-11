@@ -100,6 +100,11 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(row["amount"], 100)
 
     def test_channel_gift_grants_trial_once(self) -> None:
+        self.assertFalse(
+            self.services.subscriptions.has_channel_gift(
+                self.user["id"], gift_key="ceafamily"
+            )
+        )
         first = self.services.subscriptions.grant_channel_gift(
             user_id=self.user["id"],
             plan_code="start",
@@ -111,6 +116,11 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertTrue(first["created"])
         self.assertEqual(first["credited_coins"], 10)
         self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 10)
+        self.assertTrue(
+            self.services.subscriptions.has_channel_gift(
+                self.user["id"], gift_key="ceafamily"
+            )
+        )
 
         second = self.services.subscriptions.grant_channel_gift(
             user_id=self.user["id"],
@@ -1931,13 +1941,19 @@ class MigrationAndUITest(unittest.TestCase):
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
             ["menu:gift", "menu:work", "menu:home", "menu:referral"],
         )
+        self.assertEqual(
+            [
+                row[0].callback_data
+                for row in main_menu_keyboard(gift_claimed=True).inline_keyboard
+            ],
+            ["menu:work", "menu:home", "menu:referral"],
+        )
         gift_rows = gift_subscription_keyboard().inline_keyboard
         self.assertEqual(gift_rows[0][0].text, "📣 Подписаться на канал")
         self.assertEqual(gift_rows[0][0].url, "https://t.me/ceafamily")
         self.assertEqual(gift_rows[1][0].callback_data, "gift:check")
-        self.assertEqual(
-            gift_rows[1][0].model_dump(exclude_none=True)["style"],
-            "success",
+        self.assertNotIn(
+            "style", gift_rows[1][0].model_dump(exclude_none=True)
         )
         self.assertEqual(gift_rows[2][0].callback_data, "menu:main")
         work_rows = work_menu_keyboard().inline_keyboard

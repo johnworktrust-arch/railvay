@@ -41,21 +41,26 @@ REPLY_MENU_BUTTONS = {
 }
 
 
-def main_menu_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def main_menu_keyboard(*, gift_claimed: bool = False) -> InlineKeyboardMarkup:
+    rows = []
+    if not gift_claimed:
+        rows.append(
             [
                 InlineKeyboardButton(
                     text=GIFT_BUTTON,
                     callback_data="menu:gift",
                     style="success",
                 )
-            ],
+            ]
+        )
+    rows.extend(
+        [
             [InlineKeyboardButton(text=START_WORK_BUTTON, callback_data="menu:work")],
             [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
             [InlineKeyboardButton(text=REFERRAL_BUTTON, callback_data="menu:referral")],
         ]
     )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def work_menu_keyboard() -> InlineKeyboardMarkup:
@@ -132,7 +137,6 @@ def gift_subscription_keyboard(
                 InlineKeyboardButton(
                     text="✅ Проверить подписку",
                     callback_data="gift:check",
-                    style="success",
                 )
             ],
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],

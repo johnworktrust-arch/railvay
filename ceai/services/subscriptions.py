@@ -113,3 +113,8 @@ class SubscriptionService:
                 "subscription": subscription,
                 "credited_coins": coins_amount if created else 0,
             }
+
+    def has_channel_gift(self, user_id: int, *, gift_key: str) -> bool:
+        idempotency_key = f"gift:{gift_key}:{user_id}:credit"
+        with self.db.transaction() as conn:
+            return self.coins.get_by_idempotency_key(conn, idempotency_key) is not None

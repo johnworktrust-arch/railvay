@@ -355,7 +355,7 @@ async def _send_generation_menu_followup(
     user_id: int,
 ) -> Message:
     state, payload = _session_state_payload(services, user_id)
-    reply_markup = main_menu_keyboard()
+    reply_markup = _main_menu_keyboard(services, user_id)
     await _remove_legacy_reply_keyboard(message, payload, reply_markup)
     sent = await _send_screen_message(
         message,
@@ -1623,9 +1623,19 @@ async def _send_menu_screen(
         services,
         user_id,
         _format_main_menu(),
-        reply_markup=main_menu_keyboard(),
+        reply_markup=_main_menu_keyboard(services, user_id),
         delete_current=delete_current,
     )
+
+
+def _main_menu_keyboard(
+    services: AppServices, user_id: int
+) -> InlineKeyboardMarkup:
+    gift_claimed = services.subscriptions.has_channel_gift(
+        user_id,
+        gift_key=GIFT_CHANNEL_USERNAME,
+    )
+    return main_menu_keyboard(gift_claimed=gift_claimed)
 
 
 async def _send_work_menu(
