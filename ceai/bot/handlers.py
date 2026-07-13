@@ -1614,10 +1614,14 @@ async def _send_menu_screen(
 def _main_menu_keyboard(
     services: AppServices, user_id: int
 ) -> InlineKeyboardMarkup:
-    gift_claimed = services.subscriptions.has_channel_gift(
-        user_id,
-        gift_key=GIFT_CHANNEL_USERNAME,
-    )
+    user = services.users.get_by_id(user_id)
+    is_admin = bool(user and services.admin.has_admin_access(user))
+    gift_claimed = False
+    if not is_admin:
+        gift_claimed = services.subscriptions.has_channel_gift(
+            user_id,
+            gift_key=GIFT_CHANNEL_USERNAME,
+        )
     return main_menu_keyboard(gift_claimed=gift_claimed)
 
 
@@ -1883,6 +1887,29 @@ async def _send_support(
         user_id,
         f"Поддержка: @{support_username}\n"
         "Напишите нам, если нужна помощь с аккаунтом, тарифом или генерацией.",
+        reply_markup=back_to_menu_keyboard(),
+        delete_current=delete_current,
+    )
+
+
+async def _send_about_service(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+) -> None:
+    _clear_dialog_state(services, user_id)
+    support_username = services.settings.support_username or "cea_help"
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        "🛡 О сервисе\n\n"
+        "Cea AI объединяет современные AI-инструменты для работы с текстом, "
+        "изображениями и видео в одном Telegram-боте.\n\n"
+        f"Канал: @{GIFT_CHANNEL_USERNAME}\n"
+        f"Поддержка: @{support_username}",
         reply_markup=back_to_menu_keyboard(),
         delete_current=delete_current,
     )
@@ -3309,6 +3336,20 @@ def create_router(services: AppServices) -> Router:
             return
         if callback.message:
             await _send_support(
+                callback.message, services, user["id"], delete_current=True
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data == "menu:about")
+    async def menu_about(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if callback.message:
+            await _send_about_service(
                 callback.message, services, user["id"], delete_current=True
             )
         await callback.answer()
