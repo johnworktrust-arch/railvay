@@ -4,6 +4,7 @@ from html import escape
 from typing import Any, Dict
 
 from aiogram import F, Router
+from aiogram.enums import ChatMemberStatus
 from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
@@ -197,7 +198,10 @@ def create_vpn_router(services: AppServices) -> Router:
                 chat_id=channel,
                 user_id=callback.from_user.id,
             )
-            subscribed = str(member.status) not in {"left", "kicked"}
+            subscribed = member.status not in {
+                ChatMemberStatus.LEFT,
+                ChatMemberStatus.KICKED,
+            }
         except Exception:
             subscribed = False
         if subscribed:
