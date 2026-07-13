@@ -99,6 +99,7 @@ def handle_provider_status_request(
                 "deepseek_text_configured": router.deepseek is not None,
                 "openai_text_configured": router.openai is not None,
                 "openai_image_configured": router.openai_image is not None,
+                "openai_tts_configured": router.openai_tts is not None,
                 "kling_video_configured": router.kling_video is not None,
             },
             "models": {

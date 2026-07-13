@@ -1115,6 +1115,12 @@ def _sent_video_file_id(sent: Message) -> str | None:
     return str(file_id).strip() if file_id else None
 
 
+def _sent_audio_file_id(sent: Message) -> str | None:
+    audio = getattr(sent, "audio", None)
+    file_id = getattr(audio, "file_id", None) if audio else None
+    return str(file_id).strip() if file_id else None
+
+
 async def _remember_generation_media_file(
     services: AppServices,
     *,
@@ -1206,6 +1212,43 @@ async def _show_generation_result(
                 await _send_generation_menu_followup(message, services, user_id)
             return sent
         except (TelegramBadRequest, TelegramForbiddenError, ValueError):
+            pass
+
+    if result.get("kind") == "tts" and result.get("audio_b64"):
+        state, payload = _session_state_payload(services, user_id)
+        tracked_ids = _tracked_message_ids(payload)
+        if tracked_ids:
+            await _delete_screen_messages(message, tracked_ids)
+        try:
+            audio_bytes = base64.b64decode(str(result["audio_b64"]), validate=True)
+            sent = await message.bot.send_audio(
+                chat_id=message.chat.id,
+                audio=BufferedInputFile(
+                    audio_bytes,
+                    filename=str(result.get("file_name") or "cea-ai-voice.mp3"),
+                ),
+                caption=_telegram_caption(
+                    str(result.get("message") or "Озвучка готова.")
+                ),
+                reply_markup=reply_markup,
+            )
+            await _remember_generation_media_file(
+                services,
+                generation_id=generation_id,
+                kind="tts",
+                file_id=_sent_audio_file_id(sent),
+            )
+            _remember_screen_message(
+                services,
+                user_id,
+                state=state,
+                payload=payload,
+                message_id=sent.message_id,
+                reply_markup=reply_markup,
+                is_media=True,
+            )
+            return sent
+        except (binascii.Error, TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
 
     fallback_text = (
@@ -1371,6 +1414,25 @@ def _history_video_sources(result: Dict[str, Any]) -> list[str]:
     return sources
 
 
+def _history_audio_sources(result: Dict[str, Any]) -> list[Any]:
+    sources: list[Any] = []
+    file_id = str(result.get("telegram_audio_file_id") or "").strip()
+    if file_id:
+        sources.append(file_id)
+    if result.get("audio_b64"):
+        try:
+            audio_bytes = base64.b64decode(str(result["audio_b64"]), validate=True)
+            sources.append(
+                BufferedInputFile(
+                    audio_bytes,
+                    filename=str(result.get("file_name") or "cea-ai-voice.mp3"),
+                )
+            )
+        except (binascii.Error, ValueError):
+            pass
+    return sources
+
+
 async def _show_history_media_result(
     message: Message,
     services: AppServices,
@@ -1382,14 +1444,15 @@ async def _show_history_media_result(
 ) -> bool:
     result = _generation_result_payload(generation)
     kind = str(result.get("kind") or "")
-    if kind not in {"image", "video"}:
+    if kind not in {"image", "video", "tts"}:
         return False
 
-    sources = (
-        _history_image_sources(result)
-        if kind == "image"
-        else _history_video_sources(result)
-    )
+    if kind == "image":
+        sources = _history_image_sources(result)
+    elif kind == "video":
+        sources = _history_video_sources(result)
+    else:
+        sources = _history_audio_sources(result)
     if not sources:
         return False
 
@@ -1426,7 +1489,7 @@ async def _show_history_media_result(
                     kind="image",
                     file_id=_sent_photo_file_id(sent),
                 )
-            else:
+            elif kind == "video":
                 sent = await message.bot.send_video(
                     chat_id=message.chat.id,
                     video=str(source),
@@ -1438,6 +1501,19 @@ async def _show_history_media_result(
                     generation_id=int(generation["id"]),
                     kind="video",
                     file_id=_sent_video_file_id(sent),
+                )
+            else:
+                sent = await message.bot.send_audio(
+                    chat_id=message.chat.id,
+                    audio=source,
+                    caption=caption,
+                    reply_markup=reply_markup,
+                )
+                await _remember_generation_media_file(
+                    services,
+                    generation_id=int(generation["id"]),
+                    kind="tts",
+                    file_id=_sent_audio_file_id(sent),
                 )
             _remember_screen_message(
                 services,
@@ -2372,12 +2448,13 @@ async def _handle_reply_menu(
         return True
 
     if text_lower in {"озвучка с ai", "озвучка текста"} or text == VOICE_AI_BUTTON:
-        await _show_screen(
+        await _send_models_for_types(
             message,
             services,
             user["id"],
-            _feature_temporarily_unavailable_message("Озвучка с AI"),
-            reply_markup=back_to_menu_keyboard(),
+            generation_types={"tts"},
+            title="Выберите модель для озвучки текста.",
+            skip_single_model_choice=True,
             delete_current=True,
         )
         return True
@@ -3082,21 +3159,10 @@ def create_router(services: AppServices) -> Router:
             "text": ("💡Выберите текстовую модель:", False),
             "image": ("Выберите модель для фото с AI.", True),
             "video": ("Выберите модель для видео с AI.", True),
-            "tts": ("Выберите модель для озвучки текста.", False),
+            "tts": ("Выберите модель для озвучки текста.", True),
         }.get(generation_type)
         if config is None:
             await callback.answer("Неизвестный раздел", show_alert=True)
-            return
-        if generation_type == "tts":
-            _clear_dialog_state(services, user["id"])
-            await _show_screen(
-                callback.message,
-                services,
-                user["id"],
-                _feature_temporarily_unavailable_message("Озвучка с AI"),
-                reply_markup=back_to_menu_keyboard(),
-            )
-            await callback.answer()
             return
         title, skip_single_model_choice = config
         _clear_dialog_state(services, user["id"])

@@ -217,7 +217,7 @@ class GenerationService:
         self, *, generation_id: int, kind: str, file_id: str
     ) -> None:
         file_id = file_id.strip()
-        if kind not in {"image", "video"} or not file_id:
+        if kind not in {"image", "video", "tts"} or not file_id:
             return
 
         with self.db.transaction() as conn:
@@ -227,11 +227,11 @@ class GenerationService:
             result = loads_dict(generation.get("result"))
             if result.get("kind") != kind:
                 return
-            key = (
-                "telegram_photo_file_id"
-                if kind == "image"
-                else "telegram_video_file_id"
-            )
+            key = {
+                "image": "telegram_photo_file_id",
+                "video": "telegram_video_file_id",
+                "tts": "telegram_audio_file_id",
+            }[kind]
             if result.get(key) == file_id:
                 return
             result[key] = file_id
@@ -249,12 +249,18 @@ def _hydrate_generation_row(row: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def _result_for_storage(result: Dict[str, Any]) -> Dict[str, Any]:
-    if result.get("kind") != "image" or "image_b64" not in result:
-        return result
-    stored = dict(result)
-    stored.pop("image_b64", None)
-    stored["image_data_saved"] = False
-    return stored
+    kind = result.get("kind")
+    if kind == "image" and "image_b64" in result:
+        stored = dict(result)
+        stored.pop("image_b64", None)
+        stored["image_data_saved"] = False
+        return stored
+    if kind == "tts" and "audio_b64" in result:
+        stored = dict(result)
+        stored.pop("audio_b64", None)
+        stored["audio_data_saved"] = False
+        return stored
+    return result
 
 
 def _generation_coin_cost(model: Dict[str, Any], prompt_text: str) -> int:
@@ -317,4 +323,11 @@ def _provider_error_message(*, provider_error: str, generation_type: str) -> str
             )
         if "kling api" in normalized or "kling task" in normalized:
             return f"Kling сейчас не смог создать видео. {suffix}"
+    if generation_type == "tts":
+        if "openai_api_key" in normalized or "not configured" in normalized:
+            return f"Озвучка сейчас не настроена: не задан ключ OpenAI. {suffix}"
+        if "http 401" in normalized:
+            return f"OpenAI не принял API-ключ для озвучки. {suffix}"
+        if "openai tts api" in normalized:
+            return f"OpenAI сейчас не смог озвучить текст. {suffix}"
     return f"Не получилось выполнить генерацию. {suffix}"

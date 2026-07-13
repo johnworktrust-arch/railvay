@@ -10,6 +10,7 @@ from ceai.providers.kling_video import KlingVideoProvider
 from ceai.providers.mock import MockAIProvider
 from ceai.providers.openai_image import OpenAIImageProvider
 from ceai.providers.openai_text import OpenAITextProvider
+from ceai.providers.openai_tts import OpenAITTSProvider
 from ceai.repositories.app_settings import AppSettingsRepository
 
 
@@ -37,6 +38,7 @@ class AIProviderRouter:
         self.deepseek: AIProvider | None = None
         self.openai: AIProvider | None = None
         self.openai_image: AIProvider | None = None
+        self.openai_tts: AIProvider | None = None
         self.kling_video: AIProvider | None = None
         self.reload_settings()
 
@@ -106,6 +108,15 @@ class AIProviderRouter:
             if openai_image_api_key
             else None
         )
+        self.openai_tts = (
+            OpenAITTSProvider(
+                api_key=openai_api_key,
+                base_url=openai_base_url,
+                timeout_seconds=timeout_seconds,
+            )
+            if openai_api_key
+            else None
+        )
         self.kling_video = (
             KlingVideoProvider(
                 api_key=kling_api_key,
@@ -150,6 +161,8 @@ class AIProviderRouter:
             real_provider = self.openai
         elif provider_key == "openai" and generation_type == "image":
             real_provider = self.openai_image
+        elif provider_key == "openai" and generation_type == "tts":
+            real_provider = self.openai_tts
         elif provider_key == "kling" and generation_type == "video":
             real_provider = self.kling_video
 
@@ -163,6 +176,10 @@ class AIProviderRouter:
         if provider_key == "kling" and generation_type == "video":
             raise ProviderError(
                 "Kling video provider is not configured. Set KLING_API_KEY."
+            )
+        if provider_key == "openai" and generation_type == "tts":
+            raise ProviderError(
+                "OpenAI TTS provider is not configured. Set OPENAI_API_KEY."
             )
         if mode == "real":
             raise ProviderError(

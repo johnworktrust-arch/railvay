@@ -118,13 +118,16 @@ MODEL_PRICES = [
         },
     },
     {
-        "provider": "elevenlabs",
-        "model_key": "elevenlabs-tts",
-        "display_name": "ElevenLabs TTS",
+        "provider": "openai",
+        "model_key": "tts-1",
+        "display_name": "OpenAI TTS",
         "generation_type": "tts",
         "coins_cost": 5,
         "config": {
-            "provider_cost_amount": 9,
+            "api_model": "tts-1",
+            "voice": "alloy",
+            "response_format": "mp3",
+            "provider_cost_amount": 2,
             "provider_cost_currency": "RUB",
             "duration_seconds": 15,
             "ui_description": (
@@ -144,6 +147,14 @@ def seed_reference_data(db: Database) -> None:
             plan_repo.upsert(conn, **plan)
         for model in MODEL_PRICES:
             model_repo.upsert(conn, **model)
+        conn.execute(
+            """
+            UPDATE model_prices
+            SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
+            WHERE generation_type = 'tts'
+              AND NOT (provider = 'openai' AND model_key = 'tts-1')
+            """
+        )
 
 
 def main() -> None:

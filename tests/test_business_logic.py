@@ -22,6 +22,7 @@ from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.providers.base import ImageInput, ProviderError
 from ceai.providers.kling_video import KlingVideoProvider
 from ceai.providers.openai_image import OpenAIImageProvider
+from ceai.providers.openai_tts import OpenAITTSProvider
 from ceai.providers.router import AIProviderRouter
 from ceai.seed import seed_reference_data
 from ceai.services.app import build_services
@@ -1023,6 +1024,26 @@ class BusinessLogicTest(unittest.TestCase):
             "telegram-photo-file-id",
         )
 
+        with self.db.transaction() as conn:
+            self.services.generations.generations.update_result(
+                conn,
+                generation_id=generation.generation["id"],
+                result={"kind": "tts", "message": "Озвучка готова."},
+            )
+        self.services.generations.remember_telegram_media_file(
+            generation_id=generation.generation["id"],
+            kind="tts",
+            file_id="telegram-audio-file-id",
+        )
+        loaded_audio = self.services.generations.get_for_user(
+            user_id=self.user["id"],
+            generation_id=generation.generation["id"],
+        )
+        self.assertEqual(
+            loaded_audio["result_payload"]["telegram_audio_file_id"],
+            "telegram-audio-file-id",
+        )
+
     def test_openai_image_provider_uses_edit_endpoint_for_image_input(self) -> None:
         provider = OpenAIImageProvider(api_key="test-key")
         calls = []
@@ -1063,6 +1084,37 @@ class BusinessLogicTest(unittest.TestCase):
         )
         self.assertEqual(result.result["kind"], "image")
         self.assertIn("Изменение изображения", result.result["caption"])
+
+    def test_openai_tts_provider_generates_mp3_audio(self) -> None:
+        provider = OpenAITTSProvider(api_key="test-key")
+        calls = []
+
+        def fake_post_audio(path, payload):
+            calls.append((path, payload))
+            return b"fake-mp3-audio"
+
+        provider._post_audio = fake_post_audio
+        result = provider.generate(
+            model={
+                "provider": "openai",
+                "model_key": "tts-1",
+                "display_name": "OpenAI TTS",
+                "generation_type": "tts",
+                "config": {
+                    "api_model": "tts-1",
+                    "voice": "alloy",
+                    "response_format": "mp3",
+                },
+            },
+            prompt_text="Привет! Это тест озвучки.",
+        )
+
+        self.assertEqual(calls[0][0], "/audio/speech")
+        self.assertEqual(calls[0][1]["model"], "tts-1")
+        self.assertEqual(calls[0][1]["voice"], "alloy")
+        self.assertEqual(result.result["kind"], "tts")
+        self.assertEqual(result.result["mime_type"], "audio/mpeg")
+        self.assertTrue(result.result["audio_b64"])
 
     def test_kling_video_provider_creates_and_polls_text_to_video_task(self) -> None:
         provider = KlingVideoProvider(api_key="test-key", poll_interval_seconds=0)
@@ -1562,7 +1614,7 @@ class MigrationAndUITest(unittest.TestCase):
             "ℹ️ Списано: 3 Coin  Баланс: 146.000 Coin",
         )
 
-    def test_video_section_is_enabled_and_tts_section_shows_unavailable_stub(self) -> None:
+    def test_video_and_tts_sections_are_enabled(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 
         self.assertIn("_feature_temporarily_unavailable_message", handlers_source)
@@ -1571,7 +1623,9 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('generation_types={"video"}', handlers_source)
         self.assertIn('"video": ("Выберите модель для видео с AI.", True)', handlers_source)
         self.assertNotIn('_feature_temporarily_unavailable_message("Видео с AI")', handlers_source)
-        self.assertIn('_feature_temporarily_unavailable_message("Озвучка с AI")', handlers_source)
+        self.assertNotIn('_feature_temporarily_unavailable_message("Озвучка с AI")', handlers_source)
+        self.assertIn('generation_types={generation_type}', handlers_source)
+        self.assertIn('message.bot.send_audio(', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
 
     def test_plan_screen_uses_new_prices_and_coins_are_called_koiny(self) -> None:
@@ -2667,7 +2721,7 @@ class MigrationAndUITest(unittest.TestCase):
                     "gpt-4o-mini": 3,
                     "gpt-image-2-medium": 2,
                     "kling-3": 35,
-                    "elevenlabs-tts": 5,
+                    "tts-1": 5,
                 },
             )
             self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
@@ -2688,6 +2742,12 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(kling_config["sound"], "off")
             self.assertEqual(kling_config["aspect_ratio"], "16:9")
             self.assertEqual(kling_config["provider_cost_amount"], 65)
+            tts = conn.execute(
+                "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
+                ("openai", "tts-1"),
+            ).fetchone()
+            self.assertEqual(tts["display_name"], "OpenAI TTS")
+            self.assertEqual(loads_dict(tts["config"])["voice"], "alloy")
         finally:
             db.close()
 
@@ -2733,6 +2793,28 @@ class MigrationAndUITest(unittest.TestCase):
                     "config": "{}",
                 },
                 prompt_text="Нарисуй кота",
+            )
+
+    def test_openai_tts_does_not_fall_back_to_mock_without_key(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            ai_provider_mode="auto",
+        )
+        router = AIProviderRouter(settings)
+
+        with self.assertRaisesRegex(ProviderError, "OPENAI_API_KEY"):
+            router.generate(
+                model={
+                    "provider": "openai",
+                    "model_key": "tts-1",
+                    "display_name": "OpenAI TTS",
+                    "generation_type": "tts",
+                    "config": "{}",
+                },
+                prompt_text="Привет",
             )
 
     def test_kling_video_does_not_fall_back_to_mock_without_key(self) -> None:
@@ -2962,6 +3044,7 @@ class MigrationAndUITest(unittest.TestCase):
                 app_env="test",
                 mock_payment_base_url="https://mock-payments.test/pay",
                 kling_api_key="kling-secret",
+                openai_api_key="openai-secret",
             )
             status, content_type, body = handle_provider_status_request(
                 settings=settings,
@@ -2974,6 +3057,7 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(content_type, "application/json")
             self.assertTrue(payload["ok"])
             self.assertTrue(payload["providers"]["kling_video_configured"])
+            self.assertTrue(payload["providers"]["openai_tts_configured"])
             self.assertTrue(payload["models"]["kling_3_active"])
             self.assertEqual(payload["models"]["kling_3_cost"], 35)
             self.assertIn(
