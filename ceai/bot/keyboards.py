@@ -11,7 +11,7 @@ from ceai.formatting import format_coin_amount
 
 
 PROFILE_BUTTON = "👤 Профиль"
-GIFT_BUTTON = "🎁 3 дня бесплатно"
+GIFT_BUTTON = "🎁 Бесплатный доступ"
 START_WORK_BUTTON = "🔥 Начать работу"
 TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"
 PHOTO_AI_BUTTON = "🖼 Фото с AI"

@@ -1906,7 +1906,7 @@ class MigrationAndUITest(unittest.TestCase):
             "Выберите раздел 👇",
             handlers_source,
         )
-        self.assertIn('GIFT_BUTTON = "🎁 3 дня бесплатно"', keyboard_source)
+        self.assertIn('GIFT_BUTTON = "🎁 Бесплатный доступ"', keyboard_source)
         self.assertIn('style="success"', keyboard_source)
         self.assertIn("GIFT_DURATION_DAYS = 3", handlers_source)
         self.assertIn("GIFT_COINS_AMOUNT = 50", handlers_source)
@@ -1928,7 +1928,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
             [
-                "🎁 3 дня бесплатно",
+                "🎁 Бесплатный доступ",
                 "🔥 Начать работу",
                 "👤 Профиль",
                 "🤝 Заработать",
