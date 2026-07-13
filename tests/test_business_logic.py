@@ -1243,7 +1243,6 @@ class BusinessLogicTest(unittest.TestCase):
         profile = _format_menu(
             self.user,
             None,
-            invited_users_count=invited_count,
         )
 
         self.assertEqual(invited_count, 1)
@@ -1252,15 +1251,9 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("💰 Баланс: 0 коинов", profile)
         self.assertIn("⭐ Подписка: нет активной", profile)
         self.assertIn("📅 Срок действия: —", profile)
-        self.assertIn(
-            "⭐ Подписка: нет активной\n"
-            "📅 Срок действия: —\n"
-            "\n"
-            "👥 Приглашено: 1",
-            profile,
-        )
+        self.assertIn("⭐ Подписка: нет активной\n📅 Срок действия: —", profile)
         self.assertNotIn("Автопродление", profile)
-        self.assertIn("👥 Приглашено: 1", profile)
+        self.assertNotIn("👥 Приглашено:", profile)
         self.assertNotIn("зарабатывайте 30%", profile.casefold())
 
         active_profile = _format_menu(
@@ -1271,13 +1264,12 @@ class BusinessLogicTest(unittest.TestCase):
                 "ends_at": "2026-06-24T17:16:00+00:00",
                 "auto_renew": True,
             },
-            invited_users_count=2,
         )
         self.assertIn("💰 Баланс: 42 коина", active_profile)
         self.assertIn("⭐ Подписка: Про", active_profile)
         self.assertIn("📅 Срок действия: 24 июня 2026 года, 20:16", active_profile)
         self.assertNotIn("Автопродление", active_profile)
-        self.assertIn("👥 Приглашено: 2", active_profile)
+        self.assertNotIn("👥 Приглашено:", active_profile)
         self.assertNotIn("Про до", active_profile)
 
         zero_invites_profile = _format_menu(
@@ -1289,16 +1281,12 @@ class BusinessLogicTest(unittest.TestCase):
                 "last_name": "",
             },
             None,
-            invited_users_count=0,
         )
         self.assertIn(
             '<a href="tg://user?id=3003">No Username</a>',
             zero_invites_profile,
         )
-        self.assertIn(
-            "👥 Приглашено: 0 (Приглашайте друзей и зарабатывайте 30% с каждого пополнения!)",
-            zero_invites_profile,
-        )
+        self.assertNotIn("👥 Приглашено:", zero_invites_profile)
         self.assertNotIn("Получайте 2", zero_invites_profile)
 
         referral = _format_referral_screen(self.user, invited_users_count=1)
@@ -2025,7 +2013,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('callback_data="menu:referral"', keyboard_source)
         self.assertIn("reply_markup=profile_keyboard()", send_profile_source)
         self.assertIn("services.users.get_by_id", send_profile_source)
-        self.assertIn("services.referrals.stats", send_profile_source)
+        self.assertNotIn("services.referrals.stats", send_profile_source)
         self.assertIn('parse_mode="HTML"', send_profile_source)
         self.assertIn('href="tg://user?id={telegram_id}"', handlers_source)
         self.assertIn("👤 Профиль:", profile_format_source)
@@ -2038,8 +2026,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('F.data == "subscription:cancel_auto_renew"', handlers_source)
         self.assertIn("disable_auto_renew", handlers_source)
         self.assertIn("format_datetime_russian_minute", handlers_source)
-        self.assertIn("👥 Приглашено:", profile_format_source)
-        self.assertIn("Приглашайте друзей и зарабатывайте 30% с каждого пополнения!", profile_format_source)
+        self.assertNotIn("👥 Приглашено:", profile_format_source)
         self.assertNotIn("Приглашенные пользователи", profile_format_source)
         self.assertNotIn("Получайте 2", profile_format_source)
         self.assertIn("async def _send_screen_message", handlers_source)

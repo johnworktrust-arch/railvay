@@ -602,8 +602,6 @@ def _profile_link(user: Dict[str, Any]) -> str:
 def _format_menu(
     user: Dict[str, Any],
     subscription: Dict[str, Any] | None,
-    *,
-    invited_users_count: int = 0,
 ) -> str:
     if subscription:
         balance = subscription["coins_balance_cache"]
@@ -617,18 +615,12 @@ def _format_menu(
         balance = 0
         sub_line = "⭐ Подписка: нет активной"
         expires_line = "📅 Срок действия: —"
-    invited_line = f"👥 Приглашено: {invited_users_count}"
-    if invited_users_count <= 0:
-        invited_line += (
-            " (Приглашайте друзей и зарабатывайте 30% с каждого пополнения!)"
-        )
     return (
         f"👤 Профиль: {_profile_link(user)}\n\n"
         f"ℹ️ ID: {user.get('telegram_id') or user.get('id')}\n"
         f"💰 Баланс: {format_coin_amount(balance)}\n"
         f"{sub_line}\n"
-        f"{expires_line}\n\n"
-        f"{invited_line}"
+        f"{expires_line}"
     )
 
 
@@ -1540,12 +1532,7 @@ async def _send_main_menu(
 ) -> None:
     subscription = services.subscriptions.active_for_user(user_id)
     profile_user = services.users.get_by_id(user_id) or {"id": user_id}
-    referral_stats = services.referrals.stats(user_id)
-    text = _format_menu(
-        profile_user,
-        subscription,
-        invited_users_count=referral_stats.invited_count,
-    )
+    text = _format_menu(profile_user, subscription)
     if intro:
         text = f"{intro}\n\n{text}"
     await _show_screen(
