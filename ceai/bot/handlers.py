@@ -107,7 +107,7 @@ GIFT_CHANNEL_USERNAME = "ceafamily"
 GIFT_CHANNEL_CHAT_ID = f"@{GIFT_CHANNEL_USERNAME}"
 GIFT_CHANNEL_URL = f"https://t.me/{GIFT_CHANNEL_USERNAME}"
 GIFT_DURATION_DAYS = 3
-GIFT_COINS_AMOUNT = 10
+GIFT_COINS_AMOUNT = 50
 GIFT_PLAN_CODE = "start"
 
 
@@ -752,14 +752,10 @@ def _format_gift_check_unavailable() -> str:
 
 
 def _format_gift_activated(result: Dict[str, Any]) -> str:
-    subscription = result.get("subscription") or {}
-    balance = subscription.get("coins_balance_cache", 0)
     return (
-        "✅ Подарок активирован.\n\n"
-        f"Начислено: {format_coin_amount(result.get('credited_coins'))}\n"
-        f"Доступ: {GIFT_DURATION_DAYS} дня\n"
-        f"Баланс: {format_coin_amount(balance)}\n\n"
-        "Можно переходить к работе с AI-инструментами."
+        f"🎁 <b>Пробный доступ активирован на {GIFT_DURATION_DAYS} дня</b>\n\n"
+        "На ваш баланс зачислено "
+        f"{int(result.get('credited_coins') or 0)} Coin."
     )
 
 
@@ -2681,7 +2677,8 @@ def create_router(services: AppServices) -> Router:
                 if result["created"]
                 else _format_gift_already_claimed(result)
             ),
-            reply_markup=main_menu_button_keyboard(),
+            reply_markup=back_to_menu_keyboard(),
+            parse_mode="HTML",
         )
         await callback.answer()
 
