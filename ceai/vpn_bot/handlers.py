@@ -43,7 +43,7 @@ def _back(callback_data: str = "vpn:main") -> list[InlineKeyboardButton]:
 
 def main_keyboard(*, support_username: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 3 дня бесплатно", callback_data="vpn:plans", style="success")],
+        [InlineKeyboardButton(text="🎁 3 дня бесплатно", callback_data="vpn:trial", style="success")],
         [InlineKeyboardButton(text="Подключить VPN 🚀", callback_data="vpn:plans", style="primary")],
         [InlineKeyboardButton(text="👤 Моя подписка", callback_data="vpn:subscription")],
         [InlineKeyboardButton(text="🥷 Заработать", callback_data="vpn:earn")],
@@ -79,6 +79,23 @@ def referral_keyboard() -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="💰 Вывести", callback_data="vpn:withdraw")],
         _back(),
     ])
+
+
+def trial_keyboard(channel_url: str) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="📢 Подписаться на канал", url=channel_url)],
+        [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="vpn:trial_check", style="success")],
+        _back(),
+    ])
+
+
+def _channel_username(channel_url: str) -> str:
+    value = channel_url.strip().rstrip("/")
+    if value.startswith("@"):
+        return value
+    if "t.me/" in value:
+        return "@" + value.rsplit("/", 1)[-1].lstrip("@")
+    return value
 
 
 def _referral_text(user: Dict[str, Any], stats: Any, bot_username: str) -> str:
@@ -158,6 +175,41 @@ def create_vpn_router(services: AppServices) -> Router:
             ])
             await _screen(callback.message, "👤 <b>Моя подписка</b>\n\nСтатус: ❌ <b>Нет активной подписки</b>\n\nПодключите бесплатные 3 дня или выберите тариф.", kb)
         await callback.answer()
+
+    @router.callback_query(F.data == "vpn:trial")
+    async def trial(callback: CallbackQuery) -> None:
+        if callback.message:
+            channel = _channel_username(services.settings.vpn_channel_url)
+            await _screen(
+                callback.message,
+                "🎁 <b>3 дня бесплатно</b>\n\n"
+                f"Чтобы получить доступ, подпишитесь на канал {escape(channel)}.\n\n"
+                "<blockquote>▶ После подписки нажмите проверку</blockquote>",
+                trial_keyboard(services.settings.vpn_channel_url),
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data == "vpn:trial_check")
+    async def trial_check(callback: CallbackQuery) -> None:
+        channel = _channel_username(services.settings.vpn_channel_url)
+        try:
+            member = await callback.bot.get_chat_member(
+                chat_id=channel,
+                user_id=callback.from_user.id,
+            )
+            subscribed = str(member.status) not in {"left", "kicked"}
+        except Exception:
+            subscribed = False
+        if subscribed:
+            await callback.answer(
+                "Подписка подтверждена! Выдачу VPN подключим на следующем этапе.",
+                show_alert=True,
+            )
+        else:
+            await callback.answer(
+                "Подписка не найдена. Подпишитесь на канал и попробуйте ещё раз.",
+                show_alert=True,
+            )
 
     @router.callback_query(F.data == "vpn:plans")
     async def plans(callback: CallbackQuery) -> None:

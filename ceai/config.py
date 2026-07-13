@@ -75,7 +75,7 @@ class Settings:
     info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
     support_username: str = "cea_help"
     vpn_support_username: str = "cea_help"
-    vpn_channel_url: str = "https://t.me/ceafamily"
+    vpn_channel_url: str = "https://t.me/vpnutka_ru"
     ai_provider_mode: str = "auto"
     ai_request_timeout_seconds: int = 60
     deepseek_api_key: str = ""
@@ -182,7 +182,7 @@ def load_settings() -> Settings:
             "VPN_SUPPORT_USERNAME", read("SUPPORT_USERNAME", "cea_help")
         ).strip().lstrip("@"),
         vpn_channel_url=_normalize_telegram_url(
-            read("VPN_CHANNEL_URL", read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL))
+            read("VPN_CHANNEL_URL", "https://t.me/vpnutka_ru")
         ),
         ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),
         ai_request_timeout_seconds=read_int("AI_REQUEST_TIMEOUT_SECONDS", 60),
