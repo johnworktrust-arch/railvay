@@ -44,7 +44,7 @@ def _back(callback_data: str = "vpn:main") -> list[InlineKeyboardButton]:
 
 def main_keyboard(*, support_username: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 3 дня бесплатно", callback_data="vpn:trial", style="success")],
+        [InlineKeyboardButton(text="🎁 3 дня бесплатно", callback_data="vpn:trial")],
         [InlineKeyboardButton(text="Подключить VPN 🚀", callback_data="vpn:plans", style="primary")],
         [InlineKeyboardButton(text="👤 Моя подписка", callback_data="vpn:subscription")],
         [InlineKeyboardButton(text="🥷 Заработать", callback_data="vpn:earn")],
@@ -85,7 +85,7 @@ def referral_keyboard() -> InlineKeyboardMarkup:
 def trial_keyboard(channel_url: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="📢 Подписаться на канал", url=channel_url)],
-        [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="vpn:trial_check", style="success")],
+        [InlineKeyboardButton(text="✅ Проверить подписку", callback_data="vpn:trial_check")],
         _back(),
     ])
 

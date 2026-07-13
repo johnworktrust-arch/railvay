@@ -68,7 +68,7 @@ VPN_TELEGRAM_BOT_TOKEN=токен_второго_бота
 VPN_BOT_USERNAME=имя_бота_без_собаки
 VPN_TELEGRAM_WEBHOOK_SECRET=отдельная_случайная_строка
 VPN_SUPPORT_USERNAME=cea_help
-VPN_CHANNEL_URL=https://t.me/vpnutka_ru
+VPN_CHANNEL_URL=https://t.me/ceafamily
 ```
 
 Основной бот продолжит использовать `TELEGRAM_BOT_TOKEN` и путь
