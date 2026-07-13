@@ -10,7 +10,7 @@ from aiogram.types import (
 from ceai.formatting import format_coin_amount
 
 
-PROFILE_BUTTON = "👤 Профиль"
+PROFILE_BUTTON = "👤 Мой профиль"
 GIFT_BUTTON = "🎁 Бесплатный доступ"
 START_WORK_BUTTON = "Начать работу 🚀"
 TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"

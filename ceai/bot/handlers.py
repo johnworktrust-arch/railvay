@@ -2277,7 +2277,13 @@ async def _handle_reply_menu(
             )
             return True
 
-    if text_lower in {"профиль", "/профиль", "profile", "/profile"} or text == PROFILE_BUTTON:
+    if text_lower in {
+        "профиль",
+        "мой профиль",
+        "/профиль",
+        "profile",
+        "/profile",
+    } or text == PROFILE_BUTTON:
         _clear_dialog_state(services, user["id"])
         await _send_main_menu(message, services, user["id"], delete_current=True)
         return True
