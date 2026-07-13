@@ -43,6 +43,7 @@ from ceai.bot.keyboards import (
     admin_menu_keyboard,
     admin_user_card_keyboard,
     admin_users_keyboard,
+    about_service_keyboard,
     back_to_menu_keyboard,
     crystal_packages_keyboard,
     gift_subscription_keyboard,
@@ -1622,7 +1623,10 @@ def _main_menu_keyboard(
             user_id,
             gift_key=GIFT_CHANNEL_USERNAME,
         )
-    return main_menu_keyboard(gift_claimed=gift_claimed)
+    return main_menu_keyboard(
+        gift_claimed=gift_claimed,
+        support_username=services.settings.support_username,
+    )
 
 
 async def _send_work_menu(
@@ -1901,17 +1905,25 @@ async def _send_about_service(
 ) -> None:
     _clear_dialog_state(services, user_id)
     support_username = services.settings.support_username or "cea_help"
+    public_offer_url = (
+        services.settings.public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
+    )
     await _show_screen(
         message,
         services,
         user_id,
-        "🛡 О сервисе\n\n"
+        "🛡 <b>О сервисе</b>\n\n"
         "Cea AI объединяет современные AI-инструменты для работы с текстом, "
         "изображениями и видео в одном Telegram-боте.\n\n"
+        "Документы доступны по кнопкам ниже.\n\n"
         f"Канал: @{GIFT_CHANNEL_USERNAME}\n"
         f"Поддержка: @{support_username}",
-        reply_markup=back_to_menu_keyboard(),
+        reply_markup=about_service_keyboard(
+            public_offer_url=public_offer_url,
+            support_username=support_username,
+        ),
         delete_current=delete_current,
+        parse_mode="HTML",
     )
 
 
@@ -3353,6 +3365,13 @@ def create_router(services: AppServices) -> Router:
                 callback.message, services, user["id"], delete_current=True
             )
         await callback.answer()
+
+    @router.callback_query(F.data == "promo:placeholder")
+    async def promo_placeholder(callback: CallbackQuery) -> None:
+        await callback.answer(
+            "Промокоды будут подключены на следующем этапе.",
+            show_alert=True,
+        )
 
     @router.callback_query(F.data == "menu:referral")
     async def menu_referral(callback: CallbackQuery) -> None:

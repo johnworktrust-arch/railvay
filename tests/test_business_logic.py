@@ -1938,21 +1938,20 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertEqual(
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
-            ["menu:gift", "menu:work", "menu:home", "menu:referral", "menu:support"],
+            ["menu:gift", "menu:work", "menu:home", "menu:referral", None],
         )
         self.assertEqual(
             [
                 row[0].callback_data
                 for row in main_menu_keyboard(gift_claimed=True).inline_keyboard
             ],
-            ["menu:work", "menu:home", "menu:referral", "menu:support"],
+            ["menu:work", "menu:home", "menu:referral", None],
         )
         utility_row = main_menu_keyboard().inline_keyboard[-1]
         self.assertEqual([button.text for button in utility_row], ["🆘 Поддержка", "🛡 О сервисе"])
-        self.assertEqual(
-            [button.callback_data for button in utility_row],
-            ["menu:support", "menu:about"],
-        )
+        self.assertEqual(utility_row[0].url, "https://t.me/cea_help")
+        self.assertIsNone(utility_row[0].callback_data)
+        self.assertEqual(utility_row[1].callback_data, "menu:about")
         gift_rows = gift_subscription_keyboard().inline_keyboard
         self.assertEqual(gift_rows[0][0].text, "📣 Подписаться на канал")
         self.assertEqual(gift_rows[0][0].url, "https://t.me/ceafamily")
@@ -2064,17 +2063,20 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("reply_markup=back_to_menu_keyboard()", support_source)
         self.assertNotIn("reply_markup=main_menu_keyboard()", support_source)
 
-    def test_about_service_screen_has_back_button_only(self) -> None:
+    def test_about_service_screen_matches_vpn_layout(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         about_source = handlers_source.split(
             "async def _send_about_service(", 1
         )[1].split("async def _send_models_for_types", 1)[0]
 
-        self.assertIn("🛡 О сервисе", about_source)
+        self.assertIn("🛡 <b>О сервисе</b>", about_source)
         self.assertIn("Канал: @{GIFT_CHANNEL_USERNAME}", about_source)
         self.assertIn("Поддержка: @{support_username}", about_source)
-        self.assertIn("reply_markup=back_to_menu_keyboard()", about_source)
+        self.assertIn("reply_markup=about_service_keyboard(", about_source)
+        self.assertIn("public_offer_url=public_offer_url", about_source)
+        self.assertIn('parse_mode="HTML"', about_source)
         self.assertIn('F.data == "menu:about"', handlers_source)
+        self.assertIn('F.data == "promo:placeholder"', handlers_source)
 
     def test_media_result_links_are_hidden_behind_short_labels(self) -> None:
         from ceai.bot.handlers import _format_generation_result

@@ -41,7 +41,10 @@ REPLY_MENU_BUTTONS = {
 }
 
 
-def main_menu_keyboard(*, gift_claimed: bool = False) -> InlineKeyboardMarkup:
+def main_menu_keyboard(
+    *, gift_claimed: bool = False, support_username: str = "cea_help"
+) -> InlineKeyboardMarkup:
+    support_username = support_username.strip().lstrip("@") or "cea_help"
     rows = []
     if not gift_claimed:
         rows.append(
@@ -66,7 +69,8 @@ def main_menu_keyboard(*, gift_claimed: bool = False) -> InlineKeyboardMarkup:
             [InlineKeyboardButton(text=REFERRAL_BUTTON, callback_data="menu:referral")],
             [
                 InlineKeyboardButton(
-                    text="🆘 Поддержка", callback_data="menu:support"
+                    text="🆘 Поддержка",
+                    url=f"https://t.me/{support_username}",
                 ),
                 InlineKeyboardButton(
                     text="🛡 О сервисе", callback_data="menu:about"
@@ -127,6 +131,36 @@ def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")]
+        ]
+    )
+
+
+def about_service_keyboard(
+    *, public_offer_url: str, support_username: str = "cea_help"
+) -> InlineKeyboardMarkup:
+    support_username = support_username.strip().lstrip("@") or "cea_help"
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="📄 Публичная оферта", url=public_offer_url
+                ),
+                InlineKeyboardButton(
+                    text="🔒 Политика конфиденциальности", url=public_offer_url
+                ),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🎟 Ввести промокод", callback_data="promo:placeholder"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🆘 Написать в поддержку",
+                    url=f"https://t.me/{support_username}",
+                )
+            ],
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
 
