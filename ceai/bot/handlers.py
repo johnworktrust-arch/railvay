@@ -106,7 +106,7 @@ HISTORY_PAGE_SIZE = 3
 GIFT_CHANNEL_USERNAME = "ceafamily"
 GIFT_CHANNEL_CHAT_ID = f"@{GIFT_CHANNEL_USERNAME}"
 GIFT_CHANNEL_URL = f"https://t.me/{GIFT_CHANNEL_USERNAME}"
-GIFT_DURATION_DAYS = 2
+GIFT_DURATION_DAYS = 3
 GIFT_COINS_AMOUNT = 10
 GIFT_PLAN_CODE = "start"
 
@@ -728,10 +728,10 @@ def _format_work_menu() -> str:
 
 def _format_gift_screen() -> str:
     return (
-        f"🎁 {GIFT_DURATION_DAYS} дня бесплатно\n\n"
-        f"Чтобы получить пробный доступ к Cea AI, подпишитесь на канал "
+        f"🎁 <b>{GIFT_DURATION_DAYS} дня бесплатно</b>\n\n"
+        f"Чтобы получить доступ, подпишитесь на канал "
         f"@{GIFT_CHANNEL_USERNAME}.\n\n"
-        "▶️ После подписки нажмите «Проверить подписку»."
+        "<blockquote>▶ После подписки нажмите проверку ❞</blockquote>"
     )
 
 
@@ -1686,6 +1686,7 @@ async def _send_gift(
         _format_gift_screen(),
         reply_markup=gift_subscription_keyboard(info_channel_url=GIFT_CHANNEL_URL),
         delete_current=delete_current,
+        parse_mode="HTML",
     )
 
 

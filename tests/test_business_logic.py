@@ -1906,9 +1906,9 @@ class MigrationAndUITest(unittest.TestCase):
             "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇",
             handlers_source,
         )
-        self.assertIn('GIFT_BUTTON = "🚀 Забрать подарок"', keyboard_source)
+        self.assertIn('GIFT_BUTTON = "🎁 3 дня бесплатно"', keyboard_source)
         self.assertIn('style="success"', keyboard_source)
-        self.assertIn("GIFT_DURATION_DAYS = 2", handlers_source)
+        self.assertIn("GIFT_DURATION_DAYS = 3", handlers_source)
         self.assertIn("дня бесплатно", handlers_source)
         self.assertIn("@{GIFT_CHANNEL_USERNAME}", handlers_source)
         self.assertIn("GIFT_CHANNEL_USERNAME = \"ceafamily\"", handlers_source)
@@ -1925,7 +1925,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
             [
-                "🚀 Забрать подарок",
+                "🎁 3 дня бесплатно",
                 "🔥 Начать работу",
                 "👤 Профиль",
                 "🤝 Заработать",
