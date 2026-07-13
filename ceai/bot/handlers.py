@@ -64,6 +64,8 @@ from ceai.bot.keyboards import (
     text_chat_keyboard,
     text_chat_label,
     text_chat_prompt_keyboard,
+    tts_language_keyboard,
+    tts_voice_keyboard,
     work_menu_keyboard,
 )
 from ceai.config import DEFAULT_PUBLIC_OFFER_URL
@@ -74,7 +76,7 @@ from ceai.formatting import (
 )
 from ceai.json_utils import loads_dict
 from ceai.pricing import telegram_stars_amount_for_rub
-from ceai.providers.base import ImageInput
+from ceai.providers.base import ImageInput, ProviderError
 from ceai.runtime_diagnostics import record_error, record_message
 from ceai.services.app import AppServices
 from ceai.services.exceptions import (
@@ -110,6 +112,21 @@ GIFT_CHANNEL_URL = f"https://t.me/{GIFT_CHANNEL_USERNAME}"
 GIFT_DURATION_DAYS = 3
 GIFT_COINS_AMOUNT = 50
 GIFT_PLAN_CODE = "start"
+TTS_LANGUAGES = {
+    "ru": ("🇷🇺 Русский", "Привет! Это пример голоса Cea AI."),
+    "en": ("🇬🇧 English", "Hello! This is a Cea AI voice sample."),
+    "es": ("🇪🇸 Español", "¡Hola! Este es un ejemplo de voz de Cea AI."),
+    "de": ("🇩🇪 Deutsch", "Hallo! Dies ist ein Sprachbeispiel von Cea AI."),
+    "fr": ("🇫🇷 Français", "Bonjour ! Voici un exemple de voix Cea AI."),
+}
+TTS_VOICES = (
+    ("Marin", "marin"),
+    ("Cedar", "cedar"),
+    ("Nova", "nova"),
+    ("Onyx", "onyx"),
+    ("Coral", "coral"),
+    ("Shimmer", "shimmer"),
+)
 
 
 def _is_start_text(text: str | None) -> bool:
@@ -952,6 +969,22 @@ def _format_direct_prompt_screen(model: Dict[str, Any]) -> str:
         f"{model['display_name']}\n\n"
         f"Стоимость: {format_coin_amount(model['coins_cost'])} за запрос.\n\n"
         f"{prompt_copy}"
+    )
+
+
+def _format_tts_prompt_screen(
+    model: Dict[str, Any], *, language: str, voice: str
+) -> str:
+    language_label = TTS_LANGUAGES[language][0]
+    voice_label = next(
+        label for label, voice_key in TTS_VOICES if voice_key == voice
+    )
+    return (
+        f"🎙 {model['display_name']}\n\n"
+        f"Язык: {language_label}\n"
+        f"Голос: {voice_label}\n"
+        f"Стоимость: {format_coin_amount(model['coins_cost'])} за запрос.\n\n"
+        "Отправьте текст для озвучки."
     )
 
 
@@ -2066,6 +2099,137 @@ async def _send_models_for_types(
     )
 
 
+async def _send_tts_language_screen(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    delete_current: bool = False,
+) -> None:
+    model = next(
+        (
+            item
+            for item in services.catalog.list_models()
+            if item["generation_type"] == "tts"
+        ),
+        None,
+    )
+    if model is None:
+        await _show_screen(
+            message,
+            services,
+            user_id,
+            "Для озвучки пока нет активной модели.",
+            reply_markup=back_to_menu_keyboard(),
+            delete_current=delete_current,
+        )
+        return
+    _set_dialog_state(
+        services,
+        user_id,
+        state="waiting_tts_language",
+        payload={"model_price_id": int(model["id"])},
+    )
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        "🎙 <b>Озвучка текста</b>\n\nВыберите язык озвучки:",
+        reply_markup=tts_language_keyboard(),
+        delete_current=delete_current,
+        parse_mode="HTML",
+    )
+
+
+async def _send_tts_voice_previews(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+    *,
+    model_price_id: int,
+    language: str,
+) -> None:
+    language_label, sample_text = TTS_LANGUAGES[language]
+    await _show_screen(
+        message,
+        services,
+        user_id,
+        f"Готовлю примеры голосов на языке «{language_label}»...",
+        reply_markup=None,
+        delete_current=True,
+    )
+    _, loading_payload = _session_state_payload(services, user_id)
+    await _delete_screen_messages(message, _tracked_message_ids(loading_payload))
+
+    cached = await asyncio.to_thread(
+        services.generations.get_tts_preview_file_ids,
+        language=language,
+    )
+    sent_ids: list[int] = []
+    try:
+        for index, (voice_label, voice) in enumerate(TTS_VOICES, start=1):
+            reply_markup = tts_voice_keyboard() if index == len(TTS_VOICES) else None
+            caption = f"🎙 {index}. {voice_label}"
+            if index == len(TTS_VOICES):
+                caption += "\n\nВыберите понравившийся голос:"
+
+            sent: Message | None = None
+            cached_file_id = cached.get(voice)
+            if cached_file_id:
+                try:
+                    sent = await message.bot.send_audio(
+                        chat_id=message.chat.id,
+                        audio=cached_file_id,
+                        caption=caption,
+                        reply_markup=reply_markup,
+                    )
+                except (TelegramBadRequest, TelegramForbiddenError):
+                    sent = None
+            if sent is None:
+                audio = await asyncio.to_thread(
+                    services.generations.generate_tts_preview,
+                    voice=voice,
+                    text=sample_text,
+                )
+                sent = await message.bot.send_audio(
+                    chat_id=message.chat.id,
+                    audio=BufferedInputFile(audio, filename=f"cea-{language}-{voice}.mp3"),
+                    caption=caption,
+                    reply_markup=reply_markup,
+                )
+                file_id = _sent_audio_file_id(sent)
+                if file_id:
+                    await asyncio.to_thread(
+                        services.generations.remember_tts_preview_file_id,
+                        language=language,
+                        voice=voice,
+                        file_id=file_id,
+                    )
+            sent_ids.append(sent.message_id)
+    except (ProviderError, TelegramBadRequest, TelegramForbiddenError, ValueError):
+        await _delete_screen_messages(message, sent_ids)
+        _reset_dialog_state(services, user_id)
+        await _show_screen(
+            message,
+            services,
+            user_id,
+            "Не удалось загрузить примеры голосов. Проверьте ключ OpenAI и попробуйте ещё раз.",
+            reply_markup=back_to_menu_keyboard(),
+        )
+        return
+
+    services.users.set_session(
+        user_id,
+        state="waiting_tts_voice",
+        payload={
+            "model_price_id": model_price_id,
+            "tts_language": language,
+            LAST_BOT_MESSAGE_IDS: sent_ids,
+            LAST_SCREEN_HAS_MEDIA: True,
+        },
+    )
+
+
 async def _send_text_chat_screen(
     message: Message,
     services: AppServices,
@@ -2448,13 +2612,10 @@ async def _handle_reply_menu(
         return True
 
     if text_lower in {"озвучка с ai", "озвучка текста"} or text == VOICE_AI_BUTTON:
-        await _send_models_for_types(
+        await _send_tts_language_screen(
             message,
             services,
             user["id"],
-            generation_types={"tts"},
-            title="Выберите модель для озвучки текста.",
-            skip_single_model_choice=True,
             delete_current=True,
         )
         return True
@@ -3164,6 +3325,15 @@ def create_router(services: AppServices) -> Router:
         if config is None:
             await callback.answer("Неизвестный раздел", show_alert=True)
             return
+        if generation_type == "tts":
+            _clear_dialog_state(services, user["id"])
+            await _send_tts_language_screen(
+                callback.message,
+                services,
+                user["id"],
+            )
+            await callback.answer()
+            return
         title, skip_single_model_choice = config
         _clear_dialog_state(services, user["id"])
         await _send_models_for_types(
@@ -3175,6 +3345,84 @@ def create_router(services: AppServices) -> Router:
             skip_single_model_choice=skip_single_model_choice,
         )
         await callback.answer()
+
+    @router.callback_query(F.data.startswith("tts:language:"))
+    async def choose_tts_language(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if not callback.message or not callback.data:
+            await callback.answer()
+            return
+        language = callback.data.rsplit(":", 1)[-1]
+        state, payload = _session_state_payload(services, user["id"])
+        model_price_id = int(payload.get("model_price_id", 0))
+        if language not in TTS_LANGUAGES or state != "waiting_tts_language":
+            await callback.answer("Сначала выберите язык заново.", show_alert=True)
+            return
+        services.users.set_session(
+            user["id"],
+            state="loading_tts_previews",
+            payload={"model_price_id": model_price_id, "tts_language": language},
+        )
+        await callback.answer()
+        await _send_tts_voice_previews(
+            callback.message,
+            services,
+            user["id"],
+            model_price_id=model_price_id,
+            language=language,
+        )
+
+    @router.callback_query(F.data.startswith("tts:voice:"))
+    async def choose_tts_voice(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if _is_blocked_regular_user(services, user):
+            if callback.message:
+                await _send_blocked_notice(callback.message, services, user["id"])
+            await callback.answer()
+            return
+        if not callback.message or not callback.data:
+            await callback.answer()
+            return
+        voice = callback.data.rsplit(":", 1)[-1]
+        allowed_voices = {voice_key for _, voice_key in TTS_VOICES}
+        state, payload = _session_state_payload(services, user["id"])
+        language = str(payload.get("tts_language") or "")
+        model_price_id = int(payload.get("model_price_id", 0))
+        if (
+            state != "waiting_tts_voice"
+            or voice not in allowed_voices
+            or language not in TTS_LANGUAGES
+        ):
+            await callback.answer("Сначала выберите язык и голос заново.", show_alert=True)
+            return
+        model = services.catalog.get_model(model_price_id)
+        if model is None or model["generation_type"] != "tts":
+            await callback.answer("Модель озвучки недоступна.", show_alert=True)
+            return
+
+        await callback.answer()
+        await _delete_screen_messages(callback.message, _tracked_message_ids(payload))
+        services.users.set_session(
+            user["id"],
+            state="waiting_prompt",
+            payload={
+                "model_price_id": model_price_id,
+                "tts_language": language,
+                "tts_voice": voice,
+            },
+        )
+        await _show_screen(
+            callback.message,
+            services,
+            user["id"],
+            _format_tts_prompt_screen(model, language=language, voice=voice),
+            reply_markup=back_to_menu_keyboard(),
+        )
 
     @router.callback_query(F.data.startswith("model:"))
     async def choose_model(callback: CallbackQuery) -> None:
@@ -3914,6 +4162,8 @@ def create_router(services: AppServices) -> Router:
                 model_price_id=model_price_id,
                 prompt_text=prompt_text,
                 image_input=image_input,
+                tts_voice=str(payload.get("tts_voice") or "") or None,
+                tts_language=str(payload.get("tts_language") or "") or None,
             )
         except NoActiveSubscriptionError:
             _clear_dialog_state(services, user["id"])

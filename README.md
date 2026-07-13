@@ -2,7 +2,7 @@
 
 ## Быстрый запуск технического MVP
 
-В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами для локальной разработки, YooKassa-платежами для прода, реальными AI-провайдерами DeepSeek/OpenAI для текста, OpenAI GPT Image для картинок и Kling для видео, а также mock-заглушкой для озвучки.
+В этом репозитории реализован Telegram-бот CeaAI с SQLite/Postgres, mock-платежами для локальной разработки, YooKassa-платежами для прода, реальными AI-провайдерами DeepSeek/OpenAI для текста, OpenAI GPT Image для картинок, Kling для видео и OpenAI TTS для озвучки.
 
 ### Что внутри
 
@@ -41,6 +41,8 @@ KLING_API_KEY=your-kling-api-key
 ```
 
 `OPENAI_API_KEY` используется для ChatGPT-текста и OpenAI TTS, `OPENAI_IMAGE_API_KEY` — для GPT Image, `KLING_API_KEY` — для видео через Kling. Если в Railway ключ Kling уже назван иначе, бот также подхватит `KLINGAI_API_KEY`, `KLING_AI_API_KEY`, `KLING_KEY`, `KLING_API`, `KLING_API_TOKEN`, `KLING_TOKEN`, `KLING_ACCESS_KEY`, `KLING_SECRET_KEY` или `API_KEY_KLING`. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI/Kling работают через реальные API при наличии ключей. OpenAI GPT Image, OpenAI TTS и Kling без ключа не отдают mock-результат, а завершают генерацию ошибкой с возвратом коинов. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
+
+В разделе озвучки пользователь сначала выбирает один из пяти языков, затем один из шести голосов. Аудиопримеры создаются один раз и сохраняются в Postgres как Telegram `file_id`, поэтому повторный просмотр не обращается к OpenAI.
 
 Создать БД и заполнить тарифы/модели можно отдельно:
 

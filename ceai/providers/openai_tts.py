@@ -11,6 +11,24 @@ from ceai.json_utils import loads_dict
 from ceai.providers.base import ImageInput, ProviderError, ProviderResult
 
 
+SUPPORTED_VOICES = {
+    "alloy",
+    "ash",
+    "ballad",
+    "cedar",
+    "coral",
+    "echo",
+    "fable",
+    "marin",
+    "nova",
+    "onyx",
+    "sage",
+    "shimmer",
+    "verse",
+}
+SUPPORTED_FORMATS = {"mp3", "opus", "aac", "flac", "wav", "pcm"}
+
+
 class OpenAITTSProvider:
     def __init__(
         self,
@@ -35,10 +53,19 @@ class OpenAITTSProvider:
         model_key = str(config.get("api_model") or model["model_key"])
         voice = str(config.get("voice") or "alloy")
         response_format = str(config.get("response_format") or "mp3")
+        prompt = prompt_text.strip()
+        if not prompt:
+            raise ProviderError("OpenAI TTS input cannot be empty")
+        if len(prompt) > 4096:
+            raise ProviderError("OpenAI TTS input cannot exceed 4096 characters")
+        if voice not in SUPPORTED_VOICES:
+            raise ProviderError(f"Unsupported OpenAI TTS voice: {voice}")
+        if response_format not in SUPPORTED_FORMATS:
+            raise ProviderError(f"Unsupported OpenAI TTS format: {response_format}")
         payload: Dict[str, Any] = {
             "model": model_key,
             "voice": voice,
-            "input": prompt_text.strip(),
+            "input": prompt,
             "response_format": response_format,
         }
         speed = config.get("speed")

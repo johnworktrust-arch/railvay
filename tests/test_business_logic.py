@@ -19,7 +19,7 @@ from ceai.internal_api import (
 )
 from ceai.json_utils import dumps, loads_dict
 from ceai.repositories.app_settings import AppSettingsRepository
-from ceai.providers.base import ImageInput, ProviderError
+from ceai.providers.base import ImageInput, ProviderError, ProviderResult
 from ceai.providers.kling_video import KlingVideoProvider
 from ceai.providers.openai_image import OpenAIImageProvider
 from ceai.providers.openai_tts import OpenAITTSProvider
@@ -1116,6 +1116,67 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.result["mime_type"], "audio/mpeg")
         self.assertTrue(result.result["audio_b64"])
 
+        with self.assertRaisesRegex(ProviderError, "Unsupported OpenAI TTS voice"):
+            provider.generate(
+                model={
+                    "provider": "openai",
+                    "model_key": "tts-1",
+                    "display_name": "OpenAI TTS",
+                    "generation_type": "tts",
+                    "config": {"voice": "unknown"},
+                },
+                prompt_text="Тест",
+            )
+
+    def test_tts_selection_reaches_provider_and_preview_cache_is_reused(self) -> None:
+        self._buy_plan("start")
+        captured = []
+
+        class CaptureProvider:
+            def generate(inner_self, *, model, prompt_text, **kwargs):
+                captured.append((model, prompt_text))
+                return ProviderResult(
+                    provider_job_id="tts-test",
+                    result={
+                        "kind": "tts",
+                        "audio_b64": "ZmFrZS1tcDM=",
+                        "message": "Озвучка готова.",
+                    },
+                    provider_cost_amount=0.01,
+                    provider_cost_currency="USD",
+                )
+
+        self.services.generations.provider = CaptureProvider()
+        model = self._model("tts-1")
+        generated = self.services.generations.generate(
+            user_id=self.user["id"],
+            model_price_id=model["id"],
+            prompt_text="Привет",
+            tts_voice="marin",
+            tts_language="ru",
+        )
+
+        self.assertEqual(loads_dict(captured[0][0]["config"])["voice"], "marin")
+        prompt_payload = loads_dict(generated.generation["prompt"])
+        self.assertEqual(prompt_payload["voice"], "marin")
+        self.assertEqual(prompt_payload["language"], "ru")
+
+        preview = self.services.generations.generate_tts_preview(
+            voice="cedar", text="Пример"
+        )
+        self.assertEqual(preview, b"fake-mp3")
+        self.assertEqual(loads_dict(captured[1][0]["config"])["voice"], "cedar")
+
+        self.services.generations.remember_tts_preview_file_id(
+            language="ru",
+            voice="cedar",
+            file_id="telegram-preview-file-id",
+        )
+        self.assertEqual(
+            self.services.generations.get_tts_preview_file_ids(language="ru"),
+            {"cedar": "telegram-preview-file-id"},
+        )
+
     def test_kling_video_provider_creates_and_polls_text_to_video_task(self) -> None:
         provider = KlingVideoProvider(api_key="test-key", poll_interval_seconds=0)
         calls = []
@@ -1626,6 +1687,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('_feature_temporarily_unavailable_message("Озвучка с AI")', handlers_source)
         self.assertIn('generation_types={generation_type}', handlers_source)
         self.assertIn('message.bot.send_audio(', handlers_source)
+        self.assertIn('state="waiting_tts_language"', handlers_source)
+        self.assertIn('state="waiting_tts_voice"', handlers_source)
+        self.assertIn('TTS_LANGUAGES = {', handlers_source)
+        self.assertIn('TTS_VOICES = (', handlers_source)
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
 
     def test_plan_screen_uses_new_prices_and_coins_are_called_koiny(self) -> None:

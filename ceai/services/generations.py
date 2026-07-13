@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import base64
 from dataclasses import dataclass
 from typing import Any, Dict, List
 
 from ceai.database import Database
-from ceai.json_utils import loads_dict
+from ceai.json_utils import dumps, loads_dict
 from ceai.providers.base import AIProvider, ImageInput, ProviderError
+from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.repositories.generations import GenerationRepository
 from ceai.repositories.model_prices import ModelPriceRepository
 from ceai.repositories.subscriptions import SubscriptionRepository
@@ -37,6 +39,7 @@ class GenerationService:
         self.models = ModelPriceRepository()
         self.subscriptions = SubscriptionRepository()
         self.generations = GenerationRepository()
+        self.app_settings = AppSettingsRepository()
         self.coins = CoinService()
 
     def generate(
@@ -49,6 +52,8 @@ class GenerationService:
         text_chat_title: str | None = None,
         text_chat_system_prompt: str | None = None,
         image_input: ImageInput | None = None,
+        tts_voice: str | None = None,
+        tts_language: str | None = None,
     ) -> GenerationResult:
         business_error: NoActiveSubscriptionError | InsufficientCoinsError | None = None
         with self.db.transaction() as conn:
@@ -72,6 +77,11 @@ class GenerationService:
                 prompt_payload["text_chat_title"] = text_chat_title
             if text_chat_system_prompt:
                 prompt_payload["text_chat_system_prompt"] = text_chat_system_prompt
+            if model["generation_type"] == "tts":
+                if tts_voice:
+                    prompt_payload["voice"] = tts_voice
+                if tts_language:
+                    prompt_payload["language"] = tts_language
 
             generation = self.generations.create_pending(
                 conn,
@@ -132,8 +142,13 @@ class GenerationService:
             raise business_error
 
         try:
+            provider_model = _model_with_tts_options(
+                model,
+                voice=tts_voice,
+                language=tts_language,
+            )
             provider_result = self.provider.generate(
-                model=model,
+                model=provider_model,
                 prompt_text=prompt_text,
                 system_prompt=text_chat_system_prompt,
                 image_input=image_input,
@@ -191,6 +206,44 @@ class GenerationService:
             balance_after=balance_after,
         )
 
+    def generate_tts_preview(self, *, voice: str, text: str) -> bytes:
+        with self.db.transaction() as conn:
+            model = next(
+                (
+                    item
+                    for item in self.models.list_active(conn)
+                    if item["generation_type"] == "tts"
+                ),
+                None,
+            )
+        if model is None:
+            raise ProviderError("No active TTS model is configured")
+        provider_model = _model_with_tts_options(model, voice=voice, language=None)
+        result = self.provider.generate(model=provider_model, prompt_text=text).result
+        encoded = str(result.get("audio_b64") or "")
+        if not encoded:
+            raise ProviderError("OpenAI TTS API returned no preview audio")
+        return base64.b64decode(encoded, validate=True)
+
+    def get_tts_preview_file_ids(self, *, language: str) -> Dict[str, str]:
+        key = _tts_preview_cache_key(language)
+        with self.db.transaction() as conn:
+            value = self.app_settings.get_many(conn, [key]).get(key)
+        return {
+            str(voice): str(file_id)
+            for voice, file_id in loads_dict(value).items()
+            if str(file_id).strip()
+        }
+
+    def remember_tts_preview_file_id(
+        self, *, language: str, voice: str, file_id: str
+    ) -> None:
+        key = _tts_preview_cache_key(language)
+        with self.db.transaction() as conn:
+            cached = loads_dict(self.app_settings.get_many(conn, [key]).get(key))
+            cached[voice] = file_id
+            self.app_settings.upsert(conn, key=key, value=dumps(cached))
+
     def list_recent(
         self, *, user_id: int, limit: int = 10, offset: int = 0
     ) -> List[Dict[str, Any]]:
@@ -246,6 +299,25 @@ def _hydrate_generation_row(row: Dict[str, Any]) -> Dict[str, Any]:
     row["prompt_payload"] = loads_dict(row.get("prompt"))
     row["result_payload"] = loads_dict(row.get("result"))
     return row
+
+
+def _model_with_tts_options(
+    model: Dict[str, Any], *, voice: str | None, language: str | None
+) -> Dict[str, Any]:
+    if model.get("generation_type") != "tts" or not voice:
+        return model
+    configured = dict(model)
+    config = loads_dict(model.get("config"))
+    config["voice"] = voice
+    if language:
+        config["language"] = language
+    configured["config"] = config
+    return configured
+
+
+def _tts_preview_cache_key(language: str) -> str:
+    cleaned = "".join(character for character in language.lower() if character.isalnum())
+    return f"TTS_PREVIEW_FILE_IDS_{cleaned.upper()}"
 
 
 def _result_for_storage(result: Dict[str, Any]) -> Dict[str, Any]:
