@@ -12,14 +12,14 @@ from ceai.formatting import format_coin_amount
 
 PROFILE_BUTTON = "👤 Профиль"
 GIFT_BUTTON = "🎁 Бесплатный доступ"
-START_WORK_BUTTON = "🔥 Начать работу"
+START_WORK_BUTTON = "🔥 Начать работу 🚀"
 TEXT_AI_BUTTON = "💡Нейросети: ChatGPT, DeepSeek"
 PHOTO_AI_BUTTON = "🖼 Фото с AI"
 VIDEO_AI_BUTTON = "🎬 Видео с AI"
 VOICE_AI_BUTTON = "🎙 Озвучка с AI"
 HELP_BUTTON = "🆘 Помощь"
 HISTORY_BUTTON = "🕘 История"
-REFERRAL_BUTTON = "🤝 Заработать"
+REFERRAL_BUTTON = "💰 Заработать"
 BACK_TO_MENU_BUTTON = "⬅️ Назад"
 MAIN_MENU_BUTTON = "🏠 Главное меню"
 ADD_TEXT_CHAT_BUTTON = "➕ Добавить чат"
@@ -55,7 +55,13 @@ def main_menu_keyboard(*, gift_claimed: bool = False) -> InlineKeyboardMarkup:
         )
     rows.extend(
         [
-            [InlineKeyboardButton(text=START_WORK_BUTTON, callback_data="menu:work")],
+            [
+                InlineKeyboardButton(
+                    text=START_WORK_BUTTON,
+                    callback_data="menu:work",
+                    style="primary",
+                )
+            ],
             [InlineKeyboardButton(text=PROFILE_BUTTON, callback_data="menu:home")],
             [InlineKeyboardButton(text=REFERRAL_BUTTON, callback_data="menu:referral")],
         ]

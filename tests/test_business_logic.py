@@ -1929,9 +1929,9 @@ class MigrationAndUITest(unittest.TestCase):
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
             [
                 "🎁 Бесплатный доступ",
-                "🔥 Начать работу",
+                "🔥 Начать работу 🚀",
                 "👤 Профиль",
-                "🤝 Заработать",
+                "💰 Заработать",
             ],
         )
         self.assertEqual(
@@ -1939,6 +1939,12 @@ class MigrationAndUITest(unittest.TestCase):
                 exclude_none=True
             )["style"],
             "success",
+        )
+        self.assertEqual(
+            main_menu_keyboard().inline_keyboard[1][0].model_dump(
+                exclude_none=True
+            )["style"],
+            "primary",
         )
         self.assertEqual(
             [row[0].callback_data for row in main_menu_keyboard().inline_keyboard],
