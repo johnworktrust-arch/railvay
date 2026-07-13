@@ -1995,7 +1995,6 @@ class MigrationAndUITest(unittest.TestCase):
             labels,
             [
                 "💳 Подписка и тарифы",
-                "🆘 Поддержка",
                 "⬅️ Назад",
             ],
         )

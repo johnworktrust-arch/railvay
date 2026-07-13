@@ -106,11 +106,6 @@ def profile_keyboard() -> InlineKeyboardMarkup:
                     text="💳 Подписка и тарифы", callback_data="menu:plans"
                 )
             ],
-            [
-                InlineKeyboardButton(
-                    text="🆘 Поддержка", callback_data="menu:support"
-                )
-            ],
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
