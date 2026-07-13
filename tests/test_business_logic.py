@@ -1903,7 +1903,7 @@ class MigrationAndUITest(unittest.TestCase):
 
         self.assertIn("🏠 Главное меню Cea AI", handlers_source)
         self.assertIn(
-            "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇",
+            "Выберите раздел 👇",
             handlers_source,
         )
         self.assertIn('GIFT_BUTTON = "🎁 3 дня бесплатно"', keyboard_source)

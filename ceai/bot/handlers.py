@@ -714,7 +714,7 @@ def _format_onboarding_greeting(public_offer_url: str) -> str:
 def _format_main_menu() -> str:
     return (
         "🏠 Главное меню Cea AI\n\n"
-        "Выберите нужный раздел ниже, чтобы продолжить работу с ботом 👇"
+        "Выберите раздел 👇"
     )
 
 
