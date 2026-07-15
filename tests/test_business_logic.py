@@ -1673,8 +1673,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('state="waiting_tts_voice"', handlers_source)
         self.assertNotIn('TTS_LANGUAGES = {', handlers_source)
         self.assertIn('TTS_VOICES = (', handlers_source)
-        self.assertIn('assets" / "tts_voice_samples.wav"', handlers_source)
-        self.assertTrue(Path("ceai/assets/tts_voice_samples.wav").is_file())
+        self.assertIn("message.bot.send_media_group(", handlers_source)
+        self.assertIn("InputMediaAudio(", handlers_source)
+        for voice in ("alloy", "echo", "fable", "onyx", "nova", "shimmer"):
+            self.assertTrue(Path(f"ceai/assets/tts_voices/{voice}.wav").is_file())
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
 
     def test_plan_screen_uses_new_prices_and_coins_are_called_koiny(self) -> None:

@@ -17,6 +17,7 @@ from aiogram.types import (
     ErrorEvent,
     FSInputFile,
     InlineKeyboardMarkup,
+    InputMediaAudio,
     LabeledPrice,
     Message,
     PreCheckoutQuery,
@@ -102,9 +103,7 @@ START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "нача�
 START_SCREEN_IMAGE_PATH = (
     Path(__file__).resolve().parents[1] / "assets" / "start_screen.jpeg"
 )
-TTS_VOICE_SAMPLES_PATH = (
-    Path(__file__).resolve().parents[1] / "assets" / "tts_voice_samples.wav"
-)
+TTS_VOICE_SAMPLES_DIR = Path(__file__).resolve().parents[1] / "assets" / "tts_voices"
 MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
 DEFAULT_IMAGE_EDIT_PROMPT = "Улучши изображение, сохранив основной сюжет."
 HISTORY_PAGE_SIZE = 3
@@ -2115,7 +2114,10 @@ async def _send_tts_voice_preview(
             delete_current=delete_current,
         )
         return
-    if not TTS_VOICE_SAMPLES_PATH.is_file():
+    sample_paths = [
+        TTS_VOICE_SAMPLES_DIR / f"{voice}.wav" for _, voice in TTS_VOICES
+    ]
+    if not all(path.is_file() for path in sample_paths):
         await _show_screen(
             message,
             services,
@@ -2129,19 +2131,21 @@ async def _send_tts_voice_preview(
     if delete_current:
         await _delete_screen_messages(message, _tracked_message_ids(payload))
     try:
-        sent = await message.bot.send_audio(
+        sent_media = await message.bot.send_media_group(
             chat_id=message.chat.id,
-            audio=FSInputFile(TTS_VOICE_SAMPLES_PATH),
-            caption=(
-                "🎙 Примеры голосов\n\n"
-                "00:00 — Alloy\n"
-                "00:08 — Echo\n"
-                "00:17 — Fable\n"
-                "00:27 — Onyx\n"
-                "00:37 — Nova\n"
-                "00:47 — Shimmer\n\n"
-                "Выберите понравившийся голос:"
-            ),
+            media=[
+                InputMediaAudio(
+                    media=FSInputFile(path),
+                    caption=f"🎙 {index}. {voice_label}",
+                )
+                for index, ((voice_label, _), path) in enumerate(
+                    zip(TTS_VOICES, sample_paths), start=1
+                )
+            ],
+        )
+        chooser = await message.bot.send_message(
+            chat_id=message.chat.id,
+            text="Выберите понравившийся голос:",
             reply_markup=tts_voice_keyboard(),
         )
     except (TelegramBadRequest, TelegramForbiddenError, ValueError) as exc:
@@ -2155,16 +2159,17 @@ async def _send_tts_voice_preview(
             reply_markup=back_to_menu_keyboard(),
         )
         return
-    _remember_screen_message(
-        services,
+    services.users.set_session(
         user_id,
         state="waiting_tts_voice",
         payload={
             "model_price_id": int(model["id"]),
+            LAST_BOT_MESSAGE_IDS: [
+                *(item.message_id for item in sent_media),
+                chooser.message_id,
+            ],
+            LAST_SCREEN_HAS_MEDIA: True,
         },
-        message_id=sent.message_id,
-        reply_markup=tts_voice_keyboard(),
-        is_media=True,
     )
 
 
