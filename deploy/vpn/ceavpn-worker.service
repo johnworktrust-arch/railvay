@@ -1,0 +1,48 @@
+[Unit]
+Description=CEA VPN outbound provisioning worker
+Documentation=https://github.com/Gozargah/Marzban
+Wants=network-online.target
+After=network-online.target docker.service
+
+[Service]
+Type=simple
+DynamicUser=yes
+EnvironmentFile=/etc/ceavpn/worker.env
+Environment=PYTHONDONTWRITEBYTECODE=1
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/usr/bin/python3 /opt/ceavpn/worker.py
+Restart=on-failure
+RestartSec=5s
+TimeoutStopSec=20s
+UMask=0077
+
+# The process needs only outbound HTTPS and loopback HTTP.  It never listens.
+NoNewPrivileges=yes
+PrivateDevices=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectClock=yes
+ProtectControlGroups=yes
+ProtectKernelLogs=yes
+ProtectKernelModules=yes
+ProtectKernelTunables=yes
+ProtectHostname=yes
+ProtectProc=invisible
+ProcSubset=pid
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictNamespaces=yes
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+SocketBindDeny=any
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+RemoveIPC=yes
+
+[Install]
+WantedBy=multi-user.target

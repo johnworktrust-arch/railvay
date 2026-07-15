@@ -1,0 +1,11 @@
+services:
+  marzban:
+    image: ghcr.io/gozargah/marzban@sha256:8e422c21997e5d2e3fa231eeff73c0a19193c20fc02fa4958e9368abb9623b8d
+    container_name: ceavpn-marzban
+    restart: unless-stopped
+    env_file: .env
+    network_mode: host
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /var/lib/marzban:/var/lib/marzban

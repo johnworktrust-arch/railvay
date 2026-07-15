@@ -111,6 +111,7 @@ class VpnProvisioningJobRepository:
         due_at: str | None = None,
         lease_seconds: int = 60,
         lease_token: str | None = None,
+        server_id: int | None = None,
     ) -> Dict[str, Any] | None:
         """Atomically claim one due job, including a job with an expired lease."""
 
@@ -132,12 +133,14 @@ class VpnProvisioningJobRepository:
                 SELECT id
                 FROM vpn_provisioning_jobs
                 WHERE (
-                    status IN ('pending', 'failed')
-                    AND next_attempt_at <= ?
-                ) OR (
-                    status = 'running'
-                    AND lease_expires_at <= ?
+                    (status IN ('pending', 'failed') AND next_attempt_at <= ?)
+                    OR (status = 'running' AND lease_expires_at <= ?)
                 )
+                  AND (
+                      ? IS NULL OR subscription_id IN (
+                          SELECT id FROM vpn_subscriptions WHERE server_id = ?
+                      )
+                  )
                 ORDER BY
                     CASE
                         WHEN status = 'running' THEN lease_expires_at
@@ -150,6 +153,11 @@ class VpnProvisioningJobRepository:
                   (status IN ('pending', 'failed') AND next_attempt_at <= ?)
                   OR (status = 'running' AND lease_expires_at <= ?)
               )
+              AND (
+                  ? IS NULL OR subscription_id IN (
+                      SELECT id FROM vpn_subscriptions WHERE server_id = ?
+                  )
+              )
             RETURNING id
             """,
             (
@@ -158,8 +166,12 @@ class VpnProvisioningJobRepository:
                 current,
                 current,
                 current,
+                server_id,
+                server_id,
                 current,
                 current,
+                server_id,
+                server_id,
             ),
         )
         row = cursor.fetchone()

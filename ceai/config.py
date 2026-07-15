@@ -8,6 +8,7 @@ from typing import Dict, Tuple
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_PUBLIC_OFFER_URL = "https://cea.ai/public-offer"
+DEFAULT_PRIVACY_POLICY_URL = "https://cea.ai/privacy-policy"
 DEFAULT_INFO_CHANNEL_URL = "https://t.me/ceafamily"
 KLING_API_KEY_NAMES = (
     "KLING_API_KEY",
@@ -72,10 +73,18 @@ class Settings:
     admin_telegram_ids: Tuple[int, ...] = ()
     admin_telegram_usernames: Tuple[str, ...] = ()
     public_offer_url: str = DEFAULT_PUBLIC_OFFER_URL
+    privacy_policy_url: str = DEFAULT_PRIVACY_POLICY_URL
     info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
     support_username: str = "cea_help"
     vpn_support_username: str = "cea_help"
     vpn_channel_url: str = DEFAULT_INFO_CHANNEL_URL
+    vpn_server_code: str = "nl-1"
+    vpn_worker_id: str = "cea-vpn-nl1"
+    vpn_worker_secret: str = ""
+    vpn_subscription_base_url: str = ""
+    vpn_trial_days: int = 3
+    vpn_worker_clock_skew_seconds: int = 300
+    vpn_worker_lease_seconds: int = 120
     ai_provider_mode: str = "auto"
     ai_request_timeout_seconds: int = 60
     deepseek_api_key: str = ""
@@ -153,6 +162,11 @@ def load_settings() -> Settings:
     public_offer_default = (
         f"{app_base_url}/public-offer" if app_base_url else DEFAULT_PUBLIC_OFFER_URL
     )
+    privacy_policy_default = (
+        f"{app_base_url}/privacy-policy"
+        if app_base_url
+        else DEFAULT_PRIVACY_POLICY_URL
+    )
 
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
@@ -174,6 +188,7 @@ def load_settings() -> Settings:
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
         public_offer_url=read("PUBLIC_OFFER_URL", public_offer_default),
+        privacy_policy_url=read("PRIVACY_POLICY_URL", privacy_policy_default),
         info_channel_url=_normalize_telegram_url(
             read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL)
         ),
@@ -184,6 +199,17 @@ def load_settings() -> Settings:
         vpn_channel_url=_normalize_telegram_url(
             read("VPN_CHANNEL_URL", read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL))
         ),
+        vpn_server_code=read("VPN_SERVER_CODE", "nl-1").strip(),
+        vpn_worker_id=read("VPN_WORKER_ID", "cea-vpn-nl1").strip(),
+        vpn_worker_secret=read("VPN_WORKER_SECRET"),
+        vpn_subscription_base_url=_normalize_base_url(
+            read("VPN_SUBSCRIPTION_BASE_URL")
+        ),
+        vpn_trial_days=read_int("VPN_TRIAL_DAYS", 3),
+        vpn_worker_clock_skew_seconds=read_int(
+            "VPN_WORKER_CLOCK_SKEW_SECONDS", 300
+        ),
+        vpn_worker_lease_seconds=read_int("VPN_WORKER_LEASE_SECONDS", 120),
         ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),
         ai_request_timeout_seconds=read_int("AI_REQUEST_TIMEOUT_SECONDS", 60),
         deepseek_api_key=read("DEEPSEEK_API_KEY"),

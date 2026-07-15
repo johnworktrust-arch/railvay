@@ -3316,7 +3316,10 @@ class MigrationAndUITest(unittest.TestCase):
                 row = conn.execute(
                     "SELECT COUNT(*) AS count FROM schema_migrations"
                 ).fetchone()
-            self.assertEqual(row["count"], 7)
+            expected_migrations = len(
+                list((Path(__file__).resolve().parents[1] / "migrations").glob("*.sql"))
+            )
+            self.assertEqual(row["count"], expected_migrations)
         finally:
             db.close()
 

@@ -1,7 +1,10 @@
 from __future__ import annotations
 
+import logging
+from datetime import datetime, timezone
 from html import escape
 from typing import Any, Dict
+from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
 from aiogram.enums import ChatMemberStatus
@@ -9,6 +12,7 @@ from aiogram.filters import Command, CommandStart
 from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
 
 from ceai.services.app import AppServices
+from ceai.services.exceptions import BusinessRuleError
 from ceai.services.referrals import format_rubles_from_kopecks
 
 
@@ -99,6 +103,108 @@ def _channel_username(channel_url: str) -> str:
     return value
 
 
+def _format_ends_at(value: Any) -> str:
+    if isinstance(value, datetime):
+        parsed = value
+    else:
+        parsed = datetime.fromisoformat(str(value))
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y в %H:%M")
+
+
+def subscription_screen(
+    subscription: Dict[str, Any] | None,
+    *,
+    support_username: str,
+) -> tuple[str, InlineKeyboardMarkup]:
+    if subscription is None or subscription.get("status") in {"expired", "disabled"}:
+        return (
+            "👤 <b>Моя подписка</b>\n\n"
+            "Статус: ❌ <b>Нет активной подписки</b>\n\n"
+            "Подключите бесплатные 3 дня или выберите тариф.",
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🎁 3 дня бесплатно",
+                            callback_data="vpn:trial",
+                            style="success",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(
+                            text="🚀 Подключить VPN",
+                            callback_data="vpn:plans",
+                        )
+                    ],
+                    _back(),
+                ]
+            ),
+        )
+
+    status = str(subscription.get("status") or "")
+    if status in {"provisioning", "error"}:
+        text = (
+            "👤 <b>Моя подписка</b>\n\n"
+            "Статус: ⏳ <b>Подключаем VPN</b>\n\n"
+            "Сервер создаёт персональные настройки. Обычно это занимает "
+            "до одной минуты; бот пришлёт их автоматически."
+        )
+        return text, InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Проверить подключение",
+                        callback_data="vpn:subscription",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🆘 Поддержка",
+                        url=f"https://t.me/{support_username}",
+                    )
+                ],
+                _back(),
+            ]
+        )
+
+    plan_name = subscription.get("plan_name") or "3 бесплатных дня"
+    region = subscription.get("server_region") or "NL"
+    ends_at = _format_ends_at(subscription["ends_at"])
+    rows: list[list[InlineKeyboardButton]] = []
+    subscription_url = str(subscription.get("subscription_url") or "")
+    if subscription_url.startswith("https://"):
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔐 Получить настройки VPN",
+                    url=subscription_url,
+                )
+            ]
+        )
+    rows.extend(
+        [
+            [
+                InlineKeyboardButton(
+                    text="🆘 Поддержка",
+                    url=f"https://t.me/{support_username}",
+                )
+            ],
+            _back(),
+        ]
+    )
+    return (
+        "👤 <b>Моя подписка</b>\n\n"
+        "Статус: ✅ <b>Активна</b>\n"
+        f"Тариф: <b>{escape(str(plan_name))}</b>\n"
+        f"Сервер: <b>{escape(str(region))}</b>\n"
+        f"Действует до: <b>{escape(ends_at)} МСК</b>\n\n"
+        "Персональную ссылку никому не передавайте.",
+        InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
 def _referral_text(user: Dict[str, Any], stats: Any, bot_username: str) -> str:
     code = str(user.get("referral_code") or f"tg{user['telegram_id']}")
     username = bot_username or "your_vpn_bot"
@@ -155,7 +261,7 @@ def create_vpn_router(services: AppServices) -> Router:
         if callback.message:
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📄 Публичная оферта", url=services.settings.public_offer_url),
-                 InlineKeyboardButton(text="🔒 Политика конфиденциальности", url=services.settings.public_offer_url)],
+                 InlineKeyboardButton(text="🔒 Политика конфиденциальности", url=services.settings.privacy_policy_url)],
                 [InlineKeyboardButton(text="🎟 Ввести промокод", callback_data="vpn:promo")],
                 [InlineKeyboardButton(text="🆘 Написать в поддержку", url=f"https://t.me/{services.settings.vpn_support_username}")],
                 _back(),
@@ -170,11 +276,14 @@ def create_vpn_router(services: AppServices) -> Router:
 
     @router.callback_query(F.data == "vpn:subscription")
     async def subscription(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        current = services.vpn.get_current_subscription(int(user["id"]))
         if callback.message:
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="🚀 Подключить VPN", callback_data="vpn:plans")], _back()
-            ])
-            await _screen(callback.message, "👤 <b>Моя подписка</b>\n\nСтатус: ❌ <b>Нет активной подписки</b>\n\nПодключите бесплатные 3 дня или выберите тариф.", kb)
+            text, kb = subscription_screen(
+                current,
+                support_username=services.settings.vpn_support_username,
+            )
+            await _screen(callback.message, text, kb)
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:trial")
@@ -203,12 +312,44 @@ def create_vpn_router(services: AppServices) -> Router:
                 ChatMemberStatus.KICKED,
             }
         except Exception:
+            logging.exception("Could not verify VPN trial channel membership")
             subscribed = False
         if subscribed:
-            await callback.answer(
-                "Подписка подтверждена! Выдачу VPN подключим на следующем этапе.",
-                show_alert=True,
-            )
+            user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+            try:
+                outcome = services.vpn.claim_trial(
+                    user_id=int(user["id"]),
+                    channel=channel,
+                )
+            except BusinessRuleError as exc:
+                await callback.answer(str(exc), show_alert=True)
+                return
+            current = services.vpn.get_current_subscription(int(user["id"]))
+            if callback.message:
+                text, kb = subscription_screen(
+                    current or outcome.subscription,
+                    support_username=services.settings.vpn_support_username,
+                )
+                if outcome.trial_already_used and (current or outcome.subscription).get(
+                    "status"
+                ) in {"expired", "disabled"}:
+                    text = (
+                        "🎁 <b>Пробный период уже использован</b>\n\n"
+                        "Выберите тариф, чтобы снова подключить VPN."
+                    )
+                    kb = InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text="🚀 Выбрать тариф",
+                                    callback_data="vpn:plans",
+                                )
+                            ],
+                            _back(),
+                        ]
+                    )
+                await _screen(callback.message, text, kb)
+            await callback.answer("Подписка подтверждена — подключаем VPN.")
         else:
             await callback.answer(
                 "Подписка не найдена. Подпишитесь на канал и попробуйте ещё раз.",
@@ -245,7 +386,10 @@ def create_vpn_router(services: AppServices) -> Router:
 
     @router.callback_query(F.data.in_({"vpn:demo_pay", "vpn:check"}))
     async def demo_notice(callback: CallbackQuery) -> None:
-        await callback.answer("Это визуальный прототип: оплата и VPN пока не подключены.", show_alert=True)
+        await callback.answer(
+            "Платёжные способы пока в демо-режиме. Бесплатные 3 дня уже работают.",
+            show_alert=True,
+        )
 
     @router.callback_query(F.data == "vpn:earn")
     async def earn(callback: CallbackQuery) -> None:

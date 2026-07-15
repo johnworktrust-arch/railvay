@@ -136,6 +136,42 @@ class VpnSubscriptionRepository:
             ).fetchone()
         )
 
+    def get_latest_for_user(
+        self, conn: sqlite3.Connection, user_id: int
+    ) -> Dict[str, Any] | None:
+        self.expire_stale_for_user(conn, user_id=user_id)
+        return row_to_dict(
+            conn.execute(
+                """
+                SELECT
+                    s.*,
+                    srv.code AS server_code,
+                    srv.name AS server_name,
+                    srv.provider AS server_provider,
+                    srv.region AS server_region,
+                    p.code AS plan_code,
+                    p.name AS plan_name,
+                    p.duration_days AS plan_duration_days,
+                    p.max_devices AS plan_max_devices
+                FROM vpn_subscriptions s
+                JOIN vpn_servers srv ON srv.id = s.server_id
+                LEFT JOIN vpn_plans p ON p.id = s.plan_id
+                WHERE s.user_id = ?
+                ORDER BY
+                    CASE s.status
+                        WHEN 'active' THEN 0
+                        WHEN 'provisioning' THEN 1
+                        WHEN 'error' THEN 2
+                        WHEN 'expired' THEN 3
+                        ELSE 4
+                    END,
+                    s.created_at DESC
+                LIMIT 1
+                """,
+                (user_id,),
+            ).fetchone()
+        )
+
     def mark_active(
         self,
         conn: sqlite3.Connection,

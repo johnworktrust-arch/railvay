@@ -13,6 +13,7 @@ from ceai.services.referrals import ReferralService
 from ceai.services.subscriptions import SubscriptionService
 from ceai.services.text_chats import TextChatService
 from ceai.services.users import UserService
+from ceai.services.vpn import VpnService
 
 
 @dataclass(frozen=True)
@@ -26,6 +27,7 @@ class AppServices:
     payments: PaymentService
     generations: GenerationService
     text_chats: TextChatService
+    vpn: VpnService
 
 
 def build_services(db: Database, settings: Settings) -> AppServices:
@@ -62,4 +64,9 @@ def build_services(db: Database, settings: Settings) -> AppServices:
         ),
         generations=GenerationService(db, provider),
         text_chats=TextChatService(db),
+        vpn=VpnService(
+            db,
+            server_code=settings.vpn_server_code,
+            trial_days=settings.vpn_trial_days,
+        ),
     )

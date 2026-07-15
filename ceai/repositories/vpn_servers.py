@@ -18,21 +18,25 @@ class VpnServerRepository:
         region: str,
         api_base_url: str,
         is_active: bool = True,
+        worker_id: str = "",
+        subscription_base_url: str = "",
     ) -> Dict[str, Any]:
         now = iso_now()
         conn.execute(
             """
             INSERT INTO vpn_servers (
                 code, name, provider, region, api_base_url, is_active,
-                created_at, updated_at
+                worker_id, subscription_base_url, created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             ON CONFLICT(code) DO UPDATE SET
                 name = excluded.name,
                 provider = excluded.provider,
                 region = excluded.region,
                 api_base_url = excluded.api_base_url,
                 is_active = excluded.is_active,
+                worker_id = excluded.worker_id,
+                subscription_base_url = excluded.subscription_base_url,
                 updated_at = excluded.updated_at
             """,
             (
@@ -42,6 +46,8 @@ class VpnServerRepository:
                 region,
                 api_base_url.rstrip("/"),
                 bool(is_active),
+                worker_id.strip() or None,
+                subscription_base_url.strip().rstrip("/"),
                 now,
                 now,
             ),
@@ -50,6 +56,16 @@ class VpnServerRepository:
         if server is None:
             raise RuntimeError("Could not upsert VPN server")
         return server
+
+    def get_by_worker_id(
+        self, conn: sqlite3.Connection, worker_id: str
+    ) -> Dict[str, Any] | None:
+        return row_to_dict(
+            conn.execute(
+                "SELECT * FROM vpn_servers WHERE worker_id = ?",
+                (worker_id,),
+            ).fetchone()
+        )
 
     def get_by_id(
         self, conn: sqlite3.Connection, server_id: int

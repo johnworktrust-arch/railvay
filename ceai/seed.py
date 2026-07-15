@@ -4,6 +4,8 @@ from ceai.config import load_settings
 from ceai.database import Database
 from ceai.repositories.model_prices import ModelPriceRepository
 from ceai.repositories.plans import PlanRepository
+from ceai.repositories.vpn_plans import VpnPlanRepository
+from ceai.repositories.vpn_servers import VpnServerRepository
 
 
 PLANS = [
@@ -152,15 +154,45 @@ MODEL_PRICES = [
     },
 ]
 
+VPN_PLANS = [
+    ("vpn-1m", "1 месяц", 30, 189, 149),
+    ("vpn-3m", "3 месяца", 90, 479, 399),
+    ("vpn-6m", "6 месяцев", 180, 790, 649),
+    ("vpn-12m", "1 год", 365, 1290, 999),
+]
+
 
 def seed_reference_data(db: Database) -> None:
+    settings = load_settings()
     plan_repo = PlanRepository()
     model_repo = ModelPriceRepository()
+    vpn_plan_repo = VpnPlanRepository()
+    vpn_server_repo = VpnServerRepository()
     with db.transaction() as conn:
         for plan in PLANS:
             plan_repo.upsert(conn, **plan)
         for model in MODEL_PRICES:
             model_repo.upsert(conn, **model)
+        for code, name, duration_days, price_rub, price_stars in VPN_PLANS:
+            vpn_plan_repo.upsert(
+                conn,
+                code=code,
+                name=name,
+                duration_days=duration_days,
+                price_rub=price_rub,
+                price_stars=price_stars,
+                max_devices=3,
+            )
+        vpn_server_repo.upsert(
+            conn,
+            code=settings.vpn_server_code,
+            name="CEA VPN Amsterdam 1",
+            provider="marzban",
+            region="NL",
+            api_base_url="http://127.0.0.1:8000",
+            worker_id=settings.vpn_worker_id,
+            subscription_base_url=settings.vpn_subscription_base_url,
+        )
         conn.execute(
             """
             UPDATE model_prices

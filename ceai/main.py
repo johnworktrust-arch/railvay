@@ -7,7 +7,7 @@ import os
 from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
-from aiogram.types import BotCommand
+from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import ClientSession, ClientTimeout, web
 
@@ -29,6 +29,7 @@ from ceai.services.app import AppServices, build_services
 from ceai.services.exceptions import BusinessRuleError
 from ceai.bot.handlers import create_router
 from ceai.vpn_bot.handlers import create_vpn_router
+from ceai.vpn_worker_api import register_vpn_worker_routes
 
 
 BOT_COMMANDS = [
@@ -93,6 +94,18 @@ async def auto_renewal_loop(services: AppServices) -> None:
         except Exception:
             logging.exception("YooKassa auto renewal loop failed")
         await asyncio.sleep(max(60, interval_seconds))
+
+
+async def vpn_maintenance_loop(services: AppServices) -> None:
+    interval_seconds = int(os.getenv("VPN_MAINTENANCE_INTERVAL_SECONDS", "60"))
+    while True:
+        try:
+            queued = await asyncio.to_thread(services.vpn.enqueue_due_expirations)
+            if queued:
+                logging.info("Queued %s expired VPN subscription(s)", queued)
+        except Exception:
+            logging.exception("VPN maintenance loop failed")
+        await asyncio.sleep(max(30, interval_seconds))
 
 
 def _normalize_path(path: str) -> str:
@@ -186,6 +199,52 @@ async def run_webhook(
     crypto_webhook_path = _crypto_webhook_path(settings)
     app.router.add_get(yookassa_return_path, payment_return)
     app.router.add_get("/telegram/status", telegram_status)
+
+    async def notify_vpn_ready(completion) -> None:
+        if vpn_bot is None or completion.operation == "disable":
+            return
+        subscription_url = str(completion.subscription.get("subscription_url") or "")
+        if not subscription_url:
+            return
+        try:
+            await vpn_bot.send_message(
+                chat_id=completion.telegram_id,
+                text=(
+                    "✅ <b>VPN готов!</b>\n\n"
+                    "Нажмите кнопку ниже и добавьте подписку в приложение. "
+                    "Ссылка персональная — не передавайте её другим."
+                ),
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🔐 Получить настройки VPN",
+                                url=subscription_url,
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                text="👤 Моя подписка",
+                                callback_data="vpn:subscription",
+                            )
+                        ],
+                    ]
+                ),
+            )
+        except Exception:
+            # The job is already committed; a Telegram delivery failure must not
+            # make the worker repeat the provisioning result.
+            logging.exception(
+                "Could not notify Telegram user that VPN provisioning completed"
+            )
+
+    register_vpn_worker_routes(
+        app,
+        db=db,
+        services=services,
+        settings=settings,
+        on_completed=notify_vpn_ready,
+    )
 
     async def provider_settings(request: web.Request) -> web.Response:
         body = await request.read()
@@ -314,14 +373,18 @@ async def run_webhook(
     site = web.TCPSite(runner, host="0.0.0.0", port=port)
     await site.start()
     auto_renewal_task = asyncio.create_task(auto_renewal_loop(services))
+    vpn_maintenance_task = asyncio.create_task(vpn_maintenance_loop(services))
     logging.info("Webhook endpoint listening on 0.0.0.0:%s%s", port, webhook_path)
     logging.info("Health endpoint listening on 0.0.0.0:%s/healthz", port)
     try:
         await asyncio.Event().wait()
     finally:
         auto_renewal_task.cancel()
+        vpn_maintenance_task.cancel()
         with suppress(asyncio.CancelledError):
             await auto_renewal_task
+        with suppress(asyncio.CancelledError):
+            await vpn_maintenance_task
         await runner.cleanup()
 
 
@@ -384,6 +447,7 @@ async def main() -> None:
             health_server = await start_health_server(settings=settings, db=db)
             await bot.delete_webhook(drop_pending_updates=False)
             auto_renewal_task = asyncio.create_task(auto_renewal_loop(services))
+            vpn_maintenance_task = asyncio.create_task(vpn_maintenance_loop(services))
             try:
                 if vpn_bot and vpn_dispatcher:
                     await vpn_bot.delete_webhook(drop_pending_updates=False)
@@ -395,8 +459,11 @@ async def main() -> None:
                     await dispatcher.start_polling(bot)
             finally:
                 auto_renewal_task.cancel()
+                vpn_maintenance_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await auto_renewal_task
+                with suppress(asyncio.CancelledError):
+                    await vpn_maintenance_task
     finally:
         if health_server is not None:
             health_server.close()

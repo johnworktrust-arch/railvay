@@ -65,6 +65,16 @@ class VpnTrialClaimRepository:
             ).fetchone()
         )
 
+    def get_by_subscription_id(
+        self, conn: sqlite3.Connection, subscription_id: int
+    ) -> Dict[str, Any] | None:
+        return row_to_dict(
+            conn.execute(
+                "SELECT * FROM vpn_trial_claims WHERE subscription_id = ?",
+                (subscription_id,),
+            ).fetchone()
+        )
+
     def mark_status(
         self,
         conn: sqlite3.Connection,
