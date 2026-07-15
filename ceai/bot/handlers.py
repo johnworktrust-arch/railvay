@@ -383,6 +383,29 @@ async def _send_generation_menu_followup(
     return sent
 
 
+async def _send_main_menu_followup(
+    message: Message,
+    services: AppServices,
+    user_id: int,
+) -> Message:
+    _reset_dialog_state(services, user_id)
+    reply_markup = _main_menu_keyboard(services, user_id)
+    sent = await _send_screen_message(
+        message,
+        text=_format_main_menu(),
+        reply_markup=reply_markup,
+    )
+    _remember_screen_message(
+        services,
+        user_id,
+        state="idle",
+        payload={},
+        message_id=sent.message_id,
+        reply_markup=reply_markup,
+    )
+    return sent
+
+
 async def _remove_legacy_reply_keyboard(
     message: Message, payload: Dict[str, Any], reply_markup: Any | None
 ) -> None:
@@ -3832,9 +3855,10 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 generation.result,
-                reply_markup=chat_keyboard,
+                reply_markup=None,
                 generation_id=int(generation.generation["id"]),
             )
+            await _send_main_menu_followup(message, services, user["id"])
             return
 
         if session and session["state"] == "waiting_model_choice":

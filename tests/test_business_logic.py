@@ -1711,11 +1711,17 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("payload.pop(LAST_BOT_MESSAGE_IDS, None)", handlers_source)
         self.assertIn("_show_generation_result(", handlers_source)
         self.assertIn("async def _send_generation_menu_followup", handlers_source)
+        self.assertIn("async def _send_main_menu_followup", handlers_source)
         self.assertIn("send_menu_followup: bool = False", handlers_source)
         self.assertIn("_send_generation_menu_followup(message, services, user_id)", handlers_source)
         self.assertIn("_reset_dialog_state(services, user_id)", handlers_source)
         self.assertIn("reply_markup = work_menu_keyboard()", handlers_source)
         self.assertIn("text=_format_work_menu()", handlers_source)
+        self.assertIn("text=_format_main_menu()", handlers_source)
+        self.assertIn(
+            "await _send_main_menu_followup(message, services, user[\"id\"])",
+            handlers_source,
+        )
         self.assertIn(
             'generation.model["generation_type"] in {"image", "video", "tts"}',
             handlers_source,
