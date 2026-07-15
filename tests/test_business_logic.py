@@ -2134,6 +2134,8 @@ class MigrationAndUITest(unittest.TestCase):
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
         self.assertIn("🏠 Главное меню", handlers_source)
+        self.assertIn("👋 Привет! Я Cea AI", handlers_source)
+        self.assertIn("нейросетями для текста", handlers_source)
         self.assertIn(
             "Выберите раздел 👇",
             handlers_source,

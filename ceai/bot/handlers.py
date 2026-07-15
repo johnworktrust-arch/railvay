@@ -608,7 +608,9 @@ def _format_referral_withdrawal_available(
 
 def _format_main_menu() -> str:
     return (
-        "🏠 Главное меню\n\n"
+        "👋 Привет! Я Cea AI — бот с современными нейросетями для текста, "
+        "изображений, видео и озвучки.\n\n"
+        "🏠 Главное меню\n"
         "Выберите раздел 👇"
     )
 
