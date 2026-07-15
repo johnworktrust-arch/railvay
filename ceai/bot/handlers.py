@@ -111,7 +111,7 @@ GIFT_CHANNEL_USERNAME = "ceafamily"
 GIFT_CHANNEL_CHAT_ID = f"@{GIFT_CHANNEL_USERNAME}"
 GIFT_CHANNEL_URL = f"https://t.me/{GIFT_CHANNEL_USERNAME}"
 GIFT_DURATION_DAYS = 3
-GIFT_COINS_AMOUNT = 50
+GIFT_COINS_AMOUNT = 5
 GIFT_PLAN_CODE = "start"
 TTS_VOICES = (
     ("Alloy", "alloy"),
@@ -777,8 +777,10 @@ def _format_gift_already_claimed(result: Dict[str, Any]) -> str:
 
 def _format_plans(plans: list[Dict[str, Any]]) -> str:
     return (
-        "💳 Выберите тариф с подпиской.\n\n"
-        "Нажмите на любой тариф ниже — покажу цену, количество коинов и что входит."
+        "💳 Тарифы Cea AI\n\n"
+        "Каждый тариф действует 30 дней и открывает доступ ко всем "
+        "AI-инструментам.\n\n"
+        "Выберите тариф ниже, чтобы посмотреть подробности 👇"
     )
 
 
@@ -796,8 +798,13 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
     price = int(plan.get("price_rub") or 0)
     chatgpt_requests = coins // 3
     deepseek_requests = coins
-    image_requests = coins // 2
+    image_requests = coins // 3
+    video_requests = coins // 25
+    tts_requests = coins // 3
     stars_amount = telegram_stars_amount_for_rub(price)
+    features = loads_dict(plan.get("features"))
+    description = str(features.get("description") or "").strip()
+    usage_example = str(features.get("usage_example") or "").strip()
     meta = {
         "start": {
             "icon": "⭐️",
@@ -826,19 +833,29 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
             "extra": "➕ Доступ к текстовым нейросетям Cea AI",
         },
     )
-    return (
-        f"{meta['icon']} {meta['label']} — {price} ₽\n"
-        f"({meta['tag']})\n\n"
-        "➕ DeepSeek, ChatGPT и GPT Image\n"
-        f"➕ {format_coin_amount(coins)}\n"
-        f"➕ До {deepseek_requests} запросов DeepSeek\n"
-        f"➕ До {chatgpt_requests} запросов ChatGPT\n"
-        f"➕ До {image_requests} изображений GPT Image\n"
-        f"⭐ Telegram Stars: {stars_amount}⭐\n"
-        "➕ Срок действия — 30 дней\n"
-        f"{meta['extra']}\n\n"
-        f"{_format_payment_methods()}"
+    lines = [
+        f"{meta['icon']} {meta['label']} — {price} ₽ / {stars_amount} ⭐",
+        f"({meta['tag']})",
+        "",
+    ]
+    if description:
+        lines.extend([description, ""])
+    lines.extend(
+        [
+            "➕ DeepSeek, ChatGPT, GPT Image, Kling и озвучка",
+            f"➕ {format_coin_amount(coins)}",
+            f"➕ До {deepseek_requests} запросов DeepSeek",
+            f"➕ До {chatgpt_requests} запросов ChatGPT",
+            f"➕ До {image_requests} изображений GPT Image",
+            f"➕ До {video_requests} видео Kling",
+            f"➕ До {tts_requests} озвучек",
+            "➕ Срок действия — 30 дней",
+        ]
     )
+    if usage_example:
+        lines.extend(["", f"Пример использования: {usage_example}."])
+    lines.extend([str(meta["extra"]), "", _format_payment_methods()])
+    return "\n".join(lines)
 
 
 def _payment_method_label(payment_method: str) -> str:
@@ -942,14 +959,10 @@ def _format_models(models: list[Dict[str, Any]]) -> str:
 
 def _format_direct_prompt_screen(model: Dict[str, Any]) -> str:
     if str(model["generation_type"]) == "image":
-        config = loads_dict(model.get("config"))
-        four_k_cost = int(config.get("four_k_coins_cost") or 3)
         return (
             f"Модель: {model['display_name']}\n\n"
-            f"Стоимость 1 запроса: {_format_coin_unit(model['coins_cost'])}\n"
-            f"Стоимость 1 запроса 4К: {_format_coin_unit(four_k_cost)}\n\n"
-            "Введите текст для генерации или изображение которое хотите изменить.\n\n"
-            "🔎Чтобы получить изображение 4К, добавьте «4К» в текст запроса"
+            f"Стоимость 1 запроса: {_format_coin_unit(model['coins_cost'])}\n\n"
+            "Введите текст для генерации или изображение, которое хотите изменить."
         )
     if str(model["generation_type"]) == "video":
         return (

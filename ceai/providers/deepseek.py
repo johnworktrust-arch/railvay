@@ -32,6 +32,12 @@ class DeepSeekProvider:
     ) -> ProviderResult:
         config = loads_dict(model.get("config"))
         model_key = str(config.get("api_model") or model["model_key"])
+        prompt = prompt_text.strip()
+        max_input_characters = int(config.get("max_input_characters") or 6000)
+        if len(prompt) > max_input_characters:
+            raise ProviderError(
+                f"DeepSeek input cannot exceed {max_input_characters} characters"
+            )
         instructions = text_model_instructions(model, system_prompt=system_prompt)
         payload = {
             "model": model_key,
@@ -40,19 +46,21 @@ class DeepSeekProvider:
                     "role": "system",
                     "content": instructions,
                 },
-                {"role": "user", "content": prompt_text.strip()},
+                {"role": "user", "content": prompt},
             ],
             "stream": False,
             "thinking": {"type": str(config.get("thinking_type", "disabled"))},
+            "max_tokens": int(config.get("max_output_tokens") or 2000),
         }
         raw = self._post_json("/chat/completions", payload)
         text = self._extract_text(raw)
         response_id = str(raw.get("id") or f"deepseek-{model_key}")
+        usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
         return ProviderResult(
             provider_job_id=response_id,
-            result={"kind": "text", "text": text},
-            provider_cost_amount=float(config.get("provider_cost_amount", 0)),
-            provider_cost_currency=str(config.get("provider_cost_currency", "USD")),
+            result={"kind": "text", "text": text, "usage": usage},
+            provider_cost_amount=_text_cost_usd(config, usage),
+            provider_cost_currency="USD",
         )
 
     def _post_json(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -89,3 +97,29 @@ class DeepSeekProvider:
         if not isinstance(text, str) or not text.strip():
             raise ProviderError("DeepSeek API returned no text content")
         return text.strip()
+
+
+def _text_cost_usd(config: Dict[str, Any], usage: Dict[str, Any]) -> float:
+    prompt_tokens = max(0, int(usage.get("prompt_tokens") or 0))
+    completion_tokens = max(0, int(usage.get("completion_tokens") or 0))
+    cache_hit_tokens = max(0, int(usage.get("prompt_cache_hit_tokens") or 0))
+    cache_hit_tokens = min(cache_hit_tokens, prompt_tokens)
+    cache_miss_tokens = max(
+        0,
+        int(usage.get("prompt_cache_miss_tokens") or prompt_tokens - cache_hit_tokens),
+    )
+    cache_miss_tokens = min(cache_miss_tokens, prompt_tokens - cache_hit_tokens)
+    if not prompt_tokens and not completion_tokens:
+        return float(config.get("fallback_cost_usd") or 0.001)
+    return round(
+        (
+            cache_miss_tokens
+            * float(config.get("input_cost_per_million_usd") or 0.14)
+            + cache_hit_tokens
+            * float(config.get("cached_input_cost_per_million_usd") or 0.0028)
+            + completion_tokens
+            * float(config.get("output_cost_per_million_usd") or 0.28)
+        )
+        / 1_000_000,
+        8,
+    )

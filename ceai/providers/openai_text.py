@@ -32,21 +32,29 @@ class OpenAITextProvider:
     ) -> ProviderResult:
         config = loads_dict(model.get("config"))
         model_key = str(config.get("api_model") or model["model_key"])
+        prompt = prompt_text.strip()
+        max_input_characters = int(config.get("max_input_characters") or 6000)
+        if len(prompt) > max_input_characters:
+            raise ProviderError(
+                f"OpenAI input cannot exceed {max_input_characters} characters"
+            )
         instructions = text_model_instructions(model, system_prompt=system_prompt)
         payload = {
             "model": model_key,
             "reasoning": {"effort": str(config.get("reasoning_effort", "low"))},
             "instructions": instructions,
-            "input": prompt_text.strip(),
+            "input": prompt,
+            "max_output_tokens": int(config.get("max_output_tokens") or 1500),
         }
         raw = self._post_json("/responses", payload)
         text = self._extract_text(raw)
         response_id = str(raw.get("id") or f"openai-{model_key}")
+        usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
         return ProviderResult(
             provider_job_id=response_id,
-            result={"kind": "text", "text": text},
-            provider_cost_amount=float(config.get("provider_cost_amount", 0)),
-            provider_cost_currency=str(config.get("provider_cost_currency", "USD")),
+            result={"kind": "text", "text": text, "usage": usage},
+            provider_cost_amount=_text_cost_usd(config, usage),
+            provider_cost_currency="USD",
         )
 
     def _post_json(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -89,3 +97,28 @@ class OpenAITextProvider:
             return "\n".join(parts)
 
         raise ProviderError("OpenAI API returned no text output")
+
+
+def _text_cost_usd(config: Dict[str, Any], usage: Dict[str, Any]) -> float:
+    input_tokens = max(0, int(usage.get("input_tokens") or 0))
+    output_tokens = max(0, int(usage.get("output_tokens") or 0))
+    input_details = usage.get("input_tokens_details")
+    cached_tokens = (
+        max(0, int(input_details.get("cached_tokens") or 0))
+        if isinstance(input_details, dict)
+        else 0
+    )
+    cached_tokens = min(cached_tokens, input_tokens)
+    regular_tokens = input_tokens - cached_tokens
+    if not input_tokens and not output_tokens:
+        return float(config.get("fallback_cost_usd") or 0.06)
+    return round(
+        (
+            regular_tokens * float(config.get("input_cost_per_million_usd") or 5.0)
+            + cached_tokens
+            * float(config.get("cached_input_cost_per_million_usd") or 0.5)
+            + output_tokens * float(config.get("output_cost_per_million_usd") or 30.0)
+        )
+        / 1_000_000,
+        8,
+    )

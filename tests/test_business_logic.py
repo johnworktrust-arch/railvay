@@ -20,8 +20,10 @@ from ceai.internal_api import (
 from ceai.json_utils import dumps, loads_dict
 from ceai.repositories.app_settings import AppSettingsRepository
 from ceai.providers.base import ImageInput, ProviderError, ProviderResult
+from ceai.providers.deepseek import DeepSeekProvider
 from ceai.providers.kling_video import KlingVideoProvider
 from ceai.providers.openai_image import OpenAIImageProvider
+from ceai.providers.openai_text import OpenAITextProvider
 from ceai.providers.openai_tts import OpenAITTSProvider
 from ceai.providers.router import AIProviderRouter
 from ceai.seed import seed_reference_data
@@ -78,15 +80,15 @@ class BusinessLogicTest(unittest.TestCase):
     def test_successful_mock_payment_credits_coins_once(self) -> None:
         payment, first = self._buy_plan("start")
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 100)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(first.credited_coins, 25)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 25)
 
         second = self.services.payments.process_mock_success_webhook_for_payment_id(
             payment_id=payment["id"]
         )
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 25)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -98,7 +100,7 @@ class BusinessLogicTest(unittest.TestCase):
                 (payment["id"],),
             ).fetchone()
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 100)
+        self.assertEqual(row["amount"], 25)
 
     def test_channel_gift_grants_trial_once(self) -> None:
         self.assertFalse(
@@ -151,7 +153,7 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIsNotNone(subscription)
         assert subscription is not None
         self.assertEqual(subscription["plan_code"], "pro")
-        self.assertEqual(subscription["coins_balance_cache"], 510)
+        self.assertEqual(subscription["coins_balance_cache"], 140)
 
     def test_yookassa_payment_creation_uses_redirect_checkout(self) -> None:
         settings = Settings(
@@ -406,10 +408,10 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 100)
+        self.assertEqual(first.credited_coins, 25)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
-        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 25)
 
         with self.db.transaction() as conn:
             row = conn.execute(
@@ -421,7 +423,7 @@ class BusinessLogicTest(unittest.TestCase):
                 (payment["id"],),
             ).fetchone()
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 100)
+        self.assertEqual(row["amount"], 25)
 
         with self.assertRaises(BusinessRuleError):
             services.payments.process_crypto_pay_webhook(
@@ -439,44 +441,44 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(payment["provider"], "telegram_stars")
         self.assertTrue(payment["external_id"].startswith("stars_"))
         self.assertEqual(payment["payment_url"], f"telegram-stars://{payment['external_id']}")
-        self.assertEqual(meta["stars_amount"], 150)
+        self.assertEqual(meta["stars_amount"], 319)
         self.assertEqual(meta["stars_fixed_amount"], 0)
-        self.assertEqual(meta["coins_amount"], 100)
+        self.assertEqual(meta["coins_amount"], 25)
         self.assertEqual(meta["duration_days"], 30)
 
         checkout_payment = self.services.payments.validate_telegram_stars_pre_checkout(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=150,
+            total_amount=319,
         )
         self.assertEqual(checkout_payment["id"], payment["id"])
 
         first = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=150,
+            total_amount=319,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
         second = self.services.payments.process_telegram_stars_successful_payment(
             invoice_payload=payment["external_id"],
             currency="XTR",
-            total_amount=150,
+            total_amount=319,
             telegram_payment_charge_id="tg-stars-charge-1",
             provider_payment_charge_id="",
         )
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 100)
+        self.assertEqual(first.credited_coins, 25)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 25)
 
         with self.assertRaises(BusinessRuleError):
             self.services.payments.validate_telegram_stars_pre_checkout(
                 invoice_payload=payment["external_id"],
                 currency="XTR",
-                total_amount=150,
+                total_amount=319,
             )
 
     def test_successful_yookassa_webhook_credits_coins_once(self) -> None:
@@ -539,19 +541,19 @@ class BusinessLogicTest(unittest.TestCase):
             second = services.payments.process_yookassa_webhook(payload=payload)
 
         self.assertTrue(first.processed)
-        self.assertEqual(first.credited_coins, 100)
+        self.assertEqual(first.credited_coins, 25)
         self.assertFalse(second.processed)
         self.assertTrue(second.duplicate)
         self.assertEqual(fetch.call_count, 1)
-        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(services.subscriptions.balance_for_user(self.user["id"]), 25)
         active = services.subscriptions.active_for_user(self.user["id"])
         self.assertTrue(active["auto_renew"])
         self.assertEqual(active["yookassa_payment_method_id"], "pm_saved_1")
         self.assertEqual(
             format_payment_notification(first),
             "✅ Оплата прошла успешно.\n\n"
-            "Начислено 100 коинов.\n"
-            "Текущий баланс: 100 коинов.\n\n"
+            "Начислено 25 коинов.\n"
+            "Текущий баланс: 25 коинов.\n\n"
             "Тариф активирован. Можно возвращаться в главное меню.",
         )
         self.assertIsNone(format_payment_notification(second))
@@ -566,7 +568,7 @@ class BusinessLogicTest(unittest.TestCase):
                 (payment["id"],),
             ).fetchone()
         self.assertEqual(row["count"], 1)
-        self.assertEqual(row["amount"], 100)
+        self.assertEqual(row["amount"], 25)
 
     def test_canceled_yookassa_webhook_marks_payment_and_notifies_user(self) -> None:
         from ceai.payment_notifications import format_payment_notification
@@ -726,7 +728,7 @@ class BusinessLogicTest(unittest.TestCase):
 
         self.assertEqual(len(results), 1)
         self.assertTrue(results[0].processed)
-        self.assertEqual(results[0].credited_coins, 100)
+        self.assertEqual(results[0].credited_coins, 25)
         self.assertEqual(
             captured_payloads[0]["payment_method_id"],
             "pm_saved_2",
@@ -734,7 +736,7 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertNotIn("confirmation", captured_payloads[0])
         self.assertEqual(
             services.subscriptions.balance_for_user(self.user["id"]),
-            200,
+            50,
         )
         renewed = services.subscriptions.active_for_user(self.user["id"])
         self.assertTrue(renewed["auto_renew"])
@@ -857,10 +859,10 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.generation["status"], "completed")
         self.assertEqual(result.generation["coins_reserved"], 1)
         self.assertEqual(result.generation["coins_charged"], 1)
-        self.assertEqual(result.balance_after, 99)
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 99)
+        self.assertEqual(result.balance_after, 24)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 24)
 
-    def test_image_generation_uses_standard_and_four_k_coin_costs(self) -> None:
+    def test_image_generation_has_one_real_resolution_price(self) -> None:
         mock_services = build_services(
             self.db,
             Settings(
@@ -894,12 +896,12 @@ class BusinessLogicTest(unittest.TestCase):
             prompt_text="Нарисуй футуристичный город 4К",
         )
 
-        self.assertEqual(standard.generation["coins_charged"], 2)
-        self.assertEqual(standard.balance_after, 98)
+        self.assertEqual(standard.generation["coins_charged"], 3)
+        self.assertEqual(standard.balance_after, 22)
         self.assertEqual(four_k.generation["coins_charged"], 3)
-        self.assertEqual(four_k.balance_after, 95)
+        self.assertEqual(four_k.balance_after, 19)
         history = mock_services.generations.list_recent(user_id=self.user["id"])
-        self.assertEqual(history[0]["prompt_payload"]["image_resolution"], "4k")
+        self.assertNotIn("image_resolution", history[0]["prompt_payload"])
 
     def test_image_generation_accepts_uploaded_image_input(self) -> None:
         mock_services = build_services(
@@ -937,8 +939,8 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertEqual(result.generation["status"], "completed")
-        self.assertEqual(result.generation["coins_charged"], 2)
-        self.assertEqual(result.balance_after, 98)
+        self.assertEqual(result.generation["coins_charged"], 3)
+        self.assertEqual(result.balance_after, 22)
         self.assertIn("изменение изображения", result.result["caption"])
         history = mock_services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(
@@ -1044,6 +1046,87 @@ class BusinessLogicTest(unittest.TestCase):
             "telegram-audio-file-id",
         )
 
+    def test_text_providers_limit_input_and_record_token_cost(self) -> None:
+        openai = OpenAITextProvider(api_key="test-key")
+        openai_calls = []
+
+        def fake_openai(path, payload):
+            openai_calls.append((path, payload))
+            return {
+                "id": "response-1",
+                "output_text": "Готово",
+                "usage": {
+                    "input_tokens": 1000,
+                    "input_tokens_details": {"cached_tokens": 200},
+                    "output_tokens": 500,
+                },
+            }
+
+        openai._post_json = fake_openai
+        openai_model = {
+            "provider": "openai",
+            "model_key": "gpt-4o-mini",
+            "display_name": "ChatGPT GPT-5.5",
+            "generation_type": "text",
+            "config": {
+                "api_model": "gpt-5.5",
+                "max_input_characters": 6000,
+                "max_output_tokens": 1500,
+            },
+        }
+        openai_result = openai.generate(
+            model=openai_model,
+            prompt_text="Составь план",
+        )
+
+        self.assertEqual(openai_calls[0][0], "/responses")
+        self.assertEqual(openai_calls[0][1]["max_output_tokens"], 1500)
+        self.assertEqual(openai_result.result["usage"]["output_tokens"], 500)
+        self.assertAlmostEqual(openai_result.provider_cost_amount, 0.0191)
+        self.assertEqual(openai_result.provider_cost_currency, "USD")
+        with self.assertRaisesRegex(ProviderError, "cannot exceed 6000"):
+            openai.generate(model=openai_model, prompt_text="x" * 6001)
+
+        deepseek = DeepSeekProvider(api_key="test-key")
+        deepseek_calls = []
+
+        def fake_deepseek(path, payload):
+            deepseek_calls.append((path, payload))
+            return {
+                "id": "chat-1",
+                "choices": [{"message": {"content": "Готово"}}],
+                "usage": {
+                    "prompt_tokens": 1000,
+                    "prompt_cache_hit_tokens": 400,
+                    "prompt_cache_miss_tokens": 600,
+                    "completion_tokens": 500,
+                },
+            }
+
+        deepseek._post_json = fake_deepseek
+        deepseek_model = {
+            "provider": "deepseek",
+            "model_key": "deepseek-v4-flash",
+            "display_name": "DeepSeek V4 Flash",
+            "generation_type": "text",
+            "config": {
+                "api_model": "deepseek-v4-flash",
+                "max_input_characters": 6000,
+                "max_output_tokens": 2000,
+            },
+        }
+        deepseek_result = deepseek.generate(
+            model=deepseek_model,
+            prompt_text="Составь план",
+        )
+
+        self.assertEqual(deepseek_calls[0][0], "/chat/completions")
+        self.assertEqual(deepseek_calls[0][1]["max_tokens"], 2000)
+        self.assertAlmostEqual(deepseek_result.provider_cost_amount, 0.00022512)
+        self.assertEqual(deepseek_result.result["usage"]["completion_tokens"], 500)
+        with self.assertRaisesRegex(ProviderError, "cannot exceed 6000"):
+            deepseek.generate(model=deepseek_model, prompt_text="x" * 6001)
+
     def test_openai_image_provider_uses_edit_endpoint_for_image_input(self) -> None:
         provider = OpenAIImageProvider(api_key="test-key")
         calls = []
@@ -1084,6 +1167,8 @@ class BusinessLogicTest(unittest.TestCase):
         )
         self.assertEqual(result.result["kind"], "image")
         self.assertIn("Изменение изображения", result.result["caption"])
+        self.assertEqual(result.provider_cost_amount, 0.053)
+        self.assertEqual(result.provider_cost_currency, "USD")
 
     def test_openai_tts_provider_generates_mp3_audio(self) -> None:
         provider = OpenAITTSProvider(api_key="test-key")
@@ -1115,6 +1200,14 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.result["kind"], "tts")
         self.assertEqual(result.result["mime_type"], "audio/mpeg")
         self.assertTrue(result.result["audio_b64"])
+        self.assertEqual(
+            result.result["usage"]["input_characters"],
+            len("Привет! Это тест озвучки."),
+        )
+        self.assertAlmostEqual(
+            result.provider_cost_amount,
+            len("Привет! Это тест озвучки.") * 15 / 1_000_000,
+        )
 
         with self.assertRaisesRegex(ProviderError, "Unsupported OpenAI TTS voice"):
             provider.generate(
@@ -1209,6 +1302,9 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(result.provider_job_id, "task-123")
         self.assertEqual(result.result["kind"], "video")
         self.assertEqual(result.result["url"], "https://cdn.test/video.mp4")
+        self.assertEqual(result.result["usage"]["resource_units"], 6.0)
+        self.assertAlmostEqual(result.provider_cost_amount, 0.588)
+        self.assertEqual(result.provider_cost_currency, "USD")
 
     def test_generation_recovers_active_subscription_from_paid_payment(self) -> None:
         payment = self.services.payments.create_mock_payment(
@@ -1232,10 +1328,10 @@ class BusinessLogicTest(unittest.TestCase):
         )
 
         self.assertEqual(result.generation["status"], "completed")
-        self.assertEqual(result.balance_after, 99)
+        self.assertEqual(result.balance_after, 24)
         subscription = self.services.subscriptions.active_for_user(self.user["id"])
         self.assertIsNotNone(subscription)
-        self.assertEqual(subscription["coins_balance_cache"], 99)
+        self.assertEqual(subscription["coins_balance_cache"], 24)
         with self.db.transaction() as conn:
             recovered_payment = conn.execute(
                 "SELECT subscription_id FROM payments WHERE id = ?", (payment["id"],)
@@ -1438,7 +1534,7 @@ class BusinessLogicTest(unittest.TestCase):
             )
 
         self.assertIn("Коины возвращены", str(raised.exception))
-        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 100)
+        self.assertEqual(self.services.subscriptions.balance_for_user(self.user["id"]), 25)
         history = self.services.generations.list_recent(user_id=self.user["id"])
         self.assertEqual(history[0]["status"], "failed")
 
@@ -1483,6 +1579,13 @@ class BusinessLogicTest(unittest.TestCase):
                 generation_type="image",
             ),
         )
+        self.assertIn(
+            "Сократите текст до 6000 символов",
+            _provider_error_message(
+                provider_error="OpenAI input cannot exceed 6000 characters",
+                generation_type="text",
+            ),
+        )
 
     def test_handlers_show_provider_failure_text(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
@@ -1512,7 +1615,7 @@ class BusinessLogicTest(unittest.TestCase):
         self._buy_plan("start")
         model = self._model("deepseek-v4-flash")
 
-        for index in range(100):
+        for index in range(25):
             self.services.generations.generate(
                 user_id=self.user["id"],
                 model_price_id=model["id"],
@@ -1585,8 +1688,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Выберите модель кнопкой в сообщении.", handlers_source)
         self.assertIn("skip_single_model_choice=True", handlers_source)
         self.assertIn("Модель: {model['display_name']}", handlers_source)
-        self.assertIn("Стоимость 1 запроса 4К", handlers_source)
-        self.assertIn("🔎Чтобы получить изображение 4К", handlers_source)
+        self.assertNotIn("Стоимость 1 запроса 4К", handlers_source)
+        self.assertNotIn("🔎Чтобы получить изображение 4К", handlers_source)
         self.assertIn('"Запускаю генерацию..."', handlers_source)
         self.assertIn(
             '"Запускаю генерацию видео. Это может занять несколько минут..."',
@@ -1641,15 +1744,13 @@ class MigrationAndUITest(unittest.TestCase):
                 {
                     "display_name": "GPT Image 2",
                     "generation_type": "image",
-                    "coins_cost": 2,
-                    "config": {"four_k_coins_cost": 3},
+                    "coins_cost": 3,
+                    "config": {},
                 }
             ),
             "Модель: GPT Image 2\n\n"
-            "Стоимость 1 запроса: 2 Coin\n"
-            "Стоимость 1 запроса 4К: 3 Coin\n\n"
-            "Введите текст для генерации или изображение которое хотите изменить.\n\n"
-            "🔎Чтобы получить изображение 4К, добавьте «4К» в текст запроса",
+            "Стоимость 1 запроса: 3 Coin\n\n"
+            "Введите текст для генерации или изображение, которое хотите изменить.",
         )
         self.assertEqual(
             _format_media_generation_caption(
@@ -1766,8 +1867,10 @@ class MigrationAndUITest(unittest.TestCase):
 
         self.assertEqual(
             text,
-            "💳 Выберите тариф с подпиской.\n\n"
-            "Нажмите на любой тариф ниже — покажу цену, количество коинов и что входит.",
+            "💳 Тарифы Cea AI\n\n"
+            "Каждый тариф действует 30 дней и открывает доступ ко всем "
+            "AI-инструментам.\n\n"
+            "Выберите тариф ниже, чтобы посмотреть подробности 👇",
         )
         self.assertNotIn("Старт", text)
         self.assertNotIn("Базовый", text)
@@ -1778,9 +1881,9 @@ class MigrationAndUITest(unittest.TestCase):
             crystal_text,
             "💳 Выберите количество коинов для покупки:",
         )
-        self.assertIn("⭐️ Старт - 299руб", labels)
-        self.assertIn("🔥 Базовый - 699руб", labels)
-        self.assertIn("⚡️ Про - 1490руб", labels)
+        self.assertIn("Старт — 299 ₽ / 319 ⭐", labels)
+        self.assertIn("Базовый — 699 ₽ / 749 ⭐", labels)
+        self.assertIn("Про — 1490 ₽ / 1599 ⭐", labels)
         self.assertIn("Купить коины отдельно", labels)
         self.assertNotIn("❌ Отменить подписку", labels)
         self.assertIn("❌ Отменить подписку", subscribed_plan_labels)
@@ -1788,35 +1891,33 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             crystal_labels,
             [
-                "S - 139₽ - 30 коинов",
-                "🔥M - 499₽ - 110 коинов  (-2%)",
-                "L - 999₽ - 260 коинов  (-17%)",
-                "XL - 2990₽ - 1198 коинов  (-45%)",
-                "⚡XXL - 9000₽ - 4300 коинов  (-55%)",
+                "S - 139₽ - 10 коинов",
+                "M - 499₽ - 40 коинов (-10%)",
+                "L - 999₽ - 85 коинов (-15%)",
+                "XL - 2990₽ - 270 коинов (-20%)",
+                "XXL - 9000₽ - 850 коинов (-24%)",
                 "⬅️ Назад",
             ],
         )
         self.assertIn("crystals:s", crystal_callbacks)
         self.assertIn("crystals:xxl", crystal_callbacks)
-        self.assertIn("⭐️ Старт — 299 ₽", start_details)
-        self.assertIn("➕ 100 коинов", start_details)
-        self.assertIn("➕ До 100 запросов DeepSeek", start_details)
-        self.assertIn("➕ До 33 запросов ChatGPT", start_details)
-        self.assertIn("➕ До 50 изображений GPT Image", start_details)
-        self.assertIn("⭐ Telegram Stars: 150⭐", start_details)
+        self.assertIn("⭐️ Старт — 299 ₽ / 319 ⭐", start_details)
+        self.assertIn("➕ 25 коинов", start_details)
+        self.assertIn("➕ До 25 запросов DeepSeek", start_details)
+        self.assertIn("➕ До 8 запросов ChatGPT", start_details)
+        self.assertIn("➕ До 8 изображений GPT Image", start_details)
+        self.assertIn("➕ До 1 видео Kling", start_details)
         self.assertIn("💳 Выберите способ оплаты:", start_details)
-        self.assertIn("🔥 Базовый — 699 ₽", basic_details)
-        self.assertIn("➕ 230 коинов", basic_details)
-        self.assertIn("➕ До 76 запросов ChatGPT", basic_details)
-        self.assertIn("➕ До 115 изображений GPT Image", basic_details)
-        self.assertIn("⭐ Telegram Stars: 350⭐", basic_details)
-        self.assertIn("⚡️ Про — 1490 ₽", pro_details)
-        self.assertIn("➕ 500 коинов", pro_details)
-        self.assertIn("➕ До 166 запросов ChatGPT", pro_details)
-        self.assertIn("➕ До 250 изображений GPT Image", pro_details)
-        self.assertIn("⭐ Telegram Stars: 745⭐", pro_details)
+        self.assertIn("🔥 Базовый — 699 ₽ / 749 ⭐", basic_details)
+        self.assertIn("➕ 60 коинов", basic_details)
+        self.assertIn("➕ До 20 запросов ChatGPT", basic_details)
+        self.assertIn("➕ До 20 изображений GPT Image", basic_details)
+        self.assertIn("⚡️ Про — 1490 ₽ / 1599 ⭐", pro_details)
+        self.assertIn("➕ 130 коинов", pro_details)
+        self.assertIn("➕ До 43 запросов ChatGPT", pro_details)
+        self.assertIn("➕ До 43 изображений GPT Image", pro_details)
         self.assertIn("💳 Стоимость выбранного тарифа — 699 ₽.", yookassa_payment_screen)
-        self.assertIn("После оплаты вы получите 230 коинов.", yookassa_payment_screen)
+        self.assertIn("После оплаты вы получите 60 коинов.", yookassa_payment_screen)
         self.assertIn("Доступ к тарифу действует 30 дней.", yookassa_payment_screen)
         self.assertIn("Подписка продлевается автоматически", yookassa_payment_screen)
         self.assertIn("ещё на 30 дней за 699 ₽", yookassa_payment_screen)
@@ -1828,7 +1929,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("«Профиль» → «Отключить автопродление»", yookassa_payment_screen)
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
-            {"start": 100, "basic": 230, "pro": 500},
+            {"start": 25, "basic": 60, "pro": 130},
         )
         self.assertIn("coins:buy", callbacks)
         self.assertEqual(
@@ -2019,7 +2120,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('GIFT_BUTTON = "🎁 Бесплатный доступ"', keyboard_source)
         self.assertIn('style="success"', keyboard_source)
         self.assertIn("GIFT_DURATION_DAYS = 3", handlers_source)
-        self.assertIn("GIFT_COINS_AMOUNT = 50", handlers_source)
+        self.assertIn("GIFT_COINS_AMOUNT = 5", handlers_source)
         self.assertIn("дня бесплатно", handlers_source)
         self.assertIn("Пробный доступ активирован на", handlers_source)
         self.assertIn("На ваш баланс зачислено", handlers_source)
@@ -2787,21 +2888,21 @@ class MigrationAndUITest(unittest.TestCase):
                 {
                     "deepseek-v4-flash": 1,
                     "gpt-4o-mini": 3,
-                    "gpt-image-2-medium": 2,
-                    "kling-3": 35,
-                    "tts-1": 5,
+                    "gpt-image-2-medium": 3,
+                    "kling-3": 25,
+                    "tts-1": 3,
                 },
             )
             self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
             self.assertEqual(loads_dict(openai["config"])["reasoning_effort"], "low")
             image_config = loads_dict(image["config"])
             self.assertEqual(image["display_name"], "GPT Image 2")
-            self.assertEqual(image["coins_cost"], 2)
+            self.assertEqual(image["coins_cost"], 3)
             self.assertEqual(image_config["api_model"], "gpt-image-2")
             self.assertEqual(image_config["quality"], "medium")
             self.assertEqual(image_config["size"], "1024x1024")
             self.assertEqual(image_config["output_format"], "png")
-            self.assertEqual(image_config["four_k_coins_cost"], 3)
+            self.assertEqual(image_config["fallback_cost_usd"], 0.053)
             kling_config = loads_dict(kling["config"])
             self.assertEqual(kling["display_name"], "Kling 3.0")
             self.assertEqual(kling["generation_type"], "video")
@@ -2809,7 +2910,8 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(kling_config["mode"], "std")
             self.assertEqual(kling_config["sound"], "off")
             self.assertEqual(kling_config["aspect_ratio"], "16:9")
-            self.assertEqual(kling_config["provider_cost_amount"], 65)
+            self.assertEqual(kling_config["resource_unit_cost_usd"], 0.098)
+            self.assertEqual(kling_config["resource_units_per_second"], 0.6)
             tts = conn.execute(
                 "SELECT * FROM model_prices WHERE provider = ? AND model_key = ?",
                 ("openai", "tts-1"),
@@ -3127,7 +3229,7 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertTrue(payload["providers"]["kling_video_configured"])
             self.assertTrue(payload["providers"]["openai_tts_configured"])
             self.assertTrue(payload["models"]["kling_3_active"])
-            self.assertEqual(payload["models"]["kling_3_cost"], 35)
+            self.assertEqual(payload["models"]["kling_3_cost"], 25)
             self.assertIn(
                 "KLINGAI_API_KEY",
                 payload["diagnostics"]["supported_kling_key_names"],
@@ -3347,7 +3449,7 @@ class AdminLogicTest(unittest.TestCase):
 
         card = self.services.admin.user_card(target["id"])
 
-        self.assertEqual(card["subscription"]["coins_balance_cache"], 99)
+        self.assertEqual(card["subscription"]["coins_balance_cache"], 24)
         self.assertEqual(card["payments"]["paid_count"], 1)
         self.assertEqual(card["payments"]["paid_amount_rub"], 299)
         self.assertEqual(card["generations"]["total"], 1)
@@ -3395,7 +3497,7 @@ class AdminLogicTest(unittest.TestCase):
             admin=self.admin, target_user_id=target["id"], amount=25
         )
 
-        self.assertEqual(balance, 125)
+        self.assertEqual(balance, 50)
         with self.db.transaction() as conn:
             transaction = conn.execute(
                 """

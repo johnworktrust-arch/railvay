@@ -8,6 +8,7 @@ from aiogram.types import (
 )
 
 from ceai.formatting import format_coin_amount
+from ceai.pricing import telegram_stars_amount_for_rub
 
 
 PROFILE_BUTTON = "👤 Мой профиль"
@@ -293,30 +294,30 @@ def crystal_packages_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="S - 139₽ - 30 коинов", callback_data="crystals:s"
+                    text="S - 139₽ - 10 коинов", callback_data="crystals:s"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="🔥M - 499₽ - 110 коинов  (-2%)",
+                    text="M - 499₽ - 40 коинов (-10%)",
                     callback_data="crystals:m",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="L - 999₽ - 260 коинов  (-17%)",
+                    text="L - 999₽ - 85 коинов (-15%)",
                     callback_data="crystals:l",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="XL - 2990₽ - 1198 коинов  (-45%)",
+                    text="XL - 2990₽ - 270 коинов (-20%)",
                     callback_data="crystals:xl",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text="⚡XXL - 9000₽ - 4300 коинов  (-55%)",
+                    text="XXL - 9000₽ - 850 коинов (-24%)",
                     callback_data="crystals:xxl",
                 )
             ],
@@ -326,12 +327,9 @@ def crystal_packages_keyboard() -> InlineKeyboardMarkup:
 
 
 def _plan_choice_label(plan: Dict[str, Any]) -> str:
-    icon = {
-        "start": "⭐️",
-        "basic": "🔥",
-        "pro": "⚡️",
-    }.get(str(plan.get("code")), "💳")
-    return f"{icon} {plan['name']} - {plan['price_rub']}руб"
+    price_rub = int(plan.get("price_rub") or 0)
+    stars = telegram_stars_amount_for_rub(price_rub)
+    return f"{plan['name']} — {price_rub} ₽ / {stars} ⭐"
 
 
 def payment_keyboard(

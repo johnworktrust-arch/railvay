@@ -72,6 +72,7 @@ class OpenAIImageProvider:
         output_format = str(raw.get("output_format") or payload.get("output_format") or "png")
         quality = str(raw.get("quality") or payload.get("quality") or "auto")
         size = str(raw.get("size") or payload.get("size") or "auto")
+        usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
         caption_prefix = "Изменение изображения по запросу" if image_input else "Изображение по запросу"
         return ProviderResult(
             provider_job_id=f"openai-image-{created}-{image_hash}",
@@ -86,10 +87,10 @@ class OpenAIImageProvider:
                 "size": size,
                 "output_format": output_format,
                 "revised_prompt": first_image.get("revised_prompt"),
-                "usage": raw.get("usage"),
+                "usage": usage,
             },
-            provider_cost_amount=float(config.get("provider_cost_amount", 0)),
-            provider_cost_currency=str(config.get("provider_cost_currency", "USD")),
+            provider_cost_amount=_image_cost_usd(config, usage),
+            provider_cost_currency="USD",
         )
 
     def _post_json(self, path: str, payload: Dict[str, Any]) -> Dict[str, Any]:
@@ -121,3 +122,28 @@ def _base64_image(data: bytes) -> str:
     import base64
 
     return base64.b64encode(data).decode("ascii")
+
+
+def _image_cost_usd(config: Dict[str, Any], usage: Dict[str, Any]) -> float:
+    input_details = usage.get("input_tokens_details")
+    input_details = input_details if isinstance(input_details, dict) else {}
+    text_tokens = max(0, int(input_details.get("text_tokens") or 0))
+    image_tokens = max(0, int(input_details.get("image_tokens") or 0))
+    total_input_tokens = max(0, int(usage.get("input_tokens") or 0))
+    if not text_tokens and not image_tokens:
+        text_tokens = total_input_tokens
+    output_tokens = max(0, int(usage.get("output_tokens") or 0))
+    if not any((text_tokens, image_tokens, output_tokens)):
+        return float(config.get("fallback_cost_usd") or 0.053)
+    return round(
+        (
+            text_tokens
+            * float(config.get("text_input_cost_per_million_usd") or 5.0)
+            + image_tokens
+            * float(config.get("image_input_cost_per_million_usd") or 8.0)
+            + output_tokens
+            * float(config.get("image_output_cost_per_million_usd") or 30.0)
+        )
+        / 1_000_000,
+        8,
+    )

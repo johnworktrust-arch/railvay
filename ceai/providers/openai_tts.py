@@ -75,6 +75,13 @@ class OpenAITTSProvider:
         audio = self._post_audio("/audio/speech", payload)
         audio_hash = hashlib.sha1(audio).hexdigest()[:12]
         mime_type = "audio/mpeg" if response_format == "mp3" else f"audio/{response_format}"
+        input_characters = len(prompt)
+        cost_usd = round(
+            input_characters
+            * float(config.get("cost_per_million_characters_usd") or 15.0)
+            / 1_000_000,
+            8,
+        )
         return ProviderResult(
             provider_job_id=f"openai-tts-{audio_hash}",
             result={
@@ -85,9 +92,10 @@ class OpenAITTSProvider:
                 "message": "Озвучка готова.",
                 "model": model_key,
                 "voice": voice,
+                "usage": {"input_characters": input_characters},
             },
-            provider_cost_amount=float(config.get("provider_cost_amount", 0)),
-            provider_cost_currency=str(config.get("provider_cost_currency", "USD")),
+            provider_cost_amount=cost_usd,
+            provider_cost_currency="USD",
             duration_seconds=(
                 int(config["duration_seconds"])
                 if config.get("duration_seconds") is not None

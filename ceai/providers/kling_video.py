@@ -69,6 +69,12 @@ class KlingVideoProvider:
         if not video_url:
             raise ProviderError("Kling API returned no video URL")
         actual_duration = _read_duration(video, fallback=duration_seconds)
+        units_per_second = float(config.get("resource_units_per_second") or 0.6)
+        resource_units = round(actual_duration * units_per_second, 4)
+        provider_cost_usd = round(
+            resource_units * float(config.get("resource_unit_cost_usd") or 0.098),
+            8,
+        )
 
         return ProviderResult(
             provider_job_id=task_id,
@@ -78,9 +84,10 @@ class KlingVideoProvider:
                 "caption": f"Готово: видео по запросу «{prompt}».",
                 "duration_seconds": actual_duration,
                 "kling_task_id": task_id,
+                "usage": {"resource_units": resource_units},
             },
-            provider_cost_amount=float(config.get("provider_cost_amount", 0)),
-            provider_cost_currency=str(config.get("provider_cost_currency", "RUB")),
+            provider_cost_amount=provider_cost_usd,
+            provider_cost_currency="USD",
             duration_seconds=actual_duration,
         )
 
