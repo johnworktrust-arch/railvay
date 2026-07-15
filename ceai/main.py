@@ -36,8 +36,7 @@ BOT_COMMANDS = [
     BotCommand(command="profile", description="Профиль"),
 ]
 BOT_DESCRIPTION = (
-    "🚀 Все нейросети в одном Telegram-боте. Общайтесь с ChatGPT и DeepSeek, "
-    "создавайте изображения, видео и озвучивайте текст.\n"
+    "🚀 Все нейросети в одном боте.\n"
     "ℹ️ Канал @ceafamily"
 )
 
