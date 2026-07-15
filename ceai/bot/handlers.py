@@ -55,7 +55,6 @@ from ceai.bot.keyboards import (
     main_menu_keyboard,
     model_choice_label,
     models_keyboard,
-    onboarding_continue_keyboard,
     payment_keyboard,
     payment_methods_keyboard,
     plans_keyboard,
@@ -100,9 +99,6 @@ LAST_REPLY_KEYBOARD_SIGNATURE = "last_reply_keyboard_signature"
 LAST_SCREEN_HAS_MEDIA = "last_screen_has_media"
 TELEGRAM_STARS_INVOICE_MESSAGE_ID = "telegram_stars_invoice_message_id"
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
-START_SCREEN_IMAGE_PATH = (
-    Path(__file__).resolve().parents[1] / "assets" / "start_screen.jpeg"
-)
 TTS_VOICE_SAMPLES_DIR = Path(__file__).resolve().parents[1] / "assets" / "tts_voices"
 MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
 DEFAULT_IMAGE_EDIT_PROMPT = "Улучши изображение, сохранив основной сюжет."
@@ -500,100 +496,6 @@ async def _show_screen(
     return sent
 
 
-async def _show_photo_screen(
-    message: Message,
-    services: AppServices,
-    user_id: int,
-    *,
-    image_path: Path,
-    caption: str,
-    reply_markup: Any | None = None,
-    delete_current: bool = False,
-    parse_mode: str | None = None,
-) -> Message:
-    state, payload = _session_state_payload(services, user_id)
-    tracked_ids = _tracked_message_ids(payload)
-    await _remove_legacy_reply_keyboard(message, payload, reply_markup)
-    if tracked_ids:
-        await _delete_screen_messages(message, tracked_ids)
-    elif delete_current and message.message_id and not _is_user_message(message):
-        try:
-            await message.bot.delete_message(
-                chat_id=message.chat.id,
-                message_id=message.message_id,
-            )
-        except (TelegramBadRequest, TelegramForbiddenError):
-            pass
-
-    if image_path.exists():
-        try:
-            sent = await message.bot.send_photo(
-                chat_id=message.chat.id,
-                photo=FSInputFile(image_path),
-                caption=caption,
-                parse_mode=parse_mode,
-                reply_markup=reply_markup,
-            )
-            _remember_screen_message(
-                services,
-                user_id,
-                state=state,
-                payload=payload,
-                message_id=sent.message_id,
-                reply_markup=reply_markup,
-            )
-            return sent
-        except (TelegramBadRequest, TelegramForbiddenError, FileNotFoundError):
-            pass
-
-    sent = await _send_screen_message(
-        message,
-        text=caption,
-        reply_markup=reply_markup,
-        parse_mode=parse_mode,
-    )
-    _remember_screen_message(
-        services,
-        user_id,
-        state=state,
-        payload=payload,
-        message_id=sent.message_id,
-        reply_markup=reply_markup,
-    )
-    return sent
-
-
-async def _show_onboarding_followup(
-    message: Message,
-    services: AppServices,
-    user_id: int,
-    *,
-    delete_current: bool = False,
-) -> None:
-    _, payload = _session_state_payload(services, user_id)
-    tracked_ids = _tracked_message_ids(payload)
-    if tracked_ids:
-        await _delete_screen_messages(message, tracked_ids)
-    elif delete_current and message.message_id:
-        try:
-            await message.bot.delete_message(
-                chat_id=message.chat.id,
-                message_id=message.message_id,
-            )
-        except (TelegramBadRequest, TelegramForbiddenError):
-            try:
-                await message.bot.edit_message_reply_markup(
-                    chat_id=message.chat.id,
-                    message_id=message.message_id,
-                    reply_markup=None,
-                )
-            except (TelegramBadRequest, TelegramForbiddenError):
-                pass
-
-    services.users.set_session(user_id, state="idle", payload={})
-    await _send_menu_screen(message, services, user_id)
-
-
 def _profile_link(user: Dict[str, Any]) -> str:
     username = str(user.get("username") or "").strip()
     if username:
@@ -703,22 +605,9 @@ def _format_referral_withdrawal_available(
     )
 
 
-def _format_onboarding_greeting(public_offer_url: str) -> str:
-    offer_url = public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
-    return (
-        "В двух словах о Cea AI:\n\n"
-        "Cea AI — это Telegram-бот, который объединяет AI-инструменты "
-        "для текста, изображений и других задач в одном месте.\n\n"
-        "Вы выбираете нужный инструмент, отправляете запрос, а бот помогает "
-        "быстро получить результат без лишних настроек.\n\n"
-        "Продолжая работу, вы соглашаетесь с публичной офертой:\n"
-        f"{offer_url}"
-    )
-
-
 def _format_main_menu() -> str:
     return (
-        "🏠 Главное меню Cea AI\n\n"
+        "🏠 Главное меню\n\n"
         "Выберите раздел 👇"
     )
 
@@ -726,8 +615,7 @@ def _format_main_menu() -> str:
 def _format_work_menu() -> str:
     return (
         "🔥 Начать работу с AI-инструментами\n\n"
-        "Выберите, что хотите сделать прямо сейчас: написать текст, "
-        "создать фото, открыть видео/озвучку или посмотреть историю генераций 👇"
+        "Выберите, что хотите сделать прямо сейчас👇"
     )
 
 
@@ -1667,25 +1555,6 @@ async def _send_main_menu(
     )
 
 
-async def _send_onboarding_greeting(
-    message: Message,
-    services: AppServices,
-    user_id: int,
-    *,
-    delete_current: bool = False,
-) -> None:
-    _set_dialog_state(services, user_id, state="onboarding_waiting_continue")
-    await _show_photo_screen(
-        message,
-        services,
-        user_id,
-        image_path=START_SCREEN_IMAGE_PATH,
-        caption=_format_onboarding_greeting(services.settings.public_offer_url),
-        reply_markup=onboarding_continue_keyboard(),
-        delete_current=delete_current,
-    )
-
-
 async def _send_admin_home(
     message: Message,
     services: AppServices,
@@ -1840,13 +1709,6 @@ def _format_referral_join_notice(referred_telegram_id: int) -> str:
     )
 
 
-def _format_referral_already_registered_notice() -> str:
-    return (
-        "❌ Вы уже зарегистрированы в Cea AI.\n\n"
-        "Партнёрская ссылка действует только для новых пользователей."
-    )
-
-
 async def _send_referral_join_notice(
     message: Message,
     referral_result: ReferralApplyResult,
@@ -1864,19 +1726,6 @@ async def _send_referral_join_notice(
         )
     except (TelegramBadRequest, TelegramForbiddenError):
         pass
-
-
-async def _send_referral_already_registered_notice(message: Message) -> None:
-    try:
-        await message.bot.send_message(
-            chat_id=message.chat.id,
-            text=_format_referral_already_registered_notice(),
-            reply_markup=main_menu_keyboard(),
-        )
-    except (TelegramBadRequest, TelegramForbiddenError):
-        pass
-
-
 async def _send_balance(
     message: Message,
     services: AppServices,
@@ -2623,15 +2472,9 @@ def create_router(services: AppServices) -> Router:
             start_text=message.text,
             user_was_registered=existing_user is not None,
         )
-        if referral_result.already_registered:
-            _clear_dialog_state(services, user["id"])
-            await _send_referral_already_registered_notice(message)
-            return
         await _send_referral_join_notice(message, referral_result)
         _reset_dialog_state(services, user["id"])
-        await _send_onboarding_greeting(
-            message, services, user["id"], delete_current=True
-        )
+        await _send_menu_screen(message, services, user["id"], delete_current=True)
 
     @router.message(Command("help"))
     async def help_command(message: Message) -> None:
@@ -2664,21 +2507,6 @@ def create_router(services: AppServices) -> Router:
             return
         _clear_dialog_state(services, user["id"])
         await _send_main_menu(message, services, user["id"], delete_current=True)
-
-    @router.callback_query(F.data == "onboarding:continue")
-    async def onboarding_continue(callback: CallbackQuery) -> None:
-        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
-        if _is_blocked_regular_user(services, user):
-            if callback.message:
-                await _send_blocked_notice(callback.message, services, user["id"])
-            await callback.answer()
-            return
-        _clear_dialog_state(services, user["id"])
-        if callback.message:
-            await _show_onboarding_followup(
-                callback.message, services, user["id"], delete_current=True
-            )
-        await callback.answer()
 
     @router.callback_query(F.data.startswith("admin:"))
     async def admin_callback(callback: CallbackQuery) -> None:
@@ -3767,9 +3595,7 @@ def create_router(services: AppServices) -> Router:
                 await _send_blocked_notice(message, services, user["id"])
                 return
             _reset_dialog_state(services, user["id"])
-            await _send_onboarding_greeting(
-                message, services, user["id"], delete_current=True
-            )
+            await _send_menu_screen(message, services, user["id"], delete_current=True)
             return
 
         session = services.users.get_session(user["id"])

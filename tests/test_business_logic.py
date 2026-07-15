@@ -2114,7 +2114,7 @@ class MigrationAndUITest(unittest.TestCase):
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
-        self.assertIn("🏠 Главное меню Cea AI", handlers_source)
+        self.assertIn("🏠 Главное меню", handlers_source)
         self.assertIn(
             "Выберите раздел 👇",
             handlers_source,
@@ -2136,7 +2136,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("is_admin = bool(user and services.admin.has_admin_access(user))", handlers_source)
         self.assertIn("🔥 Начать работу", handlers_source)
         self.assertIn("Начать работу с AI-инструментами", handlers_source)
-        self.assertIn("создать фото, открыть видео/озвучку", handlers_source)
+        self.assertIn("Выберите, что хотите сделать прямо сейчас👇", handlers_source)
         self.assertIn('F.data == "menu:work"', handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
         self.assertEqual(
@@ -2205,13 +2205,13 @@ class MigrationAndUITest(unittest.TestCase):
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
         profile_format_source = handlers_source.split(
             "def _format_menu(", 1
-        )[1].split("def _format_onboarding_greeting", 1)[0]
+        )[1].split("def _format_main_menu", 1)[0]
         referral_source = handlers_source.split(
             "def _format_referral_screen", 1
-        )[1].split("def _format_onboarding_greeting", 1)[0]
+        )[1].split("def _format_main_menu", 1)[0]
         send_profile_source = handlers_source.split(
             "async def _send_main_menu(", 1
-        )[1].split("async def _send_onboarding_greeting", 1)[0]
+        )[1].split("async def _send_admin_home", 1)[0]
 
         self.assertIn("def profile_keyboard(", keyboard_source)
         labels = [row[0].text for row in profile_keyboard().inline_keyboard]
@@ -2476,18 +2476,15 @@ class MigrationAndUITest(unittest.TestCase):
 
     def test_bot_screens_edit_inline_messages_and_replace_bottom_keyboard(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
-        regular_screen_source = handlers_source.split(
-            "async def _show_onboarding_followup", 1
-        )[0]
+        regular_screen_source = handlers_source
         show_screen_source = handlers_source.split(
             "async def _show_screen", 1
-        )[1].split("async def _show_onboarding_followup", 1)[0]
+        )[1].split("def _profile_link", 1)[0]
         send_screen_source = handlers_source.split(
             "async def _send_screen_message", 1
         )[1].split("async def _remove_legacy_reply_keyboard", 1)[0]
 
         self.assertIn("edit_message_text", handlers_source)
-        self.assertIn("edit_message_reply_markup", handlers_source)
         self.assertIn("message is not modified", handlers_source)
         self.assertIn("last_reply_keyboard_signature", handlers_source)
         self.assertIn("async def _remove_legacy_reply_keyboard", handlers_source)
@@ -2535,49 +2532,20 @@ class MigrationAndUITest(unittest.TestCase):
                 handler_source.index("services.users.ensure_telegram_user"),
             )
 
-    def test_start_onboarding_copy_and_continue_callback_are_present(self) -> None:
+    def test_start_opens_main_menu_without_onboarding_message(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
+        start_source = handlers_source.split(
+            "async def start(message: Message) -> None:", 1
+        )[1].split("@router.", 1)[0]
 
-        self.assertIn("В двух словах о Cea AI:", handlers_source)
-        self.assertIn("объединяет AI-инструменты", handlers_source)
-        self.assertIn("для текста, изображений и других задач", handlers_source)
-        self.assertIn("без лишних настроек", handlers_source)
-        self.assertIn("Продолжая работу, вы соглашаетесь с публичной офертой", handlers_source)
-        self.assertIn("f\"{offer_url}\"", handlers_source)
-        self.assertIn("DEFAULT_PUBLIC_OFFER_URL", handlers_source)
-        self.assertNotIn("Что умеет этот бот?", handlers_source)
-        self.assertNotIn("Нажмите /start", handlers_source)
-        self.assertNotIn("«Меню» снизу слева от поля ввода текста", handlers_source)
-        self.assertIn("START_SCREEN_IMAGE_PATH", handlers_source)
-        self.assertIn("assets", handlers_source)
-        self.assertIn("start_screen.jpeg", handlers_source)
-        self.assertIn("FSInputFile(image_path)", handlers_source)
-        self.assertIn("send_photo", handlers_source)
-        self.assertIn("caption=_format_onboarding_greeting", handlers_source)
-        self.assertIn("image_path=START_SCREEN_IMAGE_PATH", handlers_source)
-        self.assertIn("_format_main_menu()", handlers_source)
-        onboarding_followup_source = handlers_source.split(
-            "async def _show_onboarding_followup", 1
-        )[1].split("def _profile_link", 1)[0]
         self.assertIn(
-            "await _delete_screen_messages(message, tracked_ids)",
-            onboarding_followup_source,
+            "await _send_menu_screen(message, services, user[\"id\"], delete_current=True)",
+            start_source,
         )
-        self.assertIn(
-            "await _send_menu_screen(message, services, user_id)",
-            onboarding_followup_source,
-        )
-        self.assertNotIn("hint.message_id", onboarding_followup_source)
-        self.assertNotIn("promo.message_id", onboarding_followup_source)
-        self.assertIn('F.data == "onboarding:continue"', handlers_source)
-        self.assertIn("last_bot_message_ids", handlers_source)
-        self.assertNotIn(
-            "Документ оферты будет доступен после настройки ссылки", handlers_source
-        )
-        self.assertNotIn(
-            "Добро пожаловать в CeaAI MVP. Здесь все AI и платежи",
-            handlers_source,
-        )
+        self.assertIn("apply_start_referral", start_source)
+        self.assertNotIn("onboarding", handlers_source)
+        self.assertNotIn("START_SCREEN_IMAGE_PATH", handlers_source)
+        self.assertNotIn("start_screen.jpeg", handlers_source)
 
     def test_start_text_resets_any_dialog_state_before_prompt_handling(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
@@ -2592,22 +2560,11 @@ class MigrationAndUITest(unittest.TestCase):
             handlers_source,
         )
         self.assertIn("ℹ️ ID:", handlers_source)
-        self.assertIn("already_registered", handlers_source)
-        self.assertIn("_send_referral_already_registered_notice", handlers_source)
-        self.assertIn("❌ Вы уже зарегистрированы в Cea AI.", handlers_source)
-        self.assertIn(
-            "Партнёрская ссылка действует только для новых пользователей.",
-            handlers_source,
-        )
-        already_registered_branch = handlers_source.split(
-            "if referral_result.already_registered:", 1
-        )[1].split("await _send_referral_join_notice", 1)[0]
-        self.assertIn(
-            "await _send_referral_already_registered_notice(message)",
-            already_registered_branch,
-        )
-        self.assertNotIn("_show_screen", already_registered_branch)
         self.assertIn("if _is_start_text(message.text):", fallback_source)
+        self.assertIn(
+            "await _send_menu_screen(message, services, user[\"id\"], delete_current=True)",
+            fallback_source,
+        )
         self.assertLess(
             fallback_source.index("if _is_start_text(message.text):"),
             fallback_source.index('session["state"] in {"admin_waiting_search", "admin_waiting_credit"}'),
@@ -2617,19 +2574,11 @@ class MigrationAndUITest(unittest.TestCase):
             fallback_source.index('session["state"] == "waiting_text_chat_prompt"'),
         )
 
-    def test_onboarding_keyboards_have_expected_buttons_only(self) -> None:
+    def test_removed_onboarding_keyboard_does_not_return(self) -> None:
         keyboard_source = Path("ceai/bot/keyboards.py").read_text(encoding="utf-8")
 
-        self.assertIn("Продолжить", keyboard_source)
-        self.assertIn("onboarding:continue", keyboard_source)
-        self.assertIn("Cea Family", keyboard_source)
-        self.assertIn("Поддержка", keyboard_source)
-        self.assertIn("https://t.me/{username}", keyboard_source)
-        self.assertNotIn("Все ай ай инфо", keyboard_source)
-        self.assertNotIn("Как пользоваться", keyboard_source)
-        self.assertNotIn("База знаний", keyboard_source)
-        self.assertNotIn("VK", keyboard_source)
-        self.assertNotIn("YT", keyboard_source)
+        self.assertNotIn("onboarding_continue_keyboard", keyboard_source)
+        self.assertNotIn("onboarding:continue", keyboard_source)
 
     def test_onboarding_env_settings_are_read(self) -> None:
         from ceai.config import load_settings
