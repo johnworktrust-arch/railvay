@@ -2052,11 +2052,12 @@ class MigrationAndUITest(unittest.TestCase):
             "Введите текст, что хотите спросить у нейросети.",
         )
 
-    def test_telegram_commands_menu_contains_only_menu_and_profile(self) -> None:
+    def test_telegram_commands_menu_contains_only_start_and_profile(self) -> None:
         main_source = Path("ceai/main.py").read_text(encoding="utf-8")
 
-        self.assertIn('BotCommand(command="menu", description="Главное меню")', main_source)
+        self.assertIn('BotCommand(command="start", description="Главное меню")', main_source)
         self.assertIn('BotCommand(command="profile", description="Профиль")', main_source)
+        self.assertNotIn('BotCommand(command="menu"', main_source)
         self.assertIn("BOT_DESCRIPTION", main_source)
         self.assertNotIn('"Что умеет этот бот?', main_source)
         self.assertIn("— общение с DeepSeek V4 Flash", main_source)

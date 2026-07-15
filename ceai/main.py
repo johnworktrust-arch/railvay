@@ -32,7 +32,7 @@ from ceai.vpn_bot.handlers import create_vpn_router
 
 
 BOT_COMMANDS = [
-    BotCommand(command="menu", description="Главное меню"),
+    BotCommand(command="start", description="Главное меню"),
     BotCommand(command="profile", description="Профиль"),
 ]
 BOT_DESCRIPTION = (
