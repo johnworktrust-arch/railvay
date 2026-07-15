@@ -366,12 +366,13 @@ async def _send_generation_menu_followup(
     services: AppServices,
     user_id: int,
 ) -> Message:
+    _reset_dialog_state(services, user_id)
     state, payload = _session_state_payload(services, user_id)
-    reply_markup = _main_menu_keyboard(services, user_id)
+    reply_markup = work_menu_keyboard()
     await _remove_legacy_reply_keyboard(message, payload, reply_markup)
     sent = await _send_screen_message(
         message,
-        text=_format_main_menu(),
+        text=_format_work_menu(),
         reply_markup=reply_markup,
     )
     _remember_screen_message(
@@ -1275,6 +1276,8 @@ async def _show_generation_result(
                 reply_markup=reply_markup,
                 is_media=True,
             )
+            if send_menu_followup:
+                await _send_generation_menu_followup(message, services, user_id)
             return sent
         except (binascii.Error, TelegramBadRequest, TelegramForbiddenError, ValueError):
             pass
@@ -1296,7 +1299,7 @@ async def _show_generation_result(
             else None
         ),
     )
-    if send_menu_followup and result.get("kind") in {"image", "video"}:
+    if send_menu_followup and result.get("kind") in {"image", "video", "tts"}:
         await _send_generation_menu_followup(message, services, user_id)
     return shown
 
@@ -4124,7 +4127,7 @@ def create_router(services: AppServices) -> Router:
             generation.result,
             reply_markup=(
                 None
-                if generation.model["generation_type"] in {"image", "video"}
+                if generation.model["generation_type"] in {"image", "video", "tts"}
                 else back_to_menu_keyboard()
             ),
             image_caption=(
@@ -4160,7 +4163,7 @@ def create_router(services: AppServices) -> Router:
             ),
             generation_id=int(generation.generation["id"]),
             send_menu_followup=(
-                generation.model["generation_type"] in {"image", "video"}
+                generation.model["generation_type"] in {"image", "video", "tts"}
             ),
         )
 

@@ -1614,7 +1614,13 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("async def _send_generation_menu_followup", handlers_source)
         self.assertIn("send_menu_followup: bool = False", handlers_source)
         self.assertIn("_send_generation_menu_followup(message, services, user_id)", handlers_source)
-        self.assertIn('generation.model["generation_type"] in {"image", "video"}', handlers_source)
+        self.assertIn("_reset_dialog_state(services, user_id)", handlers_source)
+        self.assertIn("reply_markup = work_menu_keyboard()", handlers_source)
+        self.assertIn("text=_format_work_menu()", handlers_source)
+        self.assertIn(
+            'generation.model["generation_type"] in {"image", "video", "tts"}',
+            handlers_source,
+        )
         self.assertIn("BufferedInputFile", handlers_source)
         self.assertNotIn("Баланс после генерации", handlers_source)
         self.assertNotIn('"Запускаю mock-генерацию..."', handlers_source)
