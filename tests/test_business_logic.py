@@ -2134,7 +2134,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('style="success"', keyboard_source)
         self.assertIn("GIFT_DURATION_DAYS = 3", handlers_source)
         self.assertIn("GIFT_COINS_AMOUNT = 5", handlers_source)
-        self.assertIn("дня бесплатно", handlers_source)
+        self.assertIn("format_coin_amount(GIFT_COINS_AMOUNT)} бесплатно", handlers_source)
         self.assertIn("Пробный доступ активирован на", handlers_source)
         self.assertIn("На ваш баланс зачислено", handlers_source)
         self.assertIn("@{GIFT_CHANNEL_USERNAME}", handlers_source)
