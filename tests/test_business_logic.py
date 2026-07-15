@@ -1167,6 +1167,18 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(preview, b"fake-mp3")
         self.assertEqual(loads_dict(captured[1][0]["config"])["voice"], "echo")
 
+        self.services.generations.remember_tts_preview_audio(
+            language="ru",
+            voice="echo",
+            audio=preview,
+        )
+        self.assertEqual(
+            self.services.generations.get_tts_preview_audio(
+                language="ru", voice="echo"
+            ),
+            b"fake-mp3",
+        )
+
         self.services.generations.remember_tts_preview_file_id(
             language="ru",
             voice="echo",

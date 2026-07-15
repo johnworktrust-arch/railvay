@@ -127,6 +127,7 @@ TTS_VOICES = (
     ("Nova", "nova"),
     ("Shimmer", "shimmer"),
 )
+TTS_PREVIEW_LOCKS = {language: asyncio.Lock() for language in TTS_LANGUAGES}
 
 
 def _is_start_text(text: str | None) -> bool:
@@ -2161,10 +2162,44 @@ async def _send_tts_voice_previews(
     _, loading_payload = _session_state_payload(services, user_id)
     await _delete_screen_messages(message, _tracked_message_ids(loading_payload))
 
-    cached = await asyncio.to_thread(
-        services.generations.get_tts_preview_file_ids,
-        language=language,
-    )
+    async with TTS_PREVIEW_LOCKS[language]:
+        cached = await asyncio.to_thread(
+            services.generations.get_tts_preview_file_ids,
+            language=language,
+        )
+        preview_audio: Dict[str, bytes] = {}
+        try:
+            for _, voice in TTS_VOICES:
+                audio = await asyncio.to_thread(
+                    services.generations.get_tts_preview_audio,
+                    language=language,
+                    voice=voice,
+                )
+                if audio is None:
+                    audio = await asyncio.to_thread(
+                        services.generations.generate_tts_preview,
+                        voice=voice,
+                        text=sample_text,
+                    )
+                    await asyncio.to_thread(
+                        services.generations.remember_tts_preview_audio,
+                        language=language,
+                        voice=voice,
+                        audio=audio,
+                    )
+                preview_audio[voice] = audio
+        except (ProviderError, ValueError) as exc:
+            record_error(exception=exc)
+            _reset_dialog_state(services, user_id)
+            await _show_screen(
+                message,
+                services,
+                user_id,
+                "Не удалось подготовить примеры голосов. Попробуйте ещё раз позже.",
+                reply_markup=back_to_menu_keyboard(),
+            )
+            return
+
     sent_ids: list[int] = []
     try:
         for index, (voice_label, voice) in enumerate(TTS_VOICES, start=1):
@@ -2186,11 +2221,7 @@ async def _send_tts_voice_previews(
                 except (TelegramBadRequest, TelegramForbiddenError):
                     sent = None
             if sent is None:
-                audio = await asyncio.to_thread(
-                    services.generations.generate_tts_preview,
-                    voice=voice,
-                    text=sample_text,
-                )
+                audio = preview_audio[voice]
                 sent = await message.bot.send_audio(
                     chat_id=message.chat.id,
                     audio=BufferedInputFile(audio, filename=f"cea-{language}-{voice}.mp3"),

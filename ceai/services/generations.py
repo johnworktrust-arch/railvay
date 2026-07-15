@@ -235,6 +235,25 @@ class GenerationService:
             if str(file_id).strip()
         }
 
+    def get_tts_preview_audio(self, *, language: str, voice: str) -> bytes | None:
+        key = _tts_preview_audio_cache_key(language, voice)
+        with self.db.transaction() as conn:
+            encoded = self.app_settings.get_many(conn, [key]).get(key)
+        if not encoded:
+            return None
+        try:
+            return base64.b64decode(encoded, validate=True)
+        except (ValueError, TypeError):
+            return None
+
+    def remember_tts_preview_audio(
+        self, *, language: str, voice: str, audio: bytes
+    ) -> None:
+        key = _tts_preview_audio_cache_key(language, voice)
+        encoded = base64.b64encode(audio).decode("ascii")
+        with self.db.transaction() as conn:
+            self.app_settings.upsert(conn, key=key, value=encoded)
+
     def remember_tts_preview_file_id(
         self, *, language: str, voice: str, file_id: str
     ) -> None:
@@ -318,6 +337,16 @@ def _model_with_tts_options(
 def _tts_preview_cache_key(language: str) -> str:
     cleaned = "".join(character for character in language.lower() if character.isalnum())
     return f"TTS_PREVIEW_FILE_IDS_{cleaned.upper()}"
+
+
+def _tts_preview_audio_cache_key(language: str, voice: str) -> str:
+    cleaned_language = "".join(
+        character for character in language.lower() if character.isalnum()
+    )
+    cleaned_voice = "".join(
+        character for character in voice.lower() if character.isalnum()
+    )
+    return f"TTS_PREVIEW_AUDIO_{cleaned_language.upper()}_{cleaned_voice.upper()}"
 
 
 def _result_for_storage(result: Dict[str, Any]) -> Dict[str, Any]:
