@@ -1484,41 +1484,31 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("<blockquote>", referral)
         self.assertIn("</blockquote>", referral)
         self.assertIn(
-            "Приглашайте друзей и зарабатывайте 30% с каждого пополнения!",
+            "Приглашайте друзей и получайте 30% с каждого их пополнения.",
             referral,
         )
-        self.assertIn("— Друзья перешли по вашей ссылке и потратили 1000₽", referral)
-        self.assertIn("— Вы получаете 300.0₽ и выводите на КАРТУ!", referral)
         self.assertIn("— Приглашено: 1", referral)
         self.assertIn("— Баланс: 0 ₽", referral)
-        self.assertIn("— Способ вывода: не задан", referral)
-        self.assertIn("— Реквизиты: не указаны", referral)
-        self.assertIn("% <b>Текущая ставка: 30%</b>", referral)
-        self.assertIn("💼 Вывод доступен от 1000₽", referral)
-        self.assertIn("📨 Нажмите на ссылку", referral)
+        self.assertNotIn("Способ вывода", referral)
+        self.assertNotIn("Реквизиты", referral)
+        self.assertIn("💼 Вывод доступен от 500₽", referral)
+        self.assertNotIn("Нажмите на ссылку", referral)
         self.assertNotIn("🪁", referral)
-        self.assertIn(
-            "<code>https://t.me/aiceabot?start=ref_tg1001</code>",
-            referral,
-        )
+        self.assertNotIn("https://t.me/aiceabot", referral)
         self.assertNotIn("USDT", referral.upper())
 
         referral_with_stats = _format_referral_screen(
             self.user,
             invited_users_count=2,
             balance_kopecks=44370,
-            withdrawal_method="карта",
-            requisites="**** 1234",
         )
         self.assertIn("— Приглашено: 2", referral_with_stats)
         self.assertIn("— Баланс: 443.70 ₽", referral_with_stats)
-        self.assertIn("— Способ вывода: карта", referral_with_stats)
-        self.assertIn("— Реквизиты: **** 1234", referral_with_stats)
 
-        unavailable = _format_referral_withdrawal_unavailable(100_000)
+        unavailable = _format_referral_withdrawal_unavailable(50_000)
         self.assertIn("❌ <b>Вывод средств сейчас недоступен.</b>", unavailable)
         self.assertIn(
-            "Вывод доступен при реферальном балансе от 1000 рублей.",
+            "Вывод доступен при реферальном балансе от 500 рублей.",
             unavailable,
         )
 
@@ -2260,17 +2250,27 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(
             [
                 row[0].text
-                for row in referral_keyboard().inline_keyboard
+                for row in referral_keyboard(
+                    "https://t.me/aiceabot?start=ref_tg1001"
+                ).inline_keyboard
             ],
-            ["💰 Вывести", "⬅️ Назад"],
+            ["💌 Пригласить", "💰 Вывести", "⬅️ Назад"],
         )
         self.assertEqual(
             [
                 row[0].callback_data
-                for row in referral_keyboard().inline_keyboard
+                for row in referral_keyboard(
+                    "https://t.me/aiceabot?start=ref_tg1001"
+                ).inline_keyboard
             ],
-            ["referral:withdraw", "menu:main"],
+            [None, "referral:withdraw", "menu:main"],
         )
+        invite_button = referral_keyboard(
+            "https://t.me/aiceabot?start=ref_tg1001"
+        ).inline_keyboard[0][0]
+        self.assertIn("https://t.me/share/url?", invite_button.url)
+        self.assertIn("ref_tg1001", invite_button.url)
+        self.assertIn("Cea+AI", invite_button.url)
         self.assertIn("Подписка и тарифы", keyboard_source)
         self.assertNotIn("🏠 Главное меню", labels)
         self.assertIn("BACK_TO_MENU_BUTTON", keyboard_source)
@@ -2300,7 +2300,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn("Выберите действие на нижней клавиатуре", profile_format_source)
         self.assertIn("def _format_referral_screen", handlers_source)
         self.assertIn("<blockquote>", handlers_source)
-        self.assertIn("reply_markup=referral_keyboard()", handlers_source)
+        self.assertIn("reply_markup=referral_keyboard(_referral_link(user))", handlers_source)
         self.assertIn('F.data == "referral:withdraw"', handlers_source)
         self.assertIn("_format_referral_withdrawal_unavailable", handlers_source)
         self.assertIn("withdrawal_min_kopecks", handlers_source)

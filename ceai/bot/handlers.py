@@ -553,37 +553,21 @@ def _format_referral_screen(
     *,
     invited_users_count: int,
     balance_kopecks: int = 0,
-    withdrawal_method: str = "",
-    requisites: str = "",
     rate_percent: int = REFERRAL_RATE_PERCENT,
     withdrawal_min_kopecks: int = REFERRAL_WITHDRAWAL_MIN_KOPECKS,
 ) -> str:
-    referral_link = _referral_link(user)
-    withdrawal_method_text = withdrawal_method.strip() or "не задан"
-    requisites_text = requisites.strip() or "не указаны"
     withdrawal_min_text = format_rubles_from_kopecks(withdrawal_min_kopecks).replace(
         " ₽", "₽"
     )
     return (
-        "👥 <b>Приглашайте друзей и зарабатывайте "
-        f"{rate_percent}% с каждого пополнения!</b>\n\n"
-        "Например:\n"
-        "<blockquote>"
-        "— Друзья перешли по вашей ссылке и потратили 1000₽\n"
-        "— Вы получаете 300.0₽ и выводите на КАРТУ!"
-        "</blockquote>\n\n"
+        "💰 <b>Зарабатывайте с Cea AI</b>\n\n"
+        f"Приглашайте друзей и получайте {rate_percent}% с каждого их пополнения.\n\n"
         "📊 <b>Ваша статистика:</b>\n"
         "<blockquote>"
         f"— Приглашено: {invited_users_count}\n"
-        f"— Баланс: {escape(format_rubles_from_kopecks(balance_kopecks))}\n"
-        f"— Способ вывода: {escape(withdrawal_method_text)}\n"
-        f"— Реквизиты: {escape(requisites_text)}"
+        f"— Баланс: {escape(format_rubles_from_kopecks(balance_kopecks))}"
         "</blockquote>\n\n"
-        f"% <b>Текущая ставка: {rate_percent}%</b>\n"
-        f"💼 Вывод доступен от {escape(withdrawal_min_text)}\n\n"
-        "🔗 <b>Пригласительная ссылка:</b>\n"
-        f"<code>{escape(referral_link)}</code>\n\n"
-        "📨 Нажмите на ссылку, чтобы скопировать и поделиться с друзьями!"
+        f"💼 Вывод доступен от {escape(withdrawal_min_text)}."
     )
 
 
@@ -3496,12 +3480,10 @@ def create_router(services: AppServices) -> Router:
                     user,
                     invited_users_count=referral_stats.invited_count,
                     balance_kopecks=referral_stats.balance_kopecks,
-                    withdrawal_method=referral_stats.withdrawal_method,
-                    requisites=referral_stats.requisites,
                     rate_percent=referral_stats.rate_percent,
                     withdrawal_min_kopecks=referral_stats.withdrawal_min_kopecks,
                 ),
-                reply_markup=referral_keyboard(),
+                reply_markup=referral_keyboard(_referral_link(user)),
                 delete_current=True,
                 parse_mode="HTML",
             )

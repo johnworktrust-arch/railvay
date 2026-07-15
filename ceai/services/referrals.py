@@ -10,7 +10,7 @@ from ceai.repositories.users import UserRepository
 
 
 REFERRAL_RATE_PERCENT = 30
-REFERRAL_WITHDRAWAL_MIN_KOPECKS = 100_000
+REFERRAL_WITHDRAWAL_MIN_KOPECKS = 50_000
 
 
 @dataclass(frozen=True)

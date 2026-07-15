@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any, Dict, Iterable
+from urllib.parse import urlencode
 
 from aiogram.types import (
     InlineKeyboardButton,
@@ -217,9 +218,18 @@ def inline_back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return back_to_menu_keyboard()
 
 
-def referral_keyboard() -> InlineKeyboardMarkup:
+def referral_keyboard(referral_link: str) -> InlineKeyboardMarkup:
+    share_text = (
+        "🤖 Попробуй Cea AI — здесь собраны современные нейросети для текста, "
+        "фото, видео и озвучки!\n\n"
+        "🎁 Забирай бесплатный доступ 👇"
+    )
+    share_url = "https://t.me/share/url?" + urlencode(
+        {"url": referral_link, "text": share_text}
+    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
+            [InlineKeyboardButton(text="💌 Пригласить", url=share_url)],
             [InlineKeyboardButton(text="💰 Вывести", callback_data="referral:withdraw")],
             [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
