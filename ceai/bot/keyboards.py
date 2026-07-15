@@ -128,6 +128,23 @@ def subscription_required_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def work_access_required_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💳 Подписка и тарифы", callback_data="menu:plans"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=GIFT_BUTTON, callback_data="menu:gift"
+                )
+            ],
+        ]
+    )
+
+
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

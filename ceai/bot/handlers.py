@@ -65,6 +65,7 @@ from ceai.bot.keyboards import (
     text_chat_label,
     text_chat_prompt_keyboard,
     tts_voice_keyboard,
+    work_access_required_keyboard,
     work_menu_keyboard,
 )
 from ceai.config import DEFAULT_PUBLIC_OFFER_URL
@@ -779,6 +780,13 @@ def _format_yookassa_payment_screen(
 
 def _subscription_required_message() -> str:
     return "Нужна активная подписка. Откройте тарифы и выберите подписку."
+
+
+def _work_access_required_message() -> str:
+    return (
+        "❌ У вас нет активной подписки.\n\n"
+        "Активируйте бесплатный доступ или выберите подходящий тариф."
+    )
 
 
 def _format_coin_unit(amount: Any) -> str:
@@ -2754,6 +2762,25 @@ def create_router(services: AppServices) -> Router:
             return
         _clear_dialog_state(services, user["id"])
         if callback.message:
+            subscription = services.subscriptions.active_for_user(user["id"])
+            gift_claimed = services.subscriptions.has_channel_gift(
+                user["id"], gift_key=GIFT_CHANNEL_USERNAME
+            )
+            if subscription is None:
+                await _show_screen(
+                    callback.message,
+                    services,
+                    user["id"],
+                    _work_access_required_message(),
+                    reply_markup=(
+                        subscription_required_keyboard()
+                        if gift_claimed
+                        else work_access_required_keyboard()
+                    ),
+                    delete_current=True,
+                )
+                await callback.answer()
+                return
             await _send_work_menu(
                 callback.message, services, user["id"], delete_current=True
             )

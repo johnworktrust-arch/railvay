@@ -2108,6 +2108,7 @@ class MigrationAndUITest(unittest.TestCase):
         from ceai.bot.keyboards import (
             gift_subscription_keyboard,
             main_menu_keyboard,
+            work_access_required_keyboard,
             work_menu_keyboard,
         )
 
@@ -2138,6 +2139,11 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Начать работу с AI-инструментами", handlers_source)
         self.assertIn("Выберите, что хотите сделать прямо сейчас👇", handlers_source)
         self.assertIn('F.data == "menu:work"', handlers_source)
+        self.assertIn("_work_access_required_message()", handlers_source)
+        self.assertIn("services.subscriptions.active_for_user", handlers_source)
+        self.assertIn("services.subscriptions.has_channel_gift", handlers_source)
+        self.assertIn("work_access_required_keyboard()", handlers_source)
+        self.assertIn("Активируйте бесплатный доступ", handlers_source)
         self.assertIn("Command(\"menu\")", handlers_source)
         self.assertEqual(
             [row[0].text for row in main_menu_keyboard().inline_keyboard],
@@ -2197,6 +2203,15 @@ class MigrationAndUITest(unittest.TestCase):
         work_labels = [button.text for row in work_rows for button in row]
         self.assertNotIn("👤 Профиль", work_labels)
         self.assertNotIn("🆘 Помощь", work_labels)
+        access_rows = work_access_required_keyboard().inline_keyboard
+        self.assertEqual(
+            [row[0].text for row in access_rows],
+            ["💳 Подписка и тарифы", "🎁 Бесплатный доступ"],
+        )
+        self.assertEqual(
+            [row[0].callback_data for row in access_rows],
+            ["menu:plans", "menu:gift"],
+        )
 
     def test_profile_screen_has_inline_actions_and_no_bottom_prompt(self) -> None:
         from ceai.bot.keyboards import profile_keyboard, referral_keyboard
