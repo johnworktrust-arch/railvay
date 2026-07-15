@@ -2137,7 +2137,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("👋 Привет! Я Cea AI", handlers_source)
         self.assertIn("нейросетями для текста", handlers_source)
         self.assertIn(
-            "Выберите раздел 👇",
+            "Выберите нужный раздел 👇",
             handlers_source,
         )
         self.assertIn('GIFT_BUTTON = "🎁 Бесплатный доступ"', keyboard_source)
