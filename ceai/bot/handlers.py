@@ -1079,7 +1079,7 @@ def _caption_without_media_link(text: str) -> str:
     return "\n".join(lines).strip()
 
 
-def _format_image_generation_caption(
+def _format_media_generation_caption(
     *,
     prompt_text: str,
     model: Dict[str, Any],
@@ -1170,6 +1170,7 @@ async def _show_generation_result(
     reply_markup: Any | None = None,
     image_caption: str | None = None,
     video_caption: str | None = None,
+    audio_caption: str | None = None,
     generation_id: int | None = None,
     send_menu_followup: bool = False,
 ) -> Message:
@@ -1251,7 +1252,11 @@ async def _show_generation_result(
                     filename=str(result.get("file_name") or "cea-ai-voice.mp3"),
                 ),
                 caption=_telegram_caption(
-                    str(result.get("message") or "Озвучка готова.")
+                    str(
+                        audio_caption
+                        or result.get("message")
+                        or "Озвучка готова."
+                    )
                 ),
                 reply_markup=reply_markup,
             )
@@ -4123,7 +4128,7 @@ def create_router(services: AppServices) -> Router:
                 else back_to_menu_keyboard()
             ),
             image_caption=(
-                _format_image_generation_caption(
+                _format_media_generation_caption(
                     prompt_text=prompt_text,
                     model=generation.model,
                     coins_charged=generation.generation["coins_charged"],
@@ -4141,6 +4146,16 @@ def create_router(services: AppServices) -> Router:
                     result=generation.result,
                 )
                 if generation.model["generation_type"] == "video"
+                else None
+            ),
+            audio_caption=(
+                _format_media_generation_caption(
+                    prompt_text=prompt_text,
+                    model=generation.model,
+                    coins_charged=generation.generation["coins_charged"],
+                    balance_after=generation.balance_after,
+                )
+                if generation.model["generation_type"] == "tts"
                 else None
             ),
             generation_id=int(generation.generation["id"]),
