@@ -36,8 +36,14 @@ BOT_COMMANDS = [
     BotCommand(command="profile", description="Профиль"),
 ]
 BOT_DESCRIPTION = (
-    "🚀 Нейросети в одном боте.\n"
-    "ℹ️ @ceafamily"
+    "Что умеет этот бот?\n\n"
+    "🔥 Cea AI — современные AI-инструменты в одном боте.\n\n"
+    "— общение с DeepSeek V4 Flash и ChatGPT GPT-5.6\n"
+    "— создание и редактирование изображений в GPT Image 2\n"
+    "— генерация видео в Kling 3.0\n"
+    "— озвучка текста реалистичными голосами\n"
+    "— оплата Telegram Stars, картой или СБП\n\n"
+    "🚀 Нажмите /start, чтобы открыть меню."
 )
 BOT_SHORT_DESCRIPTION = (
     "🚀 Все современные нейросети в одном боте. "
