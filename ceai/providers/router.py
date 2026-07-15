@@ -168,6 +168,18 @@ class AIProviderRouter:
 
         if real_provider is not None:
             return real_provider
+        if provider_key == "deepseek" and generation_type == "text":
+            if mode == "auto" and self.settings.app_env.strip().lower() == "test":
+                return self.mock
+            raise ProviderError(
+                "DeepSeek provider is not configured. Set DEEPSEEK_API_KEY."
+            )
+        if provider_key == "openai" and generation_type == "text":
+            if mode == "auto" and self.settings.app_env.strip().lower() == "test":
+                return self.mock
+            raise ProviderError(
+                "OpenAI text provider is not configured. Set OPENAI_API_KEY."
+            )
         if provider_key == "openai" and generation_type == "image":
             raise ProviderError(
                 "OpenAI Image provider is not configured. "

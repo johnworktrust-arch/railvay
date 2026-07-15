@@ -2940,6 +2940,33 @@ class MigrationAndUITest(unittest.TestCase):
                 prompt_text="Привет",
             )
 
+    def test_text_providers_do_not_fall_back_to_mock_without_keys(self) -> None:
+        settings = Settings(
+            telegram_bot_token="test",
+            database_url="sqlite:///:memory:",
+            app_env="production",
+            mock_payment_base_url="https://mock-payments.test/pay",
+            ai_provider_mode="auto",
+        )
+        router = AIProviderRouter(settings)
+
+        for provider, model_key, key_name in (
+            ("deepseek", "deepseek-v4-flash", "DEEPSEEK_API_KEY"),
+            ("openai", "gpt-4o-mini", "OPENAI_API_KEY"),
+        ):
+            with self.subTest(provider=provider):
+                with self.assertRaisesRegex(ProviderError, key_name):
+                    router.generate(
+                        model={
+                            "provider": provider,
+                            "model_key": model_key,
+                            "display_name": model_key,
+                            "generation_type": "text",
+                            "config": "{}",
+                        },
+                        prompt_text="Привет",
+                    )
+
     def test_openai_image_does_not_fall_back_to_mock_without_key(self) -> None:
         settings = Settings(
             telegram_bot_token="test",
