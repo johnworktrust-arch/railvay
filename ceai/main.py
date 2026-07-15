@@ -36,8 +36,8 @@ BOT_COMMANDS = [
     BotCommand(command="profile", description="Профиль"),
 ]
 BOT_DESCRIPTION = (
-    "🚀 Все современные нейросети в одном боте.\n"
-    "ℹ️ Канал @ceafamily"
+    "🚀 Нейросети в одном боте.\n"
+    "ℹ️ @ceafamily"
 )
 
 
