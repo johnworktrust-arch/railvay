@@ -1162,19 +1162,19 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertEqual(prompt_payload["language"], "ru")
 
         preview = self.services.generations.generate_tts_preview(
-            voice="cedar", text="Пример"
+            voice="echo", text="Пример"
         )
         self.assertEqual(preview, b"fake-mp3")
-        self.assertEqual(loads_dict(captured[1][0]["config"])["voice"], "cedar")
+        self.assertEqual(loads_dict(captured[1][0]["config"])["voice"], "echo")
 
         self.services.generations.remember_tts_preview_file_id(
             language="ru",
-            voice="cedar",
+            voice="echo",
             file_id="telegram-preview-file-id",
         )
         self.assertEqual(
             self.services.generations.get_tts_preview_file_ids(language="ru"),
-            {"cedar": "telegram-preview-file-id"},
+            {"echo": "telegram-preview-file-id"},
         )
 
     def test_kling_video_provider_creates_and_polls_text_to_video_task(self) -> None:

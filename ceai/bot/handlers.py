@@ -120,11 +120,11 @@ TTS_LANGUAGES = {
     "fr": ("🇫🇷 Français", "Bonjour ! Voici un exemple de voix Cea AI."),
 }
 TTS_VOICES = (
-    ("Marin", "marin"),
-    ("Cedar", "cedar"),
-    ("Nova", "nova"),
+    ("Alloy", "alloy"),
+    ("Echo", "echo"),
+    ("Fable", "fable"),
     ("Onyx", "onyx"),
-    ("Coral", "coral"),
+    ("Nova", "nova"),
     ("Shimmer", "shimmer"),
 )
 
@@ -2206,7 +2206,8 @@ async def _send_tts_voice_previews(
                         file_id=file_id,
                     )
             sent_ids.append(sent.message_id)
-    except (ProviderError, TelegramBadRequest, TelegramForbiddenError, ValueError):
+    except (ProviderError, TelegramBadRequest, TelegramForbiddenError, ValueError) as exc:
+        record_error(exception=exc)
         await _delete_screen_messages(message, sent_ids)
         _reset_dialog_state(services, user_id)
         await _show_screen(

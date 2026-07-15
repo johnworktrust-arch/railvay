@@ -401,11 +401,11 @@ def tts_language_keyboard() -> InlineKeyboardMarkup:
 
 def tts_voice_keyboard() -> InlineKeyboardMarkup:
     voices = (
-        ("Marin", "marin"),
-        ("Cedar", "cedar"),
-        ("Nova", "nova"),
+        ("Alloy", "alloy"),
+        ("Echo", "echo"),
+        ("Fable", "fable"),
         ("Onyx", "onyx"),
-        ("Coral", "coral"),
+        ("Nova", "nova"),
         ("Shimmer", "shimmer"),
     )
     rows = [
