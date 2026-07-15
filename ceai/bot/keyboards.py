@@ -382,23 +382,6 @@ def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def tts_language_keyboard() -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [
-                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="tts:language:ru"),
-                InlineKeyboardButton(text="🇬🇧 English", callback_data="tts:language:en"),
-            ],
-            [
-                InlineKeyboardButton(text="🇪🇸 Español", callback_data="tts:language:es"),
-                InlineKeyboardButton(text="🇩🇪 Deutsch", callback_data="tts:language:de"),
-            ],
-            [InlineKeyboardButton(text="🇫🇷 Français", callback_data="tts:language:fr")],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:work")],
-        ]
-    )
-
-
 def tts_voice_keyboard() -> InlineKeyboardMarkup:
     voices = (
         ("Alloy", "alloy"),
@@ -419,7 +402,7 @@ def tts_voice_keyboard() -> InlineKeyboardMarkup:
         for index in range(0, len(voices), 2)
     ]
     rows.append(
-        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="models:type:tts")]
+        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:work")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

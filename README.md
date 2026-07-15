@@ -42,7 +42,7 @@ KLING_API_KEY=your-kling-api-key
 
 `OPENAI_API_KEY` используется для ChatGPT-текста и OpenAI TTS, `OPENAI_IMAGE_API_KEY` — для GPT Image, `KLING_API_KEY` — для видео через Kling. Если в Railway ключ Kling уже назван иначе, бот также подхватит `KLINGAI_API_KEY`, `KLING_AI_API_KEY`, `KLING_KEY`, `KLING_API`, `KLING_API_TOKEN`, `KLING_TOKEN`, `KLING_ACCESS_KEY`, `KLING_SECRET_KEY` или `API_KEY_KLING`. Если отдельный ключ для картинок не задан, бот использует обычный `OPENAI_API_KEY`. `AI_PROVIDER_MODE=auto` означает: DeepSeek/OpenAI/Kling работают через реальные API при наличии ключей. OpenAI GPT Image, OpenAI TTS и Kling без ключа не отдают mock-результат, а завершают генерацию ошибкой с возвратом коинов. Для полностью тестового режима поставьте `AI_PROVIDER_MODE=mock`.
 
-В разделе озвучки пользователь сначала выбирает один из пяти языков, затем один из шести голосов. Аудиопримеры создаются один раз на весь сервис: MP3 и Telegram `file_id` сохраняются в Railway Postgres. Повторный просмотр любым пользователем не обращается к OpenAI.
+В разделе озвучки бот отправляет одно встроенное аудио, в котором последовательно звучат шесть голосов. Кнопки выбора находятся под этим же сообщением. Файл хранится в проекте и никогда не создаётся через OpenAI во время работы бота.
 
 Создать БД и заполнить тарифы/модели можно отдельно:
 

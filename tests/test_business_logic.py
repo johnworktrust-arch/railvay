@@ -1128,7 +1128,7 @@ class BusinessLogicTest(unittest.TestCase):
                 prompt_text="Тест",
             )
 
-    def test_tts_selection_reaches_provider_and_preview_cache_is_reused(self) -> None:
+    def test_tts_selection_reaches_provider(self) -> None:
         self._buy_plan("start")
         captured = []
 
@@ -1152,42 +1152,12 @@ class BusinessLogicTest(unittest.TestCase):
             user_id=self.user["id"],
             model_price_id=model["id"],
             prompt_text="Привет",
-            tts_voice="marin",
-            tts_language="ru",
+            tts_voice="alloy",
         )
 
-        self.assertEqual(loads_dict(captured[0][0]["config"])["voice"], "marin")
+        self.assertEqual(loads_dict(captured[0][0]["config"])["voice"], "alloy")
         prompt_payload = loads_dict(generated.generation["prompt"])
-        self.assertEqual(prompt_payload["voice"], "marin")
-        self.assertEqual(prompt_payload["language"], "ru")
-
-        preview = self.services.generations.generate_tts_preview(
-            voice="echo", text="Пример"
-        )
-        self.assertEqual(preview, b"fake-mp3")
-        self.assertEqual(loads_dict(captured[1][0]["config"])["voice"], "echo")
-
-        self.services.generations.remember_tts_preview_audio(
-            language="ru",
-            voice="echo",
-            audio=preview,
-        )
-        self.assertEqual(
-            self.services.generations.get_tts_preview_audio(
-                language="ru", voice="echo"
-            ),
-            b"fake-mp3",
-        )
-
-        self.services.generations.remember_tts_preview_file_id(
-            language="ru",
-            voice="echo",
-            file_id="telegram-preview-file-id",
-        )
-        self.assertEqual(
-            self.services.generations.get_tts_preview_file_ids(language="ru"),
-            {"echo": "telegram-preview-file-id"},
-        )
+        self.assertEqual(prompt_payload["voice"], "alloy")
 
     def test_kling_video_provider_creates_and_polls_text_to_video_task(self) -> None:
         provider = KlingVideoProvider(api_key="test-key", poll_interval_seconds=0)
@@ -1699,10 +1669,12 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('_feature_temporarily_unavailable_message("Озвучка с AI")', handlers_source)
         self.assertIn('generation_types={generation_type}', handlers_source)
         self.assertIn('message.bot.send_audio(', handlers_source)
-        self.assertIn('state="waiting_tts_language"', handlers_source)
+        self.assertNotIn('state="waiting_tts_language"', handlers_source)
         self.assertIn('state="waiting_tts_voice"', handlers_source)
-        self.assertIn('TTS_LANGUAGES = {', handlers_source)
+        self.assertNotIn('TTS_LANGUAGES = {', handlers_source)
         self.assertIn('TTS_VOICES = (', handlers_source)
+        self.assertIn('assets" / "tts_voice_samples.wav"', handlers_source)
+        self.assertTrue(Path("ceai/assets/tts_voice_samples.wav").is_file())
         self.assertIn("reply_markup=back_to_menu_keyboard()", handlers_source)
 
     def test_plan_screen_uses_new_prices_and_coins_are_called_koiny(self) -> None:
