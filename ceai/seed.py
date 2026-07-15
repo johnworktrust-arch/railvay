@@ -73,7 +73,7 @@ MODEL_PRICES = [
     {
         "provider": "openai",
         "model_key": "gpt-4o-mini",
-        "display_name": "ChatGPT GPT-5.5",
+        "display_name": "ChatGPT GPT-5.6",
         "generation_type": "text",
         "coins_cost": 3,
         "config": {

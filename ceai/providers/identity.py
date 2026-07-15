@@ -15,7 +15,7 @@ def model_identity_name(model: Dict[str, Any]) -> str:
     model_key = str(model.get("model_key") or "")
 
     if provider == "openai" or "chatgpt" in display_name.lower():
-        return "ChatGPT"
+        return display_name or "ChatGPT"
     if provider == "deepseek" or "deepseek" in display_name.lower():
         return "DeepSeek"
     return display_name or model_key or "AI-модель"

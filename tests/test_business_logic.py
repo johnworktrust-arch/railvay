@@ -1066,7 +1066,7 @@ class BusinessLogicTest(unittest.TestCase):
         openai_model = {
             "provider": "openai",
             "model_key": "gpt-4o-mini",
-            "display_name": "ChatGPT GPT-5.5",
+            "display_name": "ChatGPT GPT-5.6",
             "generation_type": "text",
             "config": {
                 "api_model": "gpt-5.5",
@@ -1735,9 +1735,9 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertEqual(
             model_choice_label(
-                {"generation_type": "text", "display_name": "ChatGPT GPT-5.5"}
+                {"generation_type": "text", "display_name": "ChatGPT GPT-5.6"}
             ),
-            "ChatGPT GPT-5.5",
+            "ChatGPT GPT-5.6",
         )
         self.assertEqual(
             _format_direct_prompt_screen(
@@ -2029,9 +2029,9 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertEqual(
             _format_text_chat_list_screen(
-                {"display_name": "ChatGPT GPT-5.5", "coins_cost": 3}
+                {"display_name": "ChatGPT GPT-5.6", "coins_cost": 3}
             ),
-            "💡ChatGPT GPT-5.5\n\n"
+            "💡ChatGPT GPT-5.6\n\n"
             "Стоимость 1 запроса: 3 Coin\n"
             "Выберите чат ниже:",
         )
@@ -2047,10 +2047,10 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertEqual(
             _format_text_chat_prompt_screen(
-                {"display_name": "ChatGPT GPT-5.5", "coins_cost": 3},
+                {"display_name": "ChatGPT GPT-5.6", "coins_cost": 3},
                 {"title": "Основной"},
             ),
-            "💡ChatGPT GPT-5.5\n\n"
+            "💡ChatGPT GPT-5.6\n\n"
             "Стоимость 1 запроса: 3 Coin\n"
             "Чат «Основной» выбран.\n\n"
             "Введите текст, что хотите спросить у нейросети.",
@@ -2832,7 +2832,8 @@ class MigrationAndUITest(unittest.TestCase):
             self.assertEqual(
                 loads_dict(deepseek["config"])["thinking_type"], "disabled"
             )
-            self.assertEqual(openai["display_name"], "ChatGPT GPT-5.5")
+            self.assertEqual(openai["display_name"], "ChatGPT GPT-5.6")
+            self.assertEqual(loads_dict(openai["config"])["api_model"], "gpt-5.5")
             self.assertEqual(openai["coins_cost"], 3)
             self.assertEqual(
                 costs,
@@ -3069,7 +3070,7 @@ class MigrationAndUITest(unittest.TestCase):
             {
                 "provider": "openai",
                 "model_key": "gpt-4o-mini",
-                "display_name": "ChatGPT GPT-5.5",
+                "display_name": "ChatGPT GPT-5.6",
             }
         )
         deepseek = text_model_instructions(
@@ -3080,7 +3081,7 @@ class MigrationAndUITest(unittest.TestCase):
             }
         )
 
-        self.assertIn("ты ChatGPT", chatgpt)
+        self.assertIn("ты ChatGPT GPT-5.6", chatgpt)
         self.assertIn("ты DeepSeek", deepseek)
         self.assertIn("кто ты", chatgpt)
         self.assertIn("Telegram-боте Cea AI", deepseek)
