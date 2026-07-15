@@ -2277,6 +2277,8 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("https://t.me/share/url?", invite_button.url)
         self.assertIn("ref_tg1001", invite_button.url)
         self.assertIn("Cea%20AI", invite_button.url)
+        self.assertIn("%F0%9F%9A%80", invite_button.url)
+        self.assertIn("url=&text=", invite_button.url)
         self.assertNotIn("+", invite_button.url)
         self.assertIn("Подписка и тарифы", keyboard_source)
         self.assertNotIn("🏠 Главное меню", labels)
