@@ -560,14 +560,22 @@ def _format_referral_screen(
         " ₽", "₽"
     )
     return (
-        "💰 <b>Зарабатывайте с Cea AI</b>\n\n"
-        f"Приглашайте друзей и получайте {rate_percent}% с каждого их пополнения.\n\n"
+        "👥 <b>Приглашайте друзей и зарабатывайте "
+        f"{rate_percent}% с каждого пополнения!</b>\n\n"
+        "Например:\n"
+        "<blockquote>"
+        "— Друзья перешли по вашей ссылке и потратили 1000₽\n"
+        "— Вы получаете 300₽!"
+        "</blockquote>\n\n"
         "📊 <b>Ваша статистика:</b>\n"
         "<blockquote>"
         f"— Приглашено: {invited_users_count}\n"
         f"— Баланс: {escape(format_rubles_from_kopecks(balance_kopecks))}"
         "</blockquote>\n\n"
-        f"💼 Вывод доступен от {escape(withdrawal_min_text)}."
+        f"% <b>Текущая ставка: {rate_percent}%</b>\n"
+        f"💼 Вывод доступен от {escape(withdrawal_min_text)}\n\n"
+        "🔗 <b>Пригласительная ссылка:</b>\n"
+        f"<code>{escape(_referral_link(user))}</code>"
     )
 
 

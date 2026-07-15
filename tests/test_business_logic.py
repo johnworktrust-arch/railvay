@@ -1484,17 +1484,23 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertIn("<blockquote>", referral)
         self.assertIn("</blockquote>", referral)
         self.assertIn(
-            "Приглашайте друзей и получайте 30% с каждого их пополнения.",
+            "Приглашайте друзей и зарабатывайте 30% с каждого пополнения!",
             referral,
         )
+        self.assertIn("— Друзья перешли по вашей ссылке и потратили 1000₽", referral)
+        self.assertIn("— Вы получаете 300₽!", referral)
         self.assertIn("— Приглашено: 1", referral)
         self.assertIn("— Баланс: 0 ₽", referral)
         self.assertNotIn("Способ вывода", referral)
         self.assertNotIn("Реквизиты", referral)
+        self.assertIn("% <b>Текущая ставка: 30%</b>", referral)
         self.assertIn("💼 Вывод доступен от 500₽", referral)
         self.assertNotIn("Нажмите на ссылку", referral)
         self.assertNotIn("🪁", referral)
-        self.assertNotIn("https://t.me/aiceabot", referral)
+        self.assertIn(
+            "<code>https://t.me/aiceabot?start=ref_tg1001</code>",
+            referral,
+        )
         self.assertNotIn("USDT", referral.upper())
 
         referral_with_stats = _format_referral_screen(
@@ -2270,7 +2276,8 @@ class MigrationAndUITest(unittest.TestCase):
         ).inline_keyboard[0][0]
         self.assertIn("https://t.me/share/url?", invite_button.url)
         self.assertIn("ref_tg1001", invite_button.url)
-        self.assertIn("Cea+AI", invite_button.url)
+        self.assertIn("Cea%20AI", invite_button.url)
+        self.assertNotIn("+", invite_button.url)
         self.assertIn("Подписка и тарифы", keyboard_source)
         self.assertNotIn("🏠 Главное меню", labels)
         self.assertIn("BACK_TO_MENU_BUTTON", keyboard_source)
