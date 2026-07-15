@@ -39,6 +39,10 @@ BOT_DESCRIPTION = (
     "🚀 Нейросети в одном боте.\n"
     "ℹ️ @ceafamily"
 )
+BOT_SHORT_DESCRIPTION = (
+    "🚀 Все современные нейросети в одном боте. "
+    "ℹ️ Канал @ceafamily"
+)
 
 
 async def health(request: web.Request) -> web.Response:
@@ -331,6 +335,11 @@ async def main() -> None:
     bot = Bot(token=settings.telegram_bot_token)
     await bot.set_my_commands(BOT_COMMANDS)
     await bot.set_my_description(description=BOT_DESCRIPTION)
+    await bot.set_my_description(description=BOT_DESCRIPTION, language_code="ru")
+    await bot.set_my_short_description(short_description=BOT_SHORT_DESCRIPTION)
+    await bot.set_my_short_description(
+        short_description=BOT_SHORT_DESCRIPTION, language_code="ru"
+    )
     dispatcher = Dispatcher()
     dispatcher.include_router(create_router(services))
     vpn_bot = None

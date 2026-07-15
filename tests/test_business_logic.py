@@ -2064,9 +2064,21 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("BOT_DESCRIPTION", main_source)
         self.assertIn("🚀 Нейросети в одном боте.", main_source)
         self.assertIn("ℹ️ @ceafamily", main_source)
+        self.assertIn("BOT_SHORT_DESCRIPTION", main_source)
+        self.assertIn("🚀 Все современные нейросети в одном боте.", main_source)
+        self.assertIn("ℹ️ Канал @ceafamily", main_source)
         self.assertIn(
             "await bot.set_my_description(description=BOT_DESCRIPTION)", main_source
         )
+        self.assertIn(
+            'await bot.set_my_description(description=BOT_DESCRIPTION, language_code="ru")',
+            main_source,
+        )
+        self.assertIn(
+            "await bot.set_my_short_description(short_description=BOT_SHORT_DESCRIPTION)",
+            main_source,
+        )
+        self.assertIn('short_description=BOT_SHORT_DESCRIPTION, language_code="ru"', main_source)
         self.assertNotIn('BotCommand(command="admin"', main_source)
         self.assertNotIn('BotCommand(command="help"', main_source)
 
