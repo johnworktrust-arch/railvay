@@ -170,13 +170,13 @@ def about_service_keyboard(
             ],
             [
                 InlineKeyboardButton(
-                    text="💳 Тарифы и цены", callback_data="menu:plans"
-                )
+                    text="🔒 Политика конфиденциальности", url=privacy_policy_url
+                ),
             ],
             [
                 InlineKeyboardButton(
-                    text="🔒 Политика конфиденциальности", url=privacy_policy_url
-                ),
+                    text="💳 Тарифы и цены", callback_data="menu:plans"
+                )
             ],
             [
                 InlineKeyboardButton(
