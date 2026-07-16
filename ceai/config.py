@@ -7,8 +7,12 @@ from typing import Dict, Tuple
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
-DEFAULT_PUBLIC_OFFER_URL = "https://cea.ai/public-offer"
-DEFAULT_PRIVACY_POLICY_URL = "https://cea.ai/privacy-policy"
+DEFAULT_PUBLIC_OFFER_URL = (
+    "https://telegra.ph/Polzovatelskoe-soglashenie-Cea-AI-07-16"
+)
+DEFAULT_PRIVACY_POLICY_URL = (
+    "https://telegra.ph/Politika-konfidencialnosti-Cea-AI-07-16"
+)
 DEFAULT_INFO_CHANNEL_URL = "https://t.me/ceafamily"
 KLING_API_KEY_NAMES = (
     "KLING_API_KEY",

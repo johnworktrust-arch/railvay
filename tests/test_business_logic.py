@@ -1925,7 +1925,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("ещё на 30 дней за 699 ₽", yookassa_payment_screen)
         self.assertIn("Проверка платежа происходит автоматически.", yookassa_payment_screen)
         self.assertIn("Нажимая «Оплатить»", yookassa_payment_screen)
-        self.assertIn("Публичная оферта: https://cea.ai/public-offer", yookassa_payment_screen)
+        self.assertIn(
+            "Пользовательское соглашение: https://cea.ai/public-offer",
+            yookassa_payment_screen,
+        )
         self.assertIn("отключить автоматическое продление", yookassa_payment_screen)
         self.assertIn("напишите в поддержку", yookassa_payment_screen)
         self.assertNotIn("«Профиль» → «Отключить автопродление»", yookassa_payment_screen)
@@ -2345,14 +2348,14 @@ class MigrationAndUITest(unittest.TestCase):
             "async def _send_about_service(", 1
         )[1].split("async def _send_models_for_types", 1)[0]
 
-        self.assertIn("🛡 <b>О сервисе</b>", about_source)
+        self.assertIn("🛡 <b>О сервисе Cea AI</b>", about_source)
         self.assertIn("Канал: @{GIFT_CHANNEL_USERNAME}", about_source)
         self.assertIn("Поддержка: @{support_username}", about_source)
         self.assertIn("reply_markup=about_service_keyboard(", about_source)
         self.assertIn("public_offer_url=public_offer_url", about_source)
+        self.assertIn("privacy_policy_url=privacy_policy_url", about_source)
         self.assertIn('parse_mode="HTML"', about_source)
         self.assertIn('F.data == "menu:about"', handlers_source)
-        self.assertIn('F.data == "promo:placeholder"', handlers_source)
 
     def test_media_result_links_are_hidden_behind_short_labels(self) -> None:
         from ceai.bot.handlers import _format_generation_result

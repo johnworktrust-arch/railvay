@@ -1,4 +1,5 @@
 .env
+.telegraph-access-token
 .venv/
 __pycache__/
 *.py[cod]

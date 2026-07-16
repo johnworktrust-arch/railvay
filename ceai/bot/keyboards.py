@@ -155,23 +155,28 @@ def back_to_menu_keyboard() -> InlineKeyboardMarkup:
 
 
 def about_service_keyboard(
-    *, public_offer_url: str, support_username: str = "cea_help"
+    *,
+    public_offer_url: str,
+    privacy_policy_url: str,
+    support_username: str = "cea_help",
 ) -> InlineKeyboardMarkup:
     support_username = support_username.strip().lstrip("@") or "cea_help"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="📄 Публичная оферта", url=public_offer_url
-                ),
-                InlineKeyboardButton(
-                    text="🔒 Политика конфиденциальности", url=public_offer_url
+                    text="📄 Пользовательское соглашение", url=public_offer_url
                 ),
             ],
             [
                 InlineKeyboardButton(
-                    text="🎟 Ввести промокод", callback_data="promo:placeholder"
+                    text="💳 Тарифы и цены", callback_data="menu:plans"
                 )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="🔒 Политика конфиденциальности", url=privacy_policy_url
+                ),
             ],
             [
                 InlineKeyboardButton(

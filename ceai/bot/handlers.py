@@ -68,7 +68,7 @@ from ceai.bot.keyboards import (
     work_access_required_keyboard,
     work_menu_keyboard,
 )
-from ceai.config import DEFAULT_PUBLIC_OFFER_URL
+from ceai.config import DEFAULT_PRIVACY_POLICY_URL, DEFAULT_PUBLIC_OFFER_URL
 from ceai.formatting import (
     format_coin_amount,
     format_datetime_minute,
@@ -789,8 +789,8 @@ def _format_yookassa_payment_screen(
         "Проверка платежа происходит автоматически. "
         "Коины начислятся на баланс сразу после подтверждения оплаты.\n\n"
         "Нажимая «Оплатить», вы подтверждаете согласие с условиями "
-        "обработки данных и публичной офертой.\n\n"
-        f"Публичная оферта: {offer_url}\n\n"
+        "обработки данных и пользовательским соглашением.\n\n"
+        f"Пользовательское соглашение: {offer_url}\n\n"
         "Если потребуется отключить автоматическое продление, напишите в поддержку."
     )
 
@@ -1902,18 +1902,29 @@ async def _send_about_service(
     public_offer_url = (
         services.settings.public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
     )
+    privacy_policy_url = (
+        services.settings.privacy_policy_url.strip() or DEFAULT_PRIVACY_POLICY_URL
+    )
     await _show_screen(
         message,
         services,
         user_id,
-        "🛡 <b>О сервисе</b>\n\n"
-        "Cea AI объединяет современные AI-инструменты для работы с текстом, "
-        "изображениями и видео в одном Telegram-боте.\n\n"
-        "Документы доступны по кнопкам ниже.\n\n"
-        f"Канал: @{GIFT_CHANNEL_USERNAME}\n"
-        f"Поддержка: @{support_username}",
+        "🛡 <b>О сервисе Cea AI</b>\n\n"
+        "Cea AI объединяет нейросети для текста, изображений, видео и озвучки "
+        "в одном Telegram-боте. Доступ предоставляется по подписке: вы "
+        "получаете коины и самостоятельно выбираете, на какие инструменты "
+        "их потратить.\n\n"
+        "Результаты создаются сторонними AI-провайдерами и могут содержать "
+        "неточности. Не используйте их вместо профессиональной медицинской, "
+        "юридической или финансовой консультации.\n\n"
+        f"📢 Канал: @{GIFT_CHANNEL_USERNAME}\n"
+        f"🆘 Поддержка: @{support_username}\n\n"
+        "Актуальные цены и состав тарифов доступны по кнопке ниже. Там же "
+        "можно выбрать и оплатить подходящий тариф.\n\n"
+        "Документы сервиса находятся в постоянном доступе в этом разделе.",
         reply_markup=about_service_keyboard(
             public_offer_url=public_offer_url,
+            privacy_policy_url=privacy_policy_url,
             support_username=support_username,
         ),
         delete_current=delete_current,
