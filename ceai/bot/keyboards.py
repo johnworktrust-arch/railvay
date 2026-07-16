@@ -173,7 +173,7 @@ def about_service_keyboard(
             ],
             [
                 InlineKeyboardButton(
-                    text="💳 Тарифы и цены", callback_data="menu:plans"
+                    text="🎟 Ввести промокод", callback_data="promo:placeholder"
                 )
             ],
             [

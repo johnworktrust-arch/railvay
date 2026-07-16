@@ -2356,6 +2356,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("privacy_policy_url=privacy_policy_url", about_source)
         self.assertIn('parse_mode="HTML"', about_source)
         self.assertIn('F.data == "menu:about"', handlers_source)
+        self.assertIn('F.data == "promo:placeholder"', handlers_source)
 
     def test_media_result_links_are_hidden_behind_short_labels(self) -> None:
         from ceai.bot.handlers import _format_generation_result
