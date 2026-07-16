@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-import base64
-import json
 import re
 import unittest
 from pathlib import Path
@@ -29,19 +27,8 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertIn('add_header Cache-Control "no-store" always;', bridge)
         self.assertIn('add_header Referrer-Policy "no-referrer" always;', bridge)
         self.assertIn('add_header X-Robots-Tag "noindex, nofollow, noarchive" always;', bridge)
-        encoded = re.search(
-            r'add_header routing "happ://routing/onadd/([^\"]+)"', config
-        )
-        self.assertIsNotNone(encoded)
-        assert encoded is not None
-        decoded = base64.b64decode(encoded.group(1)).decode("utf-8")
-        routing = json.loads(decoded)
-
-        self.assertEqual(decoded.count('"RemoteDNSDomain"'), 1)
-        self.assertEqual(routing["Name"], "CEA VPN")
-        self.assertEqual(routing["GlobalProxy"], "true")
-        self.assertEqual(routing["LastUpdated"], "")
-        self.assertEqual(routing["FakeDNS"], "false")
+        self.assertIn('add_header routing "happ://routing/off" always;', config)
+        self.assertNotIn("happ://routing/onadd/", config)
 
 
 if __name__ == "__main__":
