@@ -69,8 +69,12 @@ def subscription_copy_button(subscription_url: str) -> InlineKeyboardButton:
     )
 
 
-def happ_landing_url(subscription_url: str, subscription_base_url: str) -> str:
-    """Build the HTTPS bridge that opens an HTTPS subscription in Happ."""
+def _subscription_landing_url(
+    subscription_url: str,
+    subscription_base_url: str,
+    *,
+    client: str,
+) -> str:
     try:
         parsed = urlsplit(subscription_url)
         allowed = urlsplit(subscription_base_url)
@@ -97,7 +101,25 @@ def happ_landing_url(subscription_url: str, subscription_base_url: str) -> str:
     ):
         return ""
     return urlunsplit(
-        ("https", parsed.netloc, f"/happ/{match.group(1)}", "", "")
+        ("https", parsed.netloc, f"/{client}/{match.group(1)}", "", "")
+    )
+
+
+def happ_landing_url(subscription_url: str, subscription_base_url: str) -> str:
+    """Build the HTTPS bridge that opens an HTTPS subscription in Happ."""
+    return _subscription_landing_url(
+        subscription_url,
+        subscription_base_url,
+        client="happ",
+    )
+
+
+def v2box_landing_url(subscription_url: str, subscription_base_url: str) -> str:
+    """Build the HTTPS bridge that opens an HTTPS subscription in V2Box."""
+    return _subscription_landing_url(
+        subscription_url,
+        subscription_base_url,
+        client="v2box",
     )
 
 
@@ -114,6 +136,19 @@ def subscription_open_button(
     )
 
 
+def subscription_v2box_button(
+    subscription_url: str, subscription_base_url: str
+) -> InlineKeyboardButton:
+    landing_url = v2box_landing_url(subscription_url, subscription_base_url)
+    if not landing_url:
+        raise ValueError("invalid VPN subscription URL")
+    return InlineKeyboardButton(
+        text="✅ Подключить через V2Box",
+        url=landing_url,
+        style="success",
+    )
+
+
 def happ_subscription_instructions() -> str:
     return (
         "<b>Как подключить:</b>\n"
@@ -122,6 +157,8 @@ def happ_subscription_instructions() -> str:
         "3. Выберите сервер CEA VPN и включите соединение.\n\n"
         "Если Happ не открылся, скопируйте ссылку запасной кнопкой и "
         "добавьте её через <b>+</b> → <b>Добавить подписку</b>.\n\n"
+        "Если Happ показывает пинг, но интернет не открывается, "
+        "нажмите <b>«Открыть в V2Box»</b> — это бесплатный запасной клиент.\n\n"
         "Если в Happ уже есть отдельный сервер «Marz», удалите его — "
         "это старый импорт без обновлений. Правильная подписка обновляется "
         "автоматически."
@@ -284,6 +321,13 @@ def subscription_screen(
         rows.append(
             [
                 subscription_open_button(subscription_url, subscription_base_url)
+            ]
+        )
+        rows.append(
+            [
+                subscription_v2box_button(
+                    subscription_url, subscription_base_url
+                )
             ]
         )
         rows.append(

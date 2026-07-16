@@ -33,6 +33,7 @@ from ceai.vpn_bot.handlers import (
     happ_subscription_instructions,
     subscription_copy_button,
     subscription_open_button,
+    subscription_v2box_button,
 )
 from ceai.vpn_worker_api import register_vpn_worker_routes
 
@@ -223,6 +224,12 @@ async def run_webhook(
                     inline_keyboard=[
                         [
                             subscription_open_button(
+                                subscription_url,
+                                settings.vpn_subscription_base_url,
+                            )
+                        ],
+                        [
+                            subscription_v2box_button(
                                 subscription_url,
                                 settings.vpn_subscription_base_url,
                             )

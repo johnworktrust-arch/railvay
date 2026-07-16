@@ -3,7 +3,11 @@ from __future__ import annotations
 import unittest
 from datetime import datetime, timedelta, timezone
 
-from ceai.vpn_bot.handlers import happ_landing_url, subscription_screen
+from ceai.vpn_bot.handlers import (
+    happ_landing_url,
+    subscription_screen,
+    v2box_landing_url,
+)
 
 
 class VpnBotUiTest(unittest.TestCase):
@@ -28,12 +32,20 @@ class VpnBotUiTest(unittest.TestCase):
         )
         self.assertIsNone(open_button.copy_text)
 
-        copy_button = keyboard.inline_keyboard[1][0]
+        v2box_button = keyboard.inline_keyboard[1][0]
+        self.assertEqual(
+            v2box_button.url,
+            "https://sub.example.test:8443/v2box/secret-token",
+        )
+        self.assertIsNone(v2box_button.copy_text)
+
+        copy_button = keyboard.inline_keyboard[2][0]
         self.assertIsNone(copy_button.url)
         self.assertIsNotNone(copy_button.copy_text)
         assert copy_button.copy_text is not None
         self.assertEqual(copy_button.copy_text.text, subscription_url)
         self.assertIn("Открыть в Happ", text)
+        self.assertIn("Открыть в V2Box", text)
         self.assertIn("старый импорт без обновлений", text)
         self.assertFalse(
             any(
@@ -74,6 +86,22 @@ class VpnBotUiTest(unittest.TestCase):
                     happ_landing_url(value, "https://sub.example.test:8443"),
                     "",
                 )
+
+    def test_v2box_landing_url_uses_the_same_strict_origin_check(self) -> None:
+        self.assertEqual(
+            v2box_landing_url(
+                "https://sub.example.test:8443/sub/token_1",
+                "https://sub.example.test:8443",
+            ),
+            "https://sub.example.test:8443/v2box/token_1",
+        )
+        self.assertEqual(
+            v2box_landing_url(
+                "https://evil.example/sub/token",
+                "https://sub.example.test:8443",
+            ),
+            "",
+        )
 
 
 if __name__ == "__main__":
