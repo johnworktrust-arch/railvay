@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import logging
+import re
 from datetime import datetime, timezone
 from html import escape
 from typing import Any, Dict
+from urllib.parse import urlsplit, urlunsplit
 from zoneinfo import ZoneInfo
 
 from aiogram import F, Router
@@ -67,12 +69,59 @@ def subscription_copy_button(subscription_url: str) -> InlineKeyboardButton:
     )
 
 
+def happ_landing_url(subscription_url: str, subscription_base_url: str) -> str:
+    """Build the HTTPS bridge that opens an HTTPS subscription in Happ."""
+    try:
+        parsed = urlsplit(subscription_url)
+        allowed = urlsplit(subscription_base_url)
+    except ValueError:
+        return ""
+    match = re.fullmatch(r"/sub/([A-Za-z0-9._~-]{1,160})/?", parsed.path)
+    if (
+        parsed.scheme != "https"
+        or not parsed.netloc
+        or parsed.scheme != allowed.scheme
+        or parsed.netloc != allowed.netloc
+        or parsed.username is not None
+        or parsed.password is not None
+        or parsed.query
+        or parsed.fragment
+        or allowed.scheme != "https"
+        or not allowed.netloc
+        or allowed.username is not None
+        or allowed.password is not None
+        or allowed.path not in {"", "/"}
+        or allowed.query
+        or allowed.fragment
+        or match is None
+    ):
+        return ""
+    return urlunsplit(
+        ("https", parsed.netloc, f"/happ/{match.group(1)}", "", "")
+    )
+
+
+def subscription_open_button(
+    subscription_url: str, subscription_base_url: str
+) -> InlineKeyboardButton:
+    landing_url = happ_landing_url(subscription_url, subscription_base_url)
+    if not landing_url:
+        raise ValueError("invalid VPN subscription URL")
+    return InlineKeyboardButton(
+        text="🚀 Открыть в Happ",
+        url=landing_url,
+        style="primary",
+    )
+
+
 def happ_subscription_instructions() -> str:
     return (
-        "<b>Как подключить в Happ:</b>\n"
-        "1. Нажмите «Скопировать ссылку подписки».\n"
-        "2. Откройте Happ и нажмите <b>+</b>.\n"
-        "3. Выберите <b>Добавить подписку</b>, вставьте ссылку и сохраните.\n\n"
+        "<b>Как подключить:</b>\n"
+        "1. Нажмите «Открыть в Happ».\n"
+        "2. Подтвердите добавление подписки.\n"
+        "3. Выберите сервер CEA VPN и включите соединение.\n\n"
+        "Если Happ не открылся, скопируйте ссылку запасной кнопкой и "
+        "добавьте её через <b>+</b> → <b>Добавить подписку</b>.\n\n"
         "Если в Happ уже есть отдельный сервер «Marz», удалите его — "
         "это старый импорт без обновлений. Правильная подписка обновляется "
         "автоматически."
@@ -173,6 +222,7 @@ def subscription_screen(
     subscription: Dict[str, Any] | None,
     *,
     support_username: str,
+    subscription_base_url: str,
 ) -> tuple[str, InlineKeyboardMarkup]:
     if subscription is None or subscription.get("status") in {"expired", "disabled"}:
         return (
@@ -230,7 +280,12 @@ def subscription_screen(
     ends_at = _format_ends_at(subscription["ends_at"])
     rows: list[list[InlineKeyboardButton]] = []
     subscription_url = str(subscription.get("subscription_url") or "")
-    if subscription_url.startswith("https://"):
+    if happ_landing_url(subscription_url, subscription_base_url):
+        rows.append(
+            [
+                subscription_open_button(subscription_url, subscription_base_url)
+            ]
+        )
         rows.append(
             [
                 subscription_copy_button(subscription_url)
@@ -336,6 +391,7 @@ def create_vpn_router(services: AppServices) -> Router:
             text, kb = subscription_screen(
                 current,
                 support_username=services.settings.vpn_support_username,
+                subscription_base_url=services.settings.vpn_subscription_base_url,
             )
             await _screen(callback.message, text, kb)
         await callback.answer()
@@ -383,6 +439,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 text, kb = subscription_screen(
                     current or outcome.subscription,
                     support_username=services.settings.vpn_support_username,
+                    subscription_base_url=services.settings.vpn_subscription_base_url,
                 )
                 if outcome.trial_already_used and (current or outcome.subscription).get(
                     "status"
@@ -513,6 +570,7 @@ def create_vpn_router(services: AppServices) -> Router:
             text, kb = subscription_screen(
                 outcome.subscription,
                 support_username=services.settings.vpn_support_username,
+                subscription_base_url=services.settings.vpn_subscription_base_url,
             )
             await _screen(callback.message, text, kb)
         await callback.answer("Тестовая оплата подтверждена — подключаем VPN.")
@@ -557,6 +615,7 @@ def create_vpn_router(services: AppServices) -> Router:
             text, kb = subscription_screen(
                 current,
                 support_username=services.settings.vpn_support_username,
+                subscription_base_url=services.settings.vpn_subscription_base_url,
             )
             await _screen(callback.message, text, kb)
         await callback.answer("Оплата подтверждена.")
