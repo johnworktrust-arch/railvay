@@ -68,5 +68,6 @@ def build_services(db: Database, settings: Settings) -> AppServices:
             db,
             server_code=settings.vpn_server_code,
             trial_days=settings.vpn_trial_days,
+            allow_admin_demo_payment=settings.vpn_allow_admin_demo_payment,
         ),
     )

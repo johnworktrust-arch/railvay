@@ -81,6 +81,7 @@ class VpnRepositoryTest(unittest.TestCase):
             "vpn_subscriptions",
             "vpn_trial_claims",
             "vpn_provisioning_jobs",
+            "vpn_payments",
         }
         with self.db.transaction() as conn:
             rows = conn.execute(
@@ -91,13 +92,21 @@ class VpnRepositoryTest(unittest.TestCase):
             ).fetchall()
         self.assertTrue(table_names.issubset({row["name"] for row in rows}))
 
+        vpn_core_tables = table_names - {"vpn_payments"}
         for migration_path in (
             Path("migrations/008_vpn.sql"),
             Path("migrations/postgres/008_vpn.sql"),
         ):
             source = migration_path.read_text(encoding="utf-8")
-            for table_name in table_names:
+            for table_name in vpn_core_tables:
                 self.assertIn(f"CREATE TABLE IF NOT EXISTS {table_name}", source)
+
+        for migration_path in (
+            Path("migrations/010_vpn_payments.sql"),
+            Path("migrations/postgres/010_vpn_payments.sql"),
+        ):
+            source = migration_path.read_text(encoding="utf-8")
+            self.assertIn("CREATE TABLE IF NOT EXISTS vpn_payments", source)
 
     def test_server_and_plan_upserts_are_stable(self) -> None:
         self.assertEqual(self.server["api_base_url"], "https://vpn1.example.test")

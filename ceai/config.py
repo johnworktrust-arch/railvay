@@ -87,6 +87,8 @@ class Settings:
     vpn_worker_secret: str = ""
     vpn_subscription_base_url: str = ""
     vpn_trial_days: int = 3
+    vpn_allow_admin_demo_payment: bool = False
+    vpn_admin_demo_telegram_ids: Tuple[int, ...] = ()
     vpn_worker_clock_skew_seconds: int = 300
     vpn_worker_lease_seconds: int = 120
     ai_provider_mode: str = "auto"
@@ -210,6 +212,12 @@ def load_settings() -> Settings:
             read("VPN_SUBSCRIPTION_BASE_URL")
         ),
         vpn_trial_days=read_int("VPN_TRIAL_DAYS", 3),
+        vpn_allow_admin_demo_payment=read_bool(
+            "VPN_ALLOW_ADMIN_DEMO_PAYMENT", False
+        ),
+        vpn_admin_demo_telegram_ids=read_int_list(
+            "VPN_ADMIN_DEMO_TELEGRAM_IDS"
+        ),
         vpn_worker_clock_skew_seconds=read_int(
             "VPN_WORKER_CLOCK_SKEW_SECONDS", 300
         ),

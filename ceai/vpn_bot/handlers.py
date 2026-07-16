@@ -23,6 +23,13 @@ TARIFFS = {
     "12": ("1 год", 1290, 999),
 }
 
+VPN_PLAN_CODES = {
+    "1": "vpn-1m",
+    "3": "vpn-3m",
+    "6": "vpn-6m",
+    "12": "vpn-12m",
+}
+
 
 def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
     user = event.from_user
@@ -101,6 +108,29 @@ def _channel_username(channel_url: str) -> str:
     if "t.me/" in value:
         return "@" + value.rsplit("/", 1)[-1].lstrip("@")
     return value
+
+
+def _payment_callback_id(data: str | None, prefix: str) -> int | None:
+    value = data or ""
+    expected = f"{prefix}:"
+    raw_id = value.removeprefix(expected)
+    if (
+        not value.startswith(expected)
+        or not raw_id.isdigit()
+        or len(raw_id) > 19
+    ):
+        return None
+    payment_id = int(raw_id)
+    if payment_id <= 0 or payment_id > 9_223_372_036_854_775_807:
+        return None
+    return payment_id
+
+
+def _admin_demo_authorized(event: CallbackQuery, services: AppServices) -> bool:
+    return bool(
+        services.settings.vpn_allow_admin_demo_payment
+        and event.from_user.id in services.settings.vpn_admin_demo_telegram_ids
+    )
 
 
 def _format_ends_at(value: Any) -> str:
@@ -365,31 +395,151 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.callback_query(F.data.startswith("vpn:tariff:"))
     async def tariff(callback: CallbackQuery) -> None:
         code = callback.data.rsplit(":", 1)[-1]
-        name, old, price = TARIFFS.get(code, TARIFFS["1"])
+        tariff_data = TARIFFS.get(code)
+        if tariff_data is None:
+            await callback.answer("Тариф не найден.", show_alert=True)
+            return
+        name, old, price = tariff_data
         if callback.message:
             await _screen(callback.message, f"Покупка VPN\n\nТариф: <b>{name}</b>\nДоступно: <b>до 3 устройств</b>\nК оплате: <b>{old}₽ / {price} ⭐</b>\n\n<blockquote>▶ Выбери способ оплаты</blockquote>", payment_keyboard(code))
         await callback.answer()
 
     @router.callback_query(F.data.startswith("vpn:payment:"))
     async def payment(callback: CallbackQuery) -> None:
-        _, _, code, method = callback.data.split(":", 3)
-        name, old, _ = TARIFFS.get(code, TARIFFS["1"])
+        parts = callback.data.split(":", 3)
+        if len(parts) != 4:
+            await callback.answer("Некорректный заказ.", show_alert=True)
+            return
+        _, _, code, method = parts
+        tariff_data = TARIFFS.get(code)
+        plan_code = VPN_PLAN_CODES.get(code)
+        if tariff_data is None or plan_code is None:
+            await callback.answer("Тариф не найден.", show_alert=True)
+            return
+        name, _, _ = tariff_data
         labels = {"sbp": "СБП", "card": "Карта", "crypto": "CryptoBot", "stars": "Telegram Stars", "other": "Другие способы"}
+        if method not in labels:
+            await callback.answer("Способ оплаты не найден.", show_alert=True)
+            return
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        is_owner = _admin_demo_authorized(callback, services)
+        if not is_owner:
+            if callback.message:
+                await _screen(
+                    callback.message,
+                    "💳 <b>Оплата пока подключается</b>\n\n"
+                    "Платёжные способы ещё закрыты для пользователей. "
+                    "Без подтверждённой оплаты VPN-ключ не создаётся.",
+                    InlineKeyboardMarkup(
+                        inline_keyboard=[_back(f"vpn:tariff:{code}")]
+                    ),
+                )
+            await callback.answer()
+            return
+        try:
+            order, _ = services.vpn.create_admin_demo_payment(
+                user_id=int(user["id"]),
+                plan_code=plan_code,
+                payment_method=method,
+                admin_authorized=is_owner,
+            )
+        except BusinessRuleError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
         if callback.message:
             kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text=f"Оплатить — {labels.get(method, method)}", callback_data="vpn:demo_pay")],
-                [InlineKeyboardButton(text="✅ Проверить оплату", callback_data="vpn:check")],
+                [InlineKeyboardButton(text="🧪 Имитировать успешную оплату", callback_data=f"vpn:demo_pay:{order['id']}")],
+                [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"vpn:check:{order['id']}")],
                 _back(f"vpn:tariff:{code}"),
             ])
-            await _screen(callback.message, f"📦 <b>Заказ: CEA-VPN-DEMO</b>\n\nVPN: <b>{name}</b>\nДоступно: <b>до 3 устройств</b>\nОплата: <b>{labels.get(method, method)}</b>\nСумма: <b>{old}₽</b>\n\n<blockquote>▶ Демонстрационный экран оплаты</blockquote>\n\nНа этом этапе деньги не списываются, VPN не подключается.", kb)
+            await _screen(
+                callback.message,
+                f"📦 <b>Тестовый заказ: CEA-TEST-{int(order['id']):06d}</b>\n\n"
+                f"VPN: <b>{name}</b>\n"
+                "Доступно: <b>до 3 устройств</b>\n"
+                f"Оплата: <b>{labels[method]}</b>\n"
+                f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
+                "<blockquote>🧪 Личный тестовый режим владельца</blockquote>\n\n"
+                "Ключ будет создан только после имитации успешной оплаты. "
+                "Деньги не списываются.",
+                kb,
+            )
         await callback.answer()
 
-    @router.callback_query(F.data.in_({"vpn:demo_pay", "vpn:check"}))
-    async def demo_notice(callback: CallbackQuery) -> None:
-        await callback.answer(
-            "Платёжные способы пока в демо-режиме. Бесплатные 3 дня уже работают.",
-            show_alert=True,
+    @router.callback_query(F.data.startswith("vpn:demo_pay:"))
+    async def confirm_demo_payment(callback: CallbackQuery) -> None:
+        payment_id = _payment_callback_id(callback.data, "vpn:demo_pay")
+        if payment_id is None:
+            await callback.answer("Некорректный заказ.", show_alert=True)
+            return
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        try:
+            outcome = services.vpn.confirm_admin_demo_payment(
+                user_id=int(user["id"]),
+                payment_id=payment_id,
+                admin_authorized=_admin_demo_authorized(callback, services),
+            )
+        except BusinessRuleError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        if not outcome.processed:
+            await callback.answer("Этот тестовый заказ уже подтверждён.")
+            return
+        if callback.message:
+            text, kb = subscription_screen(
+                outcome.subscription,
+                support_username=services.settings.vpn_support_username,
+            )
+            await _screen(callback.message, text, kb)
+        await callback.answer("Тестовая оплата подтверждена — подключаем VPN.")
+
+    @router.callback_query(F.data.startswith("vpn:check:"))
+    async def check_payment(callback: CallbackQuery) -> None:
+        payment_id = _payment_callback_id(callback.data, "vpn:check")
+        if payment_id is None:
+            await callback.answer("Некорректный заказ.", show_alert=True)
+            return
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _admin_demo_authorized(callback, services):
+            await callback.answer(
+                "Тестовая оплата доступна только владельцу бота.",
+                show_alert=True,
+            )
+            return
+        payment_record = services.vpn.get_payment_for_user(
+            user_id=int(user["id"]),
+            payment_id=payment_id,
         )
+        if payment_record is None:
+            await callback.answer("Заказ не найден.", show_alert=True)
+            return
+        if payment_record.get("status") != "paid":
+            await callback.answer(
+                "Оплата ещё не подтверждена. Ключ не создан.",
+                show_alert=True,
+            )
+            return
+        current = services.vpn.get_payment_subscription_for_user(
+            user_id=int(user["id"]),
+            payment_id=payment_id,
+        )
+        if current is None:
+            await callback.answer(
+                "Оплата подтверждена, но подписка ещё не создана.",
+                show_alert=True,
+            )
+            return
+        if callback.message:
+            text, kb = subscription_screen(
+                current,
+                support_username=services.settings.vpn_support_username,
+            )
+            await _screen(callback.message, text, kb)
+        await callback.answer("Оплата подтверждена.")
+
+    @router.callback_query(F.data.in_({"vpn:demo_pay", "vpn:check"}))
+    async def stale_demo_notice(callback: CallbackQuery) -> None:
+        await callback.answer("Этот тестовый заказ устарел. Создайте новый.", show_alert=True)
 
     @router.callback_query(F.data == "vpn:earn")
     async def earn(callback: CallbackQuery) -> None:

@@ -7,6 +7,8 @@ from typing import Any, Dict
 from urllib.parse import urlsplit
 
 from ceai.database import Database
+from ceai.repositories.vpn_payments import VpnPaymentRepository
+from ceai.repositories.vpn_plans import VpnPlanRepository
 from ceai.repositories.vpn_provisioning_jobs import VpnProvisioningJobRepository
 from ceai.repositories.vpn_servers import VpnServerRepository
 from ceai.repositories.vpn_subscriptions import VpnSubscriptionRepository
@@ -23,6 +25,13 @@ class VpnTrialOutcome:
 
 
 @dataclass(frozen=True)
+class VpnPaymentOutcome:
+    payment: Dict[str, Any]
+    subscription: Dict[str, Any]
+    processed: bool
+
+
+@dataclass(frozen=True)
 class VpnJobCompletion:
     subscription: Dict[str, Any]
     telegram_id: int
@@ -36,11 +45,15 @@ class VpnService:
         *,
         server_code: str,
         trial_days: int = 3,
+        allow_admin_demo_payment: bool = False,
     ) -> None:
         self.db = db
         self.server_code = server_code
         self.trial_days = trial_days
+        self.allow_admin_demo_payment = allow_admin_demo_payment
         self.servers = VpnServerRepository()
+        self.plans = VpnPlanRepository()
+        self.payments = VpnPaymentRepository()
         self.subscriptions = VpnSubscriptionRepository()
         self.trials = VpnTrialClaimRepository()
         self.jobs = VpnProvisioningJobRepository()
@@ -106,9 +119,193 @@ class VpnService:
             )
             return VpnTrialOutcome(subscription=subscription, created=True)
 
+    def create_admin_demo_payment(
+        self,
+        *,
+        user_id: int,
+        plan_code: str,
+        payment_method: str,
+        admin_authorized: bool,
+    ) -> tuple[Dict[str, Any], bool]:
+        self._require_admin_demo_access(admin_authorized)
+        method = payment_method.strip().lower()
+        if method not in {"sbp", "card", "crypto", "stars", "other"}:
+            raise BusinessRuleError("Неизвестный способ оплаты.")
+
+        with self.db.transaction() as conn:
+            plan = self.plans.get_by_code(conn, plan_code)
+            if plan is None or not bool(plan["is_active"]):
+                raise BusinessRuleError("Тариф не найден.")
+            return self.payments.create_or_get_pending_admin_demo(
+                conn,
+                user_id=user_id,
+                plan_id=int(plan["id"]),
+                amount_rub=int(plan["price_rub"]),
+                duration_days=int(plan["duration_days"]),
+                payment_method=method,
+            )
+
+    def get_payment_for_user(
+        self, *, user_id: int, payment_id: int
+    ) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            return self.payments.get_for_user(conn, payment_id, user_id)
+
+    def get_payment_subscription_for_user(
+        self, *, user_id: int, payment_id: int
+    ) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            payment = self.payments.get_for_user(conn, payment_id, user_id)
+            if payment is None or payment.get("status") != "paid":
+                return None
+            subscription_id = payment.get("vpn_subscription_id")
+            if subscription_id is None:
+                return None
+            subscription = self.subscriptions.get_by_id(
+                conn, int(subscription_id)
+            )
+            if (
+                subscription is None
+                or int(subscription["user_id"]) != int(user_id)
+            ):
+                return None
+            return subscription
+
+    def confirm_admin_demo_payment(
+        self,
+        *,
+        user_id: int,
+        payment_id: int,
+        admin_authorized: bool,
+    ) -> VpnPaymentOutcome:
+        self._require_admin_demo_access(admin_authorized)
+        with self.db.transaction() as conn:
+            payment = self.payments.get_for_user(conn, payment_id, user_id)
+            if payment is None or payment.get("provider") != "admin_demo":
+                raise BusinessRuleError("Заказ не найден.")
+            if payment.get("status") not in {"pending", "paid"}:
+                raise BusinessRuleError("Этот заказ уже закрыт.")
+
+            plan = self.plans.get_by_id(conn, int(payment["vpn_plan_id"]))
+            if (
+                plan is None
+                or payment.get("currency") != "RUB"
+                or int(payment["duration_days"]) <= 0
+            ):
+                raise BusinessRuleError("Параметры заказа повреждены.")
+
+            payment, marked_paid = self.payments.mark_admin_demo_paid(
+                conn,
+                payment_id=payment_id,
+                user_id=user_id,
+            )
+            subscription_id = payment.get("vpn_subscription_id")
+            if subscription_id is not None:
+                subscription = self.subscriptions.get_by_id(
+                    conn, int(subscription_id)
+                )
+                if (
+                    subscription is None
+                    or int(subscription["user_id"]) != int(user_id)
+                ):
+                    raise RuntimeError("VPN payment points to an invalid subscription")
+                return VpnPaymentOutcome(
+                    payment=payment,
+                    subscription=subscription,
+                    processed=False,
+                )
+
+            subscription = self._fulfill_paid_payment(
+                conn,
+                payment=payment,
+                plan=plan,
+            )
+            payment = self.payments.link_subscription(
+                conn,
+                payment_id=payment_id,
+                user_id=user_id,
+                subscription_id=int(subscription["id"]),
+            )
+            return VpnPaymentOutcome(
+                payment=payment,
+                subscription=subscription,
+                processed=bool(marked_paid),
+            )
+
     def get_current_subscription(self, user_id: int) -> Dict[str, Any] | None:
         with self.db.transaction() as conn:
             return self.subscriptions.get_latest_for_user(conn, user_id)
+
+    def _fulfill_paid_payment(
+        self,
+        conn: Any,
+        *,
+        payment: Dict[str, Any],
+        plan: Dict[str, Any],
+    ) -> Dict[str, Any]:
+        if payment.get("status") != "paid":
+            raise BusinessRuleError("Оплата заказа не подтверждена.")
+
+        user_id = int(payment["user_id"])
+        payment_id = int(payment["id"])
+        if getattr(conn, "driver", "") == "postgres":
+            # Serialize separate paid orders for the same user so concurrent
+            # renewals cannot overwrite each other's added duration.
+            locked_user = conn.execute(
+                "SELECT id FROM users WHERE id = ? FOR UPDATE",
+                (user_id,),
+            ).fetchone()
+            if locked_user is None:
+                raise RuntimeError("VPN payment user is missing")
+        now = utcnow()
+        duration = timedelta(days=int(payment["duration_days"]))
+        live = self.subscriptions.get_live_for_user(conn, user_id)
+        if live is not None:
+            current_end = self._datetime(live["ends_at"])
+            ends_at = max(now, current_end) + duration
+            subscription = self.subscriptions.update_period(
+                conn,
+                subscription_id=int(live["id"]),
+                plan_id=int(plan["id"]),
+                kind=str(live["kind"]),
+                starts_at=self._iso_value(live["starts_at"]),
+                ends_at=ends_at.isoformat(),
+                status=(
+                    "active" if live["status"] == "active" else "provisioning"
+                ),
+            )
+            operation = "update"
+        else:
+            server = self.servers.get_by_code(conn, self.server_code)
+            if server is None or not bool(server["is_active"]):
+                raise BusinessRuleError(
+                    "Сервер сейчас готовится. Попробуйте ещё раз чуть позже."
+                )
+            subscription = self.subscriptions.create_provisioning(
+                conn,
+                user_id=user_id,
+                server_id=int(server["id"]),
+                plan_id=int(plan["id"]),
+                kind="paid",
+                provider_username=f"u_{secrets.token_hex(12)}",
+                starts_at=now.isoformat(),
+                ends_at=(now + duration).isoformat(),
+            )
+            operation = "create"
+
+        self.jobs.enqueue(
+            conn,
+            subscription_id=int(subscription["id"]),
+            operation=operation,
+            idempotency_key=f"vpn:payment:{payment_id}:{operation}",
+        )
+        return subscription
+
+    def _require_admin_demo_access(self, admin_authorized: bool) -> None:
+        if not self.allow_admin_demo_payment or not admin_authorized:
+            raise BusinessRuleError(
+                "Тестовая оплата доступна только владельцу бота."
+            )
 
     def enqueue_due_expirations(self, *, limit: int = 100) -> int:
         queued = 0
@@ -365,4 +562,9 @@ class VpnService:
         return cls._datetime(value).isoformat()
 
 
-__all__ = ["VpnJobCompletion", "VpnService", "VpnTrialOutcome"]
+__all__ = [
+    "VpnJobCompletion",
+    "VpnPaymentOutcome",
+    "VpnService",
+    "VpnTrialOutcome",
+]

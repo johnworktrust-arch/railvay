@@ -24,11 +24,11 @@ class VpnSubscriptionRepository:
         cursor = conn.execute(
             """
             INSERT INTO vpn_subscriptions (
-                user_id, server_id, plan_id, kind, status,
+                user_id, server_id, plan_id, kind, billing_kind, status,
                 provider_username, subscription_url, starts_at, ends_at,
                 created_at, updated_at
             )
-            VALUES (?, ?, ?, ?, 'provisioning', ?, '', ?, ?, ?, ?)
+            VALUES (?, ?, ?, ?, ?, 'provisioning', ?, '', ?, ?, ?, ?)
             RETURNING id
             """,
             (
@@ -36,6 +36,7 @@ class VpnSubscriptionRepository:
                 server_id,
                 plan_id,
                 kind,
+                "paid" if plan_id is not None else kind,
                 provider_username,
                 starts_at,
                 ends_at,
@@ -228,13 +229,15 @@ class VpnSubscriptionRepository:
         conn.execute(
             """
             UPDATE vpn_subscriptions
-            SET plan_id = ?, kind = ?, status = ?, starts_at = ?, ends_at = ?,
+            SET plan_id = ?, kind = ?, billing_kind = ?, status = ?,
+                starts_at = ?, ends_at = ?,
                 last_error = NULL, updated_at = ?
             WHERE id = ?
             """,
             (
                 plan_id,
                 kind,
+                "paid" if plan_id is not None else kind,
                 status,
                 starts_at,
                 ends_at,
