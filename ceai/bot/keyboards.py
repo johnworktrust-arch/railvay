@@ -167,8 +167,6 @@ def about_service_keyboard(
                 InlineKeyboardButton(
                     text="📄 Пользовательское соглашение", url=public_offer_url
                 ),
-            ],
-            [
                 InlineKeyboardButton(
                     text="🔒 Политика конфиденциальности", url=privacy_policy_url
                 ),
