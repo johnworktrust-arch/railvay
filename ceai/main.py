@@ -28,7 +28,11 @@ from ceai.seed import seed_reference_data
 from ceai.services.app import AppServices, build_services
 from ceai.services.exceptions import BusinessRuleError
 from ceai.bot.handlers import create_router
-from ceai.vpn_bot.handlers import create_vpn_router
+from ceai.vpn_bot.handlers import (
+    create_vpn_router,
+    happ_subscription_instructions,
+    subscription_copy_button,
+)
 from ceai.vpn_worker_api import register_vpn_worker_routes
 
 
@@ -211,16 +215,13 @@ async def run_webhook(
                 chat_id=completion.telegram_id,
                 text=(
                     "✅ <b>VPN готов!</b>\n\n"
-                    "Нажмите кнопку ниже и добавьте подписку в приложение. "
-                    "Ссылка персональная — не передавайте её другим."
+                    "Ссылка персональная — не передавайте её другим.\n\n"
+                    f"{happ_subscription_instructions()}"
                 ),
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
-                            InlineKeyboardButton(
-                                text="🔐 Получить настройки VPN",
-                                url=subscription_url,
-                            )
+                            subscription_copy_button(subscription_url)
                         ],
                         [
                             InlineKeyboardButton(

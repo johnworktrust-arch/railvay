@@ -9,7 +9,13 @@ from zoneinfo import ZoneInfo
 from aiogram import F, Router
 from aiogram.enums import ChatMemberStatus
 from aiogram.filters import Command, CommandStart
-from aiogram.types import CallbackQuery, InlineKeyboardButton, InlineKeyboardMarkup, Message
+from aiogram.types import (
+    CallbackQuery,
+    CopyTextButton,
+    InlineKeyboardButton,
+    InlineKeyboardMarkup,
+    Message,
+)
 
 from ceai.services.app import AppServices
 from ceai.services.exceptions import BusinessRuleError
@@ -51,6 +57,26 @@ async def _screen(message: Message, text: str, keyboard: InlineKeyboardMarkup) -
 
 def _back(callback_data: str = "vpn:main") -> list[InlineKeyboardButton]:
     return [InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)]
+
+
+def subscription_copy_button(subscription_url: str) -> InlineKeyboardButton:
+    """Copy a subscription URL without opening Marzban's HTML page."""
+    return InlineKeyboardButton(
+        text="📋 Скопировать ссылку подписки",
+        copy_text=CopyTextButton(text=subscription_url),
+    )
+
+
+def happ_subscription_instructions() -> str:
+    return (
+        "<b>Как подключить в Happ:</b>\n"
+        "1. Нажмите «Скопировать ссылку подписки».\n"
+        "2. Откройте Happ и нажмите <b>+</b>.\n"
+        "3. Выберите <b>Добавить подписку</b>, вставьте ссылку и сохраните.\n\n"
+        "Если в Happ уже есть отдельный сервер «Marz», удалите его — "
+        "это старый импорт без обновлений. Правильная подписка обновляется "
+        "автоматически."
+    )
 
 
 def main_keyboard(*, support_username: str) -> InlineKeyboardMarkup:
@@ -207,10 +233,7 @@ def subscription_screen(
     if subscription_url.startswith("https://"):
         rows.append(
             [
-                InlineKeyboardButton(
-                    text="🔐 Получить настройки VPN",
-                    url=subscription_url,
-                )
+                subscription_copy_button(subscription_url)
             ]
         )
     rows.extend(
@@ -230,7 +253,8 @@ def subscription_screen(
         f"Тариф: <b>{escape(str(plan_name))}</b>\n"
         f"Сервер: <b>{escape(str(region))}</b>\n"
         f"Действует до: <b>{escape(ends_at)} МСК</b>\n\n"
-        "Персональную ссылку никому не передавайте.",
+        "Персональную ссылку никому не передавайте.\n\n"
+        f"{happ_subscription_instructions()}",
         InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
