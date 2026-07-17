@@ -232,6 +232,51 @@ class VpnProvisioningJobRepository:
             raise RuntimeError("Could not fail VPN provisioning job: lease lost")
         return self._require_by_id(conn, job_id, "fail")
 
+    def supersede_payment_jobs(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        subscription_id: int,
+        payment_id: int,
+        reason: str,
+    ) -> int:
+        """Stop create/update work attributable to a reversed payment.
+
+        The existing schema has no ``cancelled`` job state. ``completed`` is a
+        terminal, non-retryable state, so it is also used for deliberately
+        superseded work. Clearing a running lease makes a late worker result
+        fail its lease check and, critically, prevents the ready-key callback.
+        """
+
+        clean_reason = " ".join(reason.split())[:500] or "Payment reversed"
+        now = iso_now()
+        keys = (
+            f"vpn:payment:{payment_id}:create",
+            f"vpn:payment:{payment_id}:update",
+        )
+        cursor = conn.execute(
+            """
+            UPDATE vpn_provisioning_jobs
+            SET status = 'completed', last_error = ?,
+                lease_token = NULL, lease_expires_at = NULL,
+                updated_at = ?, completed_at = ?
+            WHERE subscription_id = ?
+              AND idempotency_key IN (?, ?)
+              AND operation IN ('create', 'update')
+              AND status IN ('pending', 'failed', 'running')
+            RETURNING id
+            """,
+            (
+                clean_reason,
+                now,
+                now,
+                subscription_id,
+                keys[0],
+                keys[1],
+            ),
+        )
+        return len(cursor.fetchall())
+
     def _require_by_id(
         self, conn: sqlite3.Connection, job_id: int, action: str
     ) -> Dict[str, Any]:

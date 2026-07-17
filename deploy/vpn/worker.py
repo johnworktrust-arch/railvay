@@ -297,12 +297,15 @@ class SignedRailwayClient:
         self.clock = clock
         self.nonce_factory = nonce_factory
 
-    def claim(self) -> Optional[Dict[str, Any]]:
+    def claim(self, *, control_plane_ready: bool) -> Optional[Dict[str, Any]]:
+        if control_plane_ready is not True:
+            raise WorkerError("marzban_not_ready", retryable=False)
         response = self._post(
             self.config.claim_path,
             {
                 "worker_id": self.config.worker_id,
                 "lease_seconds": self.config.lease_seconds,
+                "control_plane_ready": True,
             },
         )
         if response.status == 204 or not response.body:
@@ -371,6 +374,18 @@ class LocalMarzbanClient:
         self.config = config
         self.transport = transport
         self._token = ""
+
+    def healthcheck(self) -> None:
+        """Authenticate to Marzban and query a stable local API endpoint."""
+
+        response = self._authorized_request(
+            "GET", "/api/user/cea_worker_healthcheck"
+        )
+        # A missing sentinel user is the normal response.  Both statuses prove
+        # that the loopback API accepted our bearer token and handled a query.
+        if response.status in {200, 404}:
+            return
+        raise ApiError("marzban_healthcheck", response.status)
 
     def get_user(self, username: str) -> Optional[Dict[str, Any]]:
         response = self._authorized_request(
@@ -744,7 +759,8 @@ class VpnWorker:
         self.marzban = marzban or LocalMarzbanClient(config)
 
     def run_once(self) -> bool:
-        raw_job = self.railway.claim()
+        self.marzban.healthcheck()
+        raw_job = self.railway.claim(control_plane_ready=True)
         if raw_job is None:
             return False
         try:

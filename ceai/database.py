@@ -91,6 +91,11 @@ class Database:
             with self._lock:
                 version = migration.name
                 if self._migration_applied(version):
+                    # psycopg starts a transaction even for this SELECT. Do
+                    # not leave it open when every migration is already
+                    # applied (the common production startup path).
+                    if self.driver == "postgres":
+                        self._conn.commit()
                     continue
                 sql = migration.read_text(encoding="utf-8")
                 if self.driver == "sqlite":
@@ -146,7 +151,13 @@ class Database:
     def transaction(self) -> Iterator[DatabaseConnection]:
         with self._lock:
             try:
-                self._conn.execute("BEGIN")
+                # psycopg with autocommit disabled starts a transaction before
+                # the first statement automatically. Sending an explicit
+                # BEGIN through execute() therefore creates a nested BEGIN and
+                # floods Postgres with "transaction already in progress"
+                # warnings. sqlite still needs the explicit boundary here.
+                if self.driver == "sqlite":
+                    self._conn.execute("BEGIN")
                 yield DatabaseConnection(self._conn, driver=self.driver)
                 self._conn.commit()
             except Exception:

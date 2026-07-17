@@ -69,5 +69,19 @@ def build_services(db: Database, settings: Settings) -> AppServices:
             server_code=settings.vpn_server_code,
             trial_days=settings.vpn_trial_days,
             allow_admin_demo_payment=settings.vpn_allow_admin_demo_payment,
+            payment_provider=settings.vpn_payment_provider,
+            app_base_url=settings.app_base_url,
+            platega_merchant_id=settings.vpn_platega_merchant_id,
+            platega_secret=settings.vpn_platega_secret,
+            platega_api_base_url=settings.vpn_platega_api_base_url,
+            platega_return_path=settings.vpn_platega_return_path,
+            platega_failed_path=settings.vpn_platega_failed_path,
+            platega_request_timeout_seconds=(
+                settings.vpn_platega_request_timeout_seconds
+            ),
+            worker_health_max_age_seconds=(
+                settings.vpn_worker_health_max_age_seconds
+            ),
+            referrals=referrals,
         ),
     )

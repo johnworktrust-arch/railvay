@@ -146,11 +146,12 @@ def register_vpn_worker_routes(
         return worker_id, payload
 
     async def claim(request: web.Request) -> web.Response:
-        worker_id, _ = await read_request(request)
+        worker_id, payload = await read_request(request)
         try:
             job = services.vpn.claim_worker_job(
                 worker_id=worker_id,
                 lease_seconds=max(30, min(settings.vpn_worker_lease_seconds, 600)),
+                control_plane_ready=payload.get("control_plane_ready") is True,
             )
         except BusinessRuleError as exc:
             raise web.HTTPForbidden(text=str(exc)) from exc

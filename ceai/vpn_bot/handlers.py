@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import re
 from datetime import datetime, timezone
@@ -37,6 +38,8 @@ VPN_PLAN_CODES = {
     "6": "vpn-6m",
     "12": "vpn-12m",
 }
+
+LEGACY_PAYMENT_METHODS = frozenset({"sbp", "card", "crypto", "stars", "other"})
 
 
 def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
@@ -189,11 +192,13 @@ def plans_keyboard() -> InlineKeyboardMarkup:
 
 def payment_keyboard(code: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🇷🇺 СБП", callback_data=f"vpn:payment:{code}:sbp")],
-        [InlineKeyboardButton(text="🇷🇺 Карта", callback_data=f"vpn:payment:{code}:card")],
-        [InlineKeyboardButton(text="🔽 CryptoBot", callback_data=f"vpn:payment:{code}:crypto")],
-        [InlineKeyboardButton(text="🌟 Telegram Stars", callback_data=f"vpn:payment:{code}:stars")],
-        [InlineKeyboardButton(text="🌐 Другие способы", callback_data=f"vpn:payment:{code}:other")],
+        [
+            InlineKeyboardButton(
+                text="💳 Оплатить картой / СБП",
+                callback_data=f"vpn:payment:{code}:platega",
+                style="primary",
+            )
+        ],
         _back("vpn:plans"),
     ])
 
@@ -541,19 +546,86 @@ def create_vpn_router(services: AppServices) -> Router:
         if tariff_data is None or plan_code is None:
             await callback.answer("Тариф не найден.", show_alert=True)
             return
-        name, _, _ = tariff_data
-        labels = {"sbp": "СБП", "card": "Карта", "crypto": "CryptoBot", "stars": "Telegram Stars", "other": "Другие способы"}
+        name, old, price = tariff_data
+        labels = {"platega": "Карта / СБП"}
+        if method in LEGACY_PAYMENT_METHODS:
+            if callback.message:
+                await _screen(
+                    callback.message,
+                    "Покупка VPN\n\n"
+                    f"Тариф: <b>{name}</b>\n"
+                    "Доступно: <b>до 3 устройств</b>\n"
+                    f"К оплате: <b>{old}₽ / {price} ⭐</b>\n\n"
+                    "<blockquote>▶ Способы оплаты обновились. "
+                    "Выберите оплату через Platega.</blockquote>",
+                    payment_keyboard(code),
+                )
+            await callback.answer("Выберите новый способ оплаты.")
+            return
         if method not in labels:
             await callback.answer("Способ оплаты не найден.", show_alert=True)
             return
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         is_owner = _admin_demo_authorized(callback, services)
+        if services.vpn.uses_platega:
+            try:
+                order, _ = await asyncio.to_thread(
+                    services.vpn.create_platega_payment,
+                    user_id=int(user["id"]),
+                    plan_code=plan_code,
+                    user_name=callback.from_user.username or "",
+                )
+            except BusinessRuleError as exc:
+                await callback.answer(str(exc), show_alert=True)
+                return
+            payment_url = str(order.get("payment_url") or "")
+            if not payment_url:
+                await callback.answer(
+                    "Ссылка на оплату ещё создаётся. Нажмите ещё раз.",
+                    show_alert=True,
+                )
+                return
+            if callback.message:
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [
+                            InlineKeyboardButton(
+                                text="🇷🇺 Оплатить картой / СБП",
+                                url=payment_url,
+                                style="primary",
+                            )
+                        ],
+                        [
+                            InlineKeyboardButton(
+                                text="✅ Проверить оплату",
+                                callback_data=f"vpn:check:{order['id']}",
+                                style="success",
+                            )
+                        ],
+                        _back(f"vpn:tariff:{code}"),
+                    ]
+                )
+                await _screen(
+                    callback.message,
+                    f"📦 <b>Заказ: CEA-{int(order['id']):06d}</b>\n\n"
+                    f"VPN: <b>{name}</b>\n"
+                    "Доступно: <b>до 3 устройств</b>\n"
+                    f"Оплата: <b>{labels[method]}</b>\n"
+                    f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
+                    "<blockquote>▶ Оплатите заказ и нажмите проверку</blockquote>\n\n"
+                    "VPN будет выдан автоматически только после подтверждения "
+                    "оплаты платёжной системой.",
+                    kb,
+                )
+            await callback.answer()
+            return
+
         if not is_owner:
             if callback.message:
                 await _screen(
                     callback.message,
-                    "💳 <b>Оплата пока подключается</b>\n\n"
-                    "Платёжные способы ещё закрыты для пользователей. "
+                    "💳 <b>Оплата временно недоступна</b>\n\n"
+                    "Попробуйте ещё раз чуть позже. "
                     "Без подтверждённой оплаты VPN-ключ не создаётся.",
                     InlineKeyboardMarkup(
                         inline_keyboard=[_back(f"vpn:tariff:{code}")]
@@ -565,7 +637,7 @@ def create_vpn_router(services: AppServices) -> Router:
             order, _ = services.vpn.create_admin_demo_payment(
                 user_id=int(user["id"]),
                 plan_code=plan_code,
-                payment_method=method,
+                payment_method="other",
                 admin_authorized=is_owner,
             )
         except BusinessRuleError as exc:
@@ -626,18 +698,69 @@ def create_vpn_router(services: AppServices) -> Router:
             await callback.answer("Некорректный заказ.", show_alert=True)
             return
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
-        if not _admin_demo_authorized(callback, services):
-            await callback.answer(
-                "Тестовая оплата доступна только владельцу бота.",
-                show_alert=True,
-            )
-            return
         payment_record = services.vpn.get_payment_for_user(
             user_id=int(user["id"]),
             payment_id=payment_id,
         )
         if payment_record is None:
             await callback.answer("Заказ не найден.", show_alert=True)
+            return
+        if payment_record.get("provider") == "platega":
+            try:
+                outcome = await asyncio.to_thread(
+                    services.vpn.check_platega_payment,
+                    user_id=int(user["id"]),
+                    payment_id=payment_id,
+                )
+            except BusinessRuleError as exc:
+                await callback.answer(str(exc), show_alert=True)
+                return
+            if outcome.status == "pending":
+                await callback.answer(
+                    "Оплата ещё не подтверждена. Если вы только что оплатили, "
+                    "подождите несколько секунд.",
+                    show_alert=True,
+                )
+                return
+            if outcome.status in {"cancelled", "failed"}:
+                await callback.answer(
+                    "Этот платёж отменён. Создайте новый заказ.",
+                    show_alert=True,
+                )
+                return
+            if outcome.status == "refunded":
+                await callback.answer(
+                    "Платёж возвращён. Напишите в поддержку.",
+                    show_alert=True,
+                )
+                return
+            if not outcome.confirmed or outcome.subscription is None:
+                await callback.answer(
+                    "Оплата пока не подтверждена. Ключ не создан.",
+                    show_alert=True,
+                )
+                return
+            if callback.message:
+                text, kb = subscription_screen(
+                    outcome.subscription,
+                    support_username=services.settings.vpn_support_username,
+                    subscription_base_url=(
+                        services.settings.vpn_subscription_base_url
+                    ),
+                )
+                await _screen(callback.message, text, kb)
+            await callback.answer(
+                "Оплата подтверждена — подключаем VPN."
+                if outcome.processed
+                else "Оплата уже подтверждена."
+            )
+            return
+
+        if not _admin_demo_authorized(callback, services):
+            await callback.answer(
+                "Тестовая оплата доступна только владельцу бота.",
+                show_alert=True,
+            )
             return
         if payment_record.get("status") != "paid":
             await callback.answer(

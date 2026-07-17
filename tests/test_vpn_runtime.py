@@ -4,14 +4,17 @@ import hashlib
 import hmac
 import time
 import unittest
+from datetime import timedelta
 
 from aiohttp import web
 
 from ceai.config import Settings
 from ceai.database import Database
 from ceai.repositories.vpn_servers import VpnServerRepository
+from ceai.services.exceptions import BusinessRuleError
 from ceai.services.users import UserService
 from ceai.services.vpn import VpnService
+from ceai.time_utils import utcnow
 from ceai.vpn_worker_api import (
     NONCE_HEADER,
     SIGNATURE_HEADER,
@@ -34,7 +37,8 @@ class VpnRuntimeTest(unittest.TestCase):
             language_code="ru",
         )
         with self.db.transaction() as conn:
-            VpnServerRepository().upsert(
+            servers = VpnServerRepository()
+            server = servers.upsert(
                 conn,
                 code="nl-1",
                 name="Amsterdam 1",
@@ -43,6 +47,11 @@ class VpnRuntimeTest(unittest.TestCase):
                 api_base_url="http://127.0.0.1:8000",
                 worker_id="worker-nl1",
                 subscription_base_url="https://sub.example.test:8443",
+            )
+            servers.mark_healthy(
+                conn,
+                server_id=int(server["id"]),
+                checked_at=utcnow().isoformat(),
             )
         self.vpn = VpnService(self.db, server_code="nl-1", trial_days=3)
 
@@ -63,7 +72,11 @@ class VpnRuntimeTest(unittest.TestCase):
         self.assertTrue(second.trial_already_used)
         self.assertEqual(first.subscription["id"], second.subscription["id"])
 
-        job = self.vpn.claim_worker_job(worker_id="worker-nl1", lease_seconds=60)
+        job = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
         self.assertIsNotNone(job)
         assert job is not None
         self.assertEqual(job["operation"], "create")
@@ -92,12 +105,162 @@ class VpnRuntimeTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(claim["status"], "provisioned")
 
+    def test_server_upsert_does_not_reactivate_manually_disabled_server(self) -> None:
+        repository = VpnServerRepository()
+        with self.db.transaction() as conn:
+            server = repository.get_by_code(conn, "nl-1")
+            assert server is not None
+            repository.set_active(
+                conn,
+                server_id=int(server["id"]),
+                is_active=False,
+            )
+            reseeded = repository.upsert(
+                conn,
+                code="nl-1",
+                name="Amsterdam 1",
+                provider="marzban",
+                region="NL",
+                api_base_url="http://127.0.0.1:8000",
+                worker_id="worker-nl1",
+                subscription_base_url="https://sub.example.test:8443",
+            )
+
+        self.assertFalse(bool(reseeded["is_active"]))
+
+    def test_checkout_readiness_requires_recent_worker_poll(self) -> None:
+        repository = VpnServerRepository()
+        cutoff = (utcnow() - timedelta(seconds=120)).isoformat()
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE vpn_servers SET last_health_at = NULL WHERE code = ?",
+                ("nl-1",),
+            )
+            self.assertIsNone(
+                repository.get_checkout_ready_by_code(
+                    conn,
+                    code="nl-1",
+                    healthy_after=cutoff,
+                )
+            )
+            server = repository.get_by_code(conn, "nl-1")
+            assert server is not None
+            repository.mark_healthy(
+                conn,
+                server_id=int(server["id"]),
+                checked_at=utcnow().isoformat(),
+            )
+            ready = repository.get_checkout_ready_by_code(
+                conn,
+                code="nl-1",
+                healthy_after=cutoff,
+            )
+
+        self.assertIsNotNone(ready)
+
+    def test_worker_claim_requires_exact_control_plane_readiness(self) -> None:
+        self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE vpn_servers SET last_health_at = NULL WHERE code = ?",
+                ("nl-1",),
+            )
+
+        with self.assertRaisesRegex(BusinessRuleError, "control plane"):
+            self.vpn.claim_worker_job(
+                worker_id="worker-nl1",
+                lease_seconds=60,
+            )
+        for unverified in (False, 1):
+            with self.assertRaisesRegex(BusinessRuleError, "control plane"):
+                self.vpn.claim_worker_job(
+                    worker_id="worker-nl1",
+                    lease_seconds=60,
+                    control_plane_ready=unverified,  # type: ignore[arg-type]
+                )
+
+        with self.db.transaction() as conn:
+            server = conn.execute(
+                "SELECT last_health_at FROM vpn_servers WHERE code = ?",
+                ("nl-1",),
+            ).fetchone()
+            pending = conn.execute(
+                "SELECT status FROM vpn_provisioning_jobs"
+            ).fetchone()
+        self.assertIsNone(server["last_health_at"])
+        self.assertEqual(pending["status"], "pending")
+
+        job = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        self.assertIsNotNone(job)
+        with self.db.transaction() as conn:
+            server = conn.execute(
+                "SELECT last_health_at FROM vpn_servers WHERE code = ?",
+                ("nl-1",),
+            ).fetchone()
+        self.assertIsNotNone(server["last_health_at"])
+
+    def test_trial_does_not_issue_when_worker_health_is_stale(self) -> None:
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE vpn_servers SET last_health_at = NULL WHERE code = ?",
+                ("nl-1",),
+            )
+
+        with self.assertRaisesRegex(BusinessRuleError, "недоступен"):
+            self.vpn.claim_trial(
+                user_id=int(self.user["id"]),
+                channel="@ceafamily",
+            )
+
+        with self.db.transaction() as conn:
+            subscriptions = conn.execute(
+                "SELECT COUNT(*) AS count FROM vpn_subscriptions"
+            ).fetchone()["count"]
+            claims = conn.execute(
+                "SELECT COUNT(*) AS count FROM vpn_trial_claims"
+            ).fetchone()["count"]
+        self.assertEqual((subscriptions, claims), (0, 0))
+
+    def test_changing_worker_identity_clears_stale_health(self) -> None:
+        repository = VpnServerRepository()
+        with self.db.transaction() as conn:
+            server = repository.get_by_code(conn, "nl-1")
+            assert server is not None
+            repository.mark_healthy(
+                conn,
+                server_id=int(server["id"]),
+                checked_at=utcnow().isoformat(),
+            )
+            updated = repository.upsert(
+                conn,
+                code="nl-1",
+                name="Amsterdam 1",
+                provider="marzban",
+                region="NL",
+                api_base_url="http://127.0.0.1:8000",
+                worker_id="worker-nl2",
+                subscription_base_url="https://sub.example.test:8443",
+            )
+
+        self.assertIsNone(updated["last_health_at"])
+
     def test_worker_cannot_inject_another_subscription_host(self) -> None:
         self.vpn.claim_trial(
             user_id=int(self.user["id"]),
             channel="@ceafamily",
         )
-        job = self.vpn.claim_worker_job(worker_id="worker-nl1", lease_seconds=60)
+        job = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
         assert job is not None
         with self.assertRaisesRegex(Exception, "invalid subscription URL"):
             self.vpn.complete_worker_job(

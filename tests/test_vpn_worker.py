@@ -53,10 +53,14 @@ class SignedRailwayClientTest(unittest.TestCase):
             clock=lambda: 1_700_000_000,
             nonce_factory=lambda: "fixed-nonce",
         )
-        self.assertIsNone(client.claim())
+        self.assertIsNone(client.claim(control_plane_ready=True))
 
         request = captured["request"]
         body = request.data
+        self.assertIs(
+            json.loads(body.decode("utf-8"))["control_plane_ready"],
+            True,
+        )
         headers = {key.lower(): value for key, value in request.header_items()}
         canonical = (
             "POST\n/internal/vpn/worker/claim\n1700000000\nfixed-nonce\n"
@@ -87,6 +91,34 @@ class SignedRailwayClientTest(unittest.TestCase):
 
 
 class LocalMarzbanClientTest(unittest.TestCase):
+    def test_healthcheck_authenticates_and_accepts_missing_sentinel(self) -> None:
+        calls = []
+
+        def transport(request, timeout):
+            path = request.full_url.removeprefix("http://127.0.0.1:8000")
+            calls.append((request.get_method(), path))
+            if path == "/api/admin/token":
+                return response(200, {"access_token": "admin-token"})
+            self.assertEqual(path, "/api/user/cea_worker_healthcheck")
+            headers = {
+                key.lower(): value for key, value in request.header_items()
+            }
+            self.assertEqual(headers["authorization"], "Bearer admin-token")
+            return response(404, {"detail": "not found"})
+
+        client = worker.LocalMarzbanClient(config(), transport=transport)
+        client.healthcheck()
+        client.healthcheck()
+
+        self.assertEqual(
+            calls,
+            [
+                ("POST", "/api/admin/token"),
+                ("GET", "/api/user/cea_worker_healthcheck"),
+                ("GET", "/api/user/cea_worker_healthcheck"),
+            ],
+        )
+
     def test_create_conflict_preserves_existing_proxy_credentials(self) -> None:
         calls = []
         existing = {
@@ -167,8 +199,10 @@ class FakeRailway:
         self.job = job
         self.results = []
         self.failures = []
+        self.claim_readiness = []
 
-    def claim(self):
+    def claim(self, *, control_plane_ready):
+        self.claim_readiness.append(control_plane_ready)
         return self.job
 
     def report_result(self, payload):
@@ -179,6 +213,12 @@ class FakeRailway:
 
 
 class FakeMarzban:
+    def __init__(self):
+        self.healthchecks = 0
+
+    def healthcheck(self):
+        self.healthchecks += 1
+
     def ensure_active(self, **kwargs):
         return {
             "status": "active",
@@ -195,6 +235,11 @@ class FakeMarzban:
 class FailingMarzban(FakeMarzban):
     def ensure_active(self, **kwargs):
         raise worker.WorkerError("marzban_http_503")
+
+
+class FailingHealthcheckMarzban(FakeMarzban):
+    def healthcheck(self):
+        raise worker.WorkerError("marzban_healthcheck_http_503")
 
 
 class VpnWorkerTest(unittest.TestCase):
@@ -255,8 +300,22 @@ class VpnWorkerTest(unittest.TestCase):
         with self.assertLogs("ceavpn.worker", level=logging.INFO) as logs:
             self.assertTrue(instance.run_once())
         self.assertEqual(len(railway.results), 1)
+        self.assertEqual(railway.claim_readiness, [True])
         self.assertIn("subscription_url", railway.results[0])
         self.assertNotIn("do-not-log-token", "\n".join(logs.output))
+
+    def test_does_not_claim_when_marzban_healthcheck_fails(self) -> None:
+        railway = FakeRailway(None)
+        instance = worker.VpnWorker(
+            config(), railway=railway, marzban=FailingHealthcheckMarzban()
+        )
+
+        with self.assertRaisesRegex(
+            worker.WorkerError, "marzban_healthcheck_http_503"
+        ):
+            instance.run_once()
+
+        self.assertEqual(railway.claim_readiness, [])
 
     def test_reports_sanitized_failure_using_server_contract(self) -> None:
         railway = FakeRailway(

@@ -78,6 +78,31 @@ VPN_CHANNEL_URL=https://t.me/ceafamily
 `/telegram/vpn/webhook`. Отдельный Railway service не нужен. Если
 `VPN_TELEGRAM_BOT_TOKEN` не задан, запускается только агрегатор.
 
+Оплата VPN через Platega настраивается отдельно и не меняет
+`PAYMENT_PROVIDER` основного CeaAI-бота:
+
+```env
+VPN_PAYMENT_PROVIDER=platega
+VPN_PLATEGA_MERCHANT_ID=merchant-id-from-platega
+VPN_PLATEGA_SECRET=secret-from-platega
+VPN_PLATEGA_API_BASE_URL=https://app.platega.io
+VPN_PLATEGA_WEBHOOK_PATH=/payments/vpn/platega/webhook
+VPN_PLATEGA_RETURN_PATH=/payments/vpn/platega/return
+VPN_PLATEGA_FAILED_PATH=/payments/vpn/platega/failed
+VPN_PLATEGA_REQUEST_TIMEOUT_SECONDS=30
+```
+
+В личном кабинете Platega укажите callback URL:
+
+```text
+https://your-service.up.railway.app/payments/vpn/platega/webhook
+```
+
+Пути `return` и `failed` только возвращают браузер в `@ceavpn_bot`.
+Они не выдают VPN и не считаются подтверждением оплаты. Выдача
+запускается только после аутентифицированного callback и серверной проверки
+статуса, суммы и валюты платежа.
+
 1. Создайте проект Railway из GitHub-репозитория.
 2. В сервисе откройте `Settings -> Networking` и нажмите `Generate Domain`.
 3. Добавьте Postgres в Railway и подключите `DATABASE_URL` к сервису. В продакшене SQLite запрещён по умолчанию: файл внутри контейнера может быть пересоздан при деплое, и тогда пропадут пользователи, подписки, платежи и балансы.

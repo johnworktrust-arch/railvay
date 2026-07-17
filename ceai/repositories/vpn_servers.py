@@ -34,7 +34,14 @@ class VpnServerRepository:
                 provider = excluded.provider,
                 region = excluded.region,
                 api_base_url = excluded.api_base_url,
-                is_active = excluded.is_active,
+                last_health_at = CASE
+                    WHEN COALESCE(vpn_servers.worker_id, '') <>
+                         COALESCE(excluded.worker_id, '')
+                      OR COALESCE(vpn_servers.subscription_base_url, '') <>
+                         COALESCE(excluded.subscription_base_url, '')
+                    THEN NULL
+                    ELSE vpn_servers.last_health_at
+                END,
                 worker_id = excluded.worker_id,
                 subscription_base_url = excluded.subscription_base_url,
                 updated_at = excluded.updated_at
@@ -82,6 +89,32 @@ class VpnServerRepository:
         return row_to_dict(
             conn.execute(
                 "SELECT * FROM vpn_servers WHERE code = ?", (code,)
+            ).fetchone()
+        )
+
+    def get_checkout_ready_by_code(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        code: str,
+        healthy_after: str,
+    ) -> Dict[str, Any] | None:
+        """Return a server only when its outbound worker polled recently."""
+
+        return row_to_dict(
+            conn.execute(
+                """
+                SELECT *
+                FROM vpn_servers
+                WHERE code = ?
+                  AND is_active = TRUE
+                  AND worker_id IS NOT NULL
+                  AND worker_id <> ''
+                  AND subscription_base_url <> ''
+                  AND last_health_at IS NOT NULL
+                  AND last_health_at >= ?
+                """,
+                (code, healthy_after),
             ).fetchone()
         )
 

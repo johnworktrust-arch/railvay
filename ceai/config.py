@@ -89,8 +89,17 @@ class Settings:
     vpn_trial_days: int = 3
     vpn_allow_admin_demo_payment: bool = False
     vpn_admin_demo_telegram_ids: Tuple[int, ...] = ()
+    vpn_payment_provider: str = "disabled"
+    vpn_platega_merchant_id: str = ""
+    vpn_platega_secret: str = ""
+    vpn_platega_api_base_url: str = "https://app.platega.io"
+    vpn_platega_webhook_path: str = "/payments/vpn/platega/webhook"
+    vpn_platega_return_path: str = "/payments/vpn/platega/return"
+    vpn_platega_failed_path: str = "/payments/vpn/platega/failed"
+    vpn_platega_request_timeout_seconds: int = 30
     vpn_worker_clock_skew_seconds: int = 300
     vpn_worker_lease_seconds: int = 120
+    vpn_worker_health_max_age_seconds: int = 120
     ai_provider_mode: str = "auto"
     ai_request_timeout_seconds: int = 60
     deepseek_api_key: str = ""
@@ -218,10 +227,33 @@ def load_settings() -> Settings:
         vpn_admin_demo_telegram_ids=read_int_list(
             "VPN_ADMIN_DEMO_TELEGRAM_IDS"
         ),
+        vpn_payment_provider=read(
+            "VPN_PAYMENT_PROVIDER", "disabled"
+        ).strip().lower(),
+        vpn_platega_merchant_id=read("VPN_PLATEGA_MERCHANT_ID").strip(),
+        vpn_platega_secret=read("VPN_PLATEGA_SECRET"),
+        vpn_platega_api_base_url=_normalize_base_url(
+            read("VPN_PLATEGA_API_BASE_URL", "https://app.platega.io")
+        ),
+        vpn_platega_webhook_path=read(
+            "VPN_PLATEGA_WEBHOOK_PATH", "/payments/vpn/platega/webhook"
+        ),
+        vpn_platega_return_path=read(
+            "VPN_PLATEGA_RETURN_PATH", "/payments/vpn/platega/return"
+        ),
+        vpn_platega_failed_path=read(
+            "VPN_PLATEGA_FAILED_PATH", "/payments/vpn/platega/failed"
+        ),
+        vpn_platega_request_timeout_seconds=read_int(
+            "VPN_PLATEGA_REQUEST_TIMEOUT_SECONDS", 30
+        ),
         vpn_worker_clock_skew_seconds=read_int(
             "VPN_WORKER_CLOCK_SKEW_SECONDS", 300
         ),
         vpn_worker_lease_seconds=read_int("VPN_WORKER_LEASE_SECONDS", 120),
+        vpn_worker_health_max_age_seconds=read_int(
+            "VPN_WORKER_HEALTH_MAX_AGE_SECONDS", 120
+        ),
         ai_provider_mode=read("AI_PROVIDER_MODE", "auto").strip().lower(),
         ai_request_timeout_seconds=read_int("AI_REQUEST_TIMEOUT_SECONDS", 60),
         deepseek_api_key=read("DEEPSEEK_API_KEY"),

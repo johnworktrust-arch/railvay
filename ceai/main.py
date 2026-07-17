@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import hmac
 import json
 import logging
 import os
+import re
 from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
@@ -27,6 +29,7 @@ from ceai.runtime_diagnostics import (
 from ceai.seed import seed_reference_data
 from ceai.services.app import AppServices, build_services
 from ceai.services.exceptions import BusinessRuleError
+from ceai.services.vpn import VpnPaymentVerificationError
 from ceai.bot.handlers import create_router
 from ceai.vpn_bot.handlers import (
     create_vpn_router,
@@ -55,6 +58,8 @@ BOT_SHORT_DESCRIPTION = (
     "🚀 Все современные нейросети в одном боте. "
     "ℹ️ Канал @ceafamily"
 )
+PLATEGA_CALLBACK_MAX_BODY_BYTES = 64 * 1024
+TELEGRAM_BOT_USERNAME_RE = re.compile(r"[A-Za-z0-9_]{5,32}")
 
 
 async def health(request: web.Request) -> web.Response:
@@ -106,6 +111,16 @@ async def vpn_maintenance_loop(services: AppServices) -> None:
     interval_seconds = int(os.getenv("VPN_MAINTENANCE_INTERVAL_SECONDS", "60"))
     while True:
         try:
+            reconciled = await asyncio.to_thread(
+                services.vpn.reconcile_platega_payments
+            )
+            if reconciled:
+                logging.info(
+                    "Reconciled %s Platega VPN payment(s)", reconciled
+                )
+        except Exception:
+            logging.exception("Platega VPN reconciliation loop failed")
+        try:
             queued = await asyncio.to_thread(services.vpn.enqueue_due_expirations)
             if queued:
                 logging.info("Queued %s expired VPN subscription(s)", queued)
@@ -116,6 +131,129 @@ async def vpn_maintenance_loop(services: AppServices) -> None:
 
 def _normalize_path(path: str) -> str:
     return path if path.startswith("/") else f"/{path}"
+
+
+def _vpn_bot_url(settings: Settings) -> str:
+    username = settings.vpn_bot_username.strip().lstrip("@")
+    if not TELEGRAM_BOT_USERNAME_RE.fullmatch(username):
+        username = "ceavpn_bot"
+    return f"https://t.me/{username}"
+
+
+async def vpn_payment_return(request: web.Request) -> web.Response:
+    # This endpoint only takes the browser back to Telegram. Payment
+    # fulfillment is intentionally restricted to the authenticated callback
+    # or an explicit server-side status check.
+    raise web.HTTPFound(location=_vpn_bot_url(request.app["settings"]))
+
+
+async def vpn_payment_failed(request: web.Request) -> web.Response:
+    # A failed browser redirect is not authoritative payment state either.
+    raise web.HTTPFound(location=_vpn_bot_url(request.app["settings"]))
+
+
+def _secure_header_matches(expected: str, received: str) -> bool:
+    return hmac.compare_digest(
+        expected.encode("utf-8"),
+        received.encode("utf-8"),
+    )
+
+
+def register_vpn_platega_routes(
+    app: web.Application,
+    *,
+    settings: Settings,
+    services: AppServices,
+) -> None:
+    webhook_path = _normalize_path(settings.vpn_platega_webhook_path)
+    return_path = _normalize_path(settings.vpn_platega_return_path)
+    failed_path = _normalize_path(settings.vpn_platega_failed_path)
+
+    async def vpn_platega_webhook(request: web.Request) -> web.Response:
+        content_length = request.content_length
+        if (
+            content_length is not None
+            and content_length > PLATEGA_CALLBACK_MAX_BODY_BYTES
+        ):
+            return web.json_response(
+                {"ok": False, "error": "payload_too_large"}, status=413
+            )
+
+        merchant_id = settings.vpn_platega_merchant_id.strip()
+        secret = settings.vpn_platega_secret
+        if not merchant_id or not secret:
+            return web.json_response(
+                {"ok": False, "error": "payment_provider_unavailable"},
+                status=503,
+                headers={"Retry-After": "300"},
+            )
+
+        merchant_headers = request.headers.getall("X-MerchantId", [])
+        secret_headers = request.headers.getall("X-Secret", [])
+        merchant_matches = (
+            len(merchant_headers) == 1
+            and _secure_header_matches(merchant_id, merchant_headers[0])
+        )
+        secret_matches = (
+            len(secret_headers) == 1
+            and _secure_header_matches(secret, secret_headers[0])
+        )
+        if not merchant_matches or not secret_matches:
+            return web.json_response(
+                {"ok": False, "error": "invalid_authentication"}, status=401
+            )
+
+        raw_body = await request.read()
+        if len(raw_body) > PLATEGA_CALLBACK_MAX_BODY_BYTES:
+            return web.json_response(
+                {"ok": False, "error": "payload_too_large"}, status=413
+            )
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return web.json_response(
+                {"ok": False, "error": "invalid_json"}, status=400
+            )
+        if not isinstance(payload, dict):
+            return web.json_response(
+                {"ok": False, "error": "invalid_payload"}, status=400
+            )
+
+        try:
+            await asyncio.to_thread(
+                services.vpn.handle_platega_callback,
+                headers=request.headers,
+                payload=payload,
+            )
+        except VpnPaymentVerificationError:
+            logging.warning("Platega VPN callback rejected")
+            return web.json_response(
+                {"ok": False, "error": "invalid_callback"}, status=400
+            )
+        except BusinessRuleError:
+            # Fulfilment can fail for a temporary business dependency (for
+            # example, no active VPN server). A 5xx keeps Platega retries alive
+            # instead of permanently acknowledging an unfulfilled payment.
+            logging.warning("Platega VPN callback temporarily unavailable")
+            return web.json_response(
+                {"ok": False, "error": "callback_unavailable"},
+                status=503,
+                headers={"Retry-After": "300"},
+            )
+        except Exception:
+            # A 5xx response tells Platega to retry transient API/database
+            # failures. Never include credentials or provider payloads here.
+            logging.exception("Platega VPN callback failed")
+            return web.json_response(
+                {"ok": False, "error": "callback_unavailable"},
+                status=503,
+                headers={"Retry-After": "300"},
+            )
+        return web.json_response({"ok": True})
+
+    app.router.add_post(webhook_path, vpn_platega_webhook)
+    app.router.add_get(return_path, vpn_payment_return)
+    app.router.add_get(failed_path, vpn_payment_failed)
 
 
 def _crypto_webhook_path(settings: Settings) -> str:
@@ -205,6 +343,7 @@ async def run_webhook(
     crypto_webhook_path = _crypto_webhook_path(settings)
     app.router.add_get(yookassa_return_path, payment_return)
     app.router.add_get("/telegram/status", telegram_status)
+    register_vpn_platega_routes(app, settings=settings, services=services)
 
     async def notify_vpn_ready(completion) -> None:
         if vpn_bot is None or completion.operation == "disable":

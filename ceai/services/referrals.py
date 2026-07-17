@@ -148,6 +148,128 @@ class ReferralService:
             amount_kopecks=int(transaction["amount_kopecks"]),
         )
 
+    def credit_for_vpn_payment_in_transaction(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        vpn_payment: Dict[str, Any],
+    ) -> ReferralCreditResult:
+        source = self._vpn_payment_source(vpn_payment)
+        if source is None:
+            return self._empty_credit_result()
+        vpn_payment_id, provider, external_id = source
+        canonical = self.referrals.get_paid_vpn_payment(
+            conn,
+            vpn_payment_id=vpn_payment_id,
+            provider=provider,
+            external_id=external_id,
+        )
+        if canonical is None or canonical.get("currency") != "RUB":
+            return self._empty_credit_result()
+
+        payer = self.users.get_by_id(conn, int(canonical["user_id"]))
+        if payer is None:
+            return self._empty_credit_result()
+        referrer_user_id = payer.get("referred_by_user_id")
+        if not referrer_user_id or int(referrer_user_id) == int(payer["id"]):
+            return self._empty_credit_result()
+
+        amount_kopecks = (
+            int(canonical.get("amount_rub") or 0)
+            * 100
+            * REFERRAL_RATE_PERCENT
+            // 100
+        )
+        if amount_kopecks <= 0:
+            return self._empty_credit_result()
+
+        transaction, created = self.referrals.create_vpn_credit(
+            conn,
+            referrer_user_id=int(referrer_user_id),
+            referred_user_id=int(canonical["user_id"]),
+            vpn_payment_provider=provider,
+            vpn_payment_id=vpn_payment_id,
+            vpn_payment_external_id=external_id,
+            amount_kopecks=amount_kopecks,
+            rate_percent=REFERRAL_RATE_PERCENT,
+            idempotency_key=(
+                f"referral:vpn_payment:{provider}:{vpn_payment_id}:credit"
+            ),
+        )
+        return ReferralCreditResult(
+            transaction=transaction,
+            created=created,
+            amount_kopecks=int(transaction["amount_kopecks"]),
+        )
+
+    def reverse_vpn_payment_referral_in_transaction(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        vpn_payment: Dict[str, Any],
+    ) -> ReferralCreditResult:
+        source = self._vpn_payment_source(vpn_payment)
+        if source is None:
+            return self._empty_credit_result()
+        vpn_payment_id, provider, external_id = source
+        canonical = self.referrals.get_refunded_vpn_payment(
+            conn,
+            vpn_payment_id=vpn_payment_id,
+            provider=provider,
+            external_id=external_id,
+        )
+        if canonical is None:
+            return self._empty_credit_result()
+
+        credit = self.referrals.get_vpn_source_transaction(
+            conn,
+            vpn_payment_provider=provider,
+            vpn_payment_id=vpn_payment_id,
+            transaction_type="credit",
+        )
+        if credit is None:
+            return self._empty_credit_result()
+        transaction, created = self.referrals.create_vpn_chargeback_adjustment(
+            conn,
+            credit_transaction=credit,
+            idempotency_key=(
+                f"referral:vpn_payment:{provider}:{vpn_payment_id}:chargeback"
+            ),
+        )
+        return ReferralCreditResult(
+            transaction=transaction,
+            created=created,
+            amount_kopecks=int(transaction["amount_kopecks"]),
+        )
+
+    @staticmethod
+    def _vpn_payment_source(
+        vpn_payment: Dict[str, Any],
+    ) -> tuple[int, str, str] | None:
+        try:
+            vpn_payment_id = int(vpn_payment["id"])
+        except (KeyError, TypeError, ValueError):
+            return None
+        raw_provider = vpn_payment.get("provider")
+        raw_external_id = vpn_payment.get("external_id")
+        if not isinstance(raw_provider, str) or not isinstance(
+            raw_external_id, str
+        ):
+            return None
+        provider = raw_provider.strip().lower()
+        external_id = raw_external_id.strip()
+        if vpn_payment_id <= 0 or not provider or not external_id:
+            return None
+        return vpn_payment_id, provider, external_id
+
+    @staticmethod
+    def _empty_credit_result() -> ReferralCreditResult:
+        return ReferralCreditResult(
+            transaction=None,
+            created=False,
+            amount_kopecks=0,
+        )
+
     def stats(self, user_id: int) -> ReferralStats:
         with self.db.transaction() as conn:
             settings = self.referrals.get_payout_settings(conn, user_id) or {}

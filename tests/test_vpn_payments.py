@@ -12,7 +12,7 @@ from ceai.repositories.vpn_servers import VpnServerRepository
 from ceai.services.exceptions import BusinessRuleError
 from ceai.services.users import UserService
 from ceai.services.vpn import VpnService
-from ceai.time_utils import parse_iso
+from ceai.time_utils import parse_iso, utcnow
 from ceai.vpn_bot.handlers import _admin_demo_authorized, _payment_callback_id
 
 
@@ -36,7 +36,8 @@ class VpnPaymentTest(unittest.TestCase):
             language_code="ru",
         )
         with self.db.transaction() as conn:
-            VpnServerRepository().upsert(
+            servers = VpnServerRepository()
+            server = servers.upsert(
                 conn,
                 code="nl-1",
                 name="Amsterdam 1",
@@ -45,6 +46,11 @@ class VpnPaymentTest(unittest.TestCase):
                 api_base_url="http://127.0.0.1:8000",
                 worker_id="worker-nl1",
                 subscription_base_url="https://sub.example.test:8443",
+            )
+            servers.mark_healthy(
+                conn,
+                server_id=int(server["id"]),
+                checked_at=utcnow().isoformat(),
             )
             VpnPlanRepository().upsert(
                 conn,
@@ -102,6 +108,7 @@ class VpnPaymentTest(unittest.TestCase):
         job = self.vpn.claim_worker_job(
             worker_id="worker-nl1",
             lease_seconds=60,
+            control_plane_ready=True,
         )
         self.assertIsNotNone(job)
         assert job is not None
