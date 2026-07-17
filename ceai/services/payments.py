@@ -24,6 +24,14 @@ from ceai.repositories.subscriptions import SubscriptionRepository
 from ceai.repositories.webhooks import WebhookLogRepository
 from ceai.services.coins import CoinService
 from ceai.services.exceptions import BusinessRuleError, NotFoundError
+from ceai.services.platega import (
+    PLATEGA_CANCELED,
+    PLATEGA_CHARGEBACKED,
+    PLATEGA_CONFIRMED,
+    PlategaClient,
+    PlategaError,
+    PlategaTransaction,
+)
 from ceai.services.referrals import ReferralService
 from ceai.time_utils import utcnow
 
@@ -45,6 +53,7 @@ CRYPTO_PAY_PROVIDER = "crypto_pay"
 CRYPTO_PAY_METHODS = {"crypto", "crypto_pay", "usdt_trc20"}
 TELEGRAM_STARS_PROVIDER = "telegram_stars"
 TELEGRAM_STARS_METHODS = {"telegram_stars", "stars"}
+PLATEGA_PROVIDER = "platega"
 
 
 @dataclass(frozen=True)
@@ -71,6 +80,13 @@ class PaymentService:
         yookassa_api_base_url: str = "https://api.yookassa.ru/v3",
         yookassa_return_path: str = "/payments/yookassa/return",
         yookassa_request_timeout_seconds: int = 15,
+        platega_merchant_id: str = "",
+        platega_secret: str = "",
+        platega_api_base_url: str = "https://app.platega.io",
+        platega_return_path: str = "/payments/platega/return",
+        platega_failed_path: str = "/payments/platega/failed",
+        platega_request_timeout_seconds: int = 30,
+        platega_client: PlategaClient | None = None,
         crypto_pay_token: str = "",
         crypto_pay_api_base_url: str = "https://testnet-pay.crypt.bot/api",
         crypto_pay_webhook_secret: str = "",
@@ -91,6 +107,21 @@ class PaymentService:
             YOOKASSA_MIN_TIMEOUT_SECONDS,
             yookassa_request_timeout_seconds,
         )
+        self.platega_return_path = platega_return_path
+        self.platega_failed_path = platega_failed_path
+        self.platega_client = platega_client
+        if (
+            self.platega_client is None
+            and self.payment_provider == PLATEGA_PROVIDER
+            and platega_merchant_id
+            and platega_secret
+        ):
+            self.platega_client = PlategaClient(
+                platega_merchant_id,
+                platega_secret,
+                api_base_url=platega_api_base_url,
+                timeout_seconds=platega_request_timeout_seconds,
+            )
         self.crypto_pay_token = crypto_pay_token.strip()
         self.crypto_pay_api_base_url = self._normalize_crypto_pay_api_base(
             crypto_pay_api_base_url
@@ -124,6 +155,11 @@ class PaymentService:
                 plan_code=plan_code,
                 payment_method=normalized_method,
             )
+        if (
+            normalized_method in YOOKASSA_METHODS
+            and self.payment_provider == PLATEGA_PROVIDER
+        ):
+            return self.create_platega_payment(user_id=user_id, plan_code=plan_code)
         if normalized_method in YOOKASSA_METHODS:
             return self.create_yookassa_payment(user_id=user_id, plan_code=plan_code)
         if self.payment_provider == CRYPTO_PAY_PROVIDER:
@@ -140,6 +176,8 @@ class PaymentService:
             )
         if self.payment_provider == YOOKASSA_PROVIDER:
             return self.create_yookassa_payment(user_id=user_id, plan_code=plan_code)
+        if self.payment_provider == PLATEGA_PROVIDER:
+            return self.create_platega_payment(user_id=user_id, plan_code=plan_code)
         return self.create_mock_payment(
             user_id=user_id,
             plan_code=plan_code,
@@ -325,6 +363,50 @@ class PaymentService:
                     "idempotence_key": idempotence_key,
                     "return_url": return_url,
                     "response": response,
+                },
+            )
+
+    def create_platega_payment(
+        self, *, user_id: int, plan_code: str
+    ) -> Dict[str, Any]:
+        client = self._require_platega()
+        if not self.app_base_url:
+            raise BusinessRuleError(
+                "Platega не настроена: нужен APP_BASE_URL с публичным адресом бота."
+            )
+
+        with self.db.transaction() as conn:
+            plan = self.plans.get_by_code(conn, plan_code)
+            if plan is None or not plan["is_active"]:
+                raise NotFoundError("Тариф не найден")
+
+        try:
+            remote = client.create_payment(
+                amount_rub=int(plan["price_rub"]),
+                description=self._payment_description(plan),
+                return_url=self._public_url(self.platega_return_path),
+                failed_url=self._public_url(self.platega_failed_path),
+                payload=f"ceaai:{user_id}:{plan['code']}:{uuid.uuid4().hex}",
+                user_id=user_id,
+            )
+        except PlategaError as exc:
+            raise BusinessRuleError(
+                "Платёжный сервис сейчас недоступен. Попробуйте ещё раз через минуту."
+            ) from exc
+
+        with self.db.transaction() as conn:
+            return self.payments.create_pending(
+                conn,
+                user_id=user_id,
+                plan_id=plan["id"],
+                amount_rub=int(plan["price_rub"]),
+                external_id=remote.transaction_id,
+                payment_url=remote.payment_url,
+                provider=PLATEGA_PROVIDER,
+                meta={
+                    "kind": "platega_payment",
+                    "status": remote.status,
+                    "expires_in": remote.expires_in,
                 },
             )
 
@@ -653,6 +735,94 @@ class PaymentService:
                 "invoice": invoice,
             },
         )
+
+    def process_platega_webhook(
+        self, *, headers: Any, payload: Dict[str, Any]
+    ) -> PaymentWebhookResult:
+        client = self._require_platega()
+        client.authenticate_callback(headers)
+
+        external_id = str(payload.get("id") or "").strip()
+        if not external_id:
+            raise BusinessRuleError("Некорректный webhook Platega: нет id.")
+        remote = client.get_transaction(external_id)
+
+        self._validate_platega_transaction(remote)
+        event_type = f"transaction.{remote.status.lower()}"
+        verified_payload = {
+            "callback": payload,
+            "verified_transaction": {
+                "id": remote.transaction_id,
+                "status": remote.status,
+                "amount": remote.amount_rub,
+                "currency": remote.currency,
+                "payment_method": remote.payment_method,
+            },
+        }
+        webhook, should_process, duplicate = self._reserve_webhook(
+            provider=PLATEGA_PROVIDER,
+            external_id=remote.transaction_id,
+            event_type=event_type,
+            payload=verified_payload,
+        )
+        if not should_process:
+            return PaymentWebhookResult(
+                processed=False,
+                duplicate=duplicate,
+                payment=None,
+                subscription=None,
+                credited_coins=0,
+                message="Webhook already processed or received",
+            )
+
+        webhook_id = int(webhook["id"])
+        if remote.status == PLATEGA_CONFIRMED:
+            return self._process_successful_payment(
+                provider=PLATEGA_PROVIDER,
+                external_id=remote.transaction_id,
+                webhook_id=webhook_id,
+                payload=verified_payload,
+            )
+        if remote.status in {PLATEGA_CANCELED, PLATEGA_CHARGEBACKED}:
+            return self._process_canceled_payment(
+                provider=PLATEGA_PROVIDER,
+                external_id=remote.transaction_id,
+                webhook_id=webhook_id,
+                payload=verified_payload,
+            )
+
+        self._mark_webhook(
+            webhook_id=webhook_id,
+            status="ignored",
+            error_message=f"Platega status is {remote.status}",
+        )
+        return PaymentWebhookResult(
+            processed=False,
+            duplicate=False,
+            payment=None,
+            subscription=None,
+            credited_coins=0,
+            message=f"Platega payment is {remote.status}",
+        )
+
+    def _validate_platega_transaction(self, remote: PlategaTransaction) -> None:
+        with self.db.transaction() as conn:
+            payment = self.payments.get_by_external_id(
+                conn, PLATEGA_PROVIDER, remote.transaction_id
+            )
+        if payment is None:
+            raise NotFoundError("Платеж Platega не найден")
+        if remote.currency != "RUB" or remote.amount_rub != int(payment["amount_rub"]):
+            raise BusinessRuleError(
+                "Сумма или валюта платежа Platega не совпадает."
+            )
+
+    def _require_platega(self) -> PlategaClient:
+        if self.platega_client is None:
+            raise BusinessRuleError(
+                "Platega не настроена: нужны PLATEGA_MERCHANT_ID и PLATEGA_SECRET."
+            )
+        return self.platega_client
 
     def validate_telegram_stars_pre_checkout(
         self, *, invoice_payload: str, currency: str, total_amount: int

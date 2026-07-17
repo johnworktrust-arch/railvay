@@ -117,6 +117,13 @@ class Settings:
     yookassa_webhook_path: str = "/payments/yookassa/webhook"
     yookassa_return_path: str = "/payments/yookassa/return"
     yookassa_request_timeout_seconds: int = 15
+    platega_merchant_id: str = ""
+    platega_secret: str = ""
+    platega_api_base_url: str = "https://app.platega.io"
+    platega_webhook_path: str = "/payments/platega/webhook"
+    platega_return_path: str = "/payments/platega/return"
+    platega_failed_path: str = "/payments/platega/failed"
+    platega_request_timeout_seconds: int = 30
     crypto_pay_token: str = ""
     crypto_pay_api_base_url: str = "https://testnet-pay.crypt.bot/api"
     crypto_pay_webhook_secret: str = ""
@@ -280,6 +287,23 @@ def load_settings() -> Settings:
         ),
         yookassa_request_timeout_seconds=read_int(
             "YOOKASSA_REQUEST_TIMEOUT_SECONDS", 15
+        ),
+        platega_merchant_id=read("PLATEGA_MERCHANT_ID").strip(),
+        platega_secret=read("PLATEGA_SECRET"),
+        platega_api_base_url=_normalize_base_url(
+            read("PLATEGA_API_BASE_URL", "https://app.platega.io")
+        ),
+        platega_webhook_path=read(
+            "PLATEGA_WEBHOOK_PATH", "/payments/platega/webhook"
+        ),
+        platega_return_path=read(
+            "PLATEGA_RETURN_PATH", "/payments/platega/return"
+        ),
+        platega_failed_path=read(
+            "PLATEGA_FAILED_PATH", "/payments/platega/failed"
+        ),
+        platega_request_timeout_seconds=read_int(
+            "PLATEGA_REQUEST_TIMEOUT_SECONDS", 30
         ),
         crypto_pay_token=read("CRYPTO_PAY_TOKEN"),
         crypto_pay_api_base_url=read(

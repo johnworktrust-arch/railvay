@@ -58,6 +58,30 @@ python -m ceai.main
 
 При старте бот также автоматически применяет миграции и seed-данные.
 
+### Оплата Cea AI через Platega
+
+Для оплаты тарифов основного AI-бота картой и через СБП задайте:
+
+```env
+PAYMENT_PROVIDER=platega
+PLATEGA_MERCHANT_ID=merchant-id-from-platega
+PLATEGA_SECRET=api-key-from-platega
+PLATEGA_API_BASE_URL=https://app.platega.io
+PLATEGA_WEBHOOK_PATH=/payments/platega/webhook
+PLATEGA_RETURN_PATH=/payments/platega/return
+PLATEGA_FAILED_PATH=/payments/platega/failed
+```
+
+Callback в кабинете Platega:
+
+```text
+https://your-service.up.railway.app/payments/platega/webhook
+```
+
+Тариф и коины начисляются только после callback, дополнительно проверенного
+через API Platega по ID, сумме, валюте и подтверждённому статусу. Повторный
+callback не начисляет коины второй раз.
+
 ### Деплой на Railway
 
 Railway использует `Dockerfile` и `railway.json`. В проде бот работает через Telegram webhook, поэтому у сервиса должен быть публичный домен.
@@ -113,12 +137,9 @@ TELEGRAM_BOT_TOKEN=your-botfather-token
 DATABASE_URL=postgresql://user:password@host:5432/dbname
 APP_ENV=production
 MOCK_PAYMENT_BASE_URL=https://mock-payments.local/pay
-PAYMENT_PROVIDER=yookassa
-YOOKASSA_SHOP_ID=your-yookassa-shop-id
-YOOKASSA_SECRET_KEY=your-yookassa-secret-key
-YOOKASSA_API_BASE_URL=https://api.yookassa.ru/v3
-YOOKASSA_WEBHOOK_PATH=/payments/yookassa/webhook
-YOOKASSA_RETURN_PATH=/payments/yookassa/return
+PAYMENT_PROVIDER=platega
+PLATEGA_MERCHANT_ID=your-platega-merchant-id
+PLATEGA_SECRET=your-platega-api-key
 TELEGRAM_STARS_AMOUNT=0
 AI_PROVIDER_MODE=auto
 DEEPSEEK_API_KEY=your-deepseek-api-key

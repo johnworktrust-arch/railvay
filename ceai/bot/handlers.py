@@ -795,6 +795,25 @@ def _format_yookassa_payment_screen(
     )
 
 
+def _format_platega_payment_screen(
+    plan: Dict[str, Any], *, public_offer_url: str
+) -> str:
+    price = int(plan.get("price_rub") or 0)
+    coins = int(plan.get("coins_amount") or 0)
+    duration_days = int(plan.get("duration_days") or 30)
+    offer_url = public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
+    return (
+        f"💳 Стоимость выбранного тарифа — {price} ₽.\n\n"
+        f"После оплаты вы получите {format_coin_amount(coins)}. "
+        f"Доступ к тарифу действует {duration_days} дней.\n\n"
+        "Проверка платежа происходит автоматически. "
+        "Коины начислятся сразу после подтверждения оплаты.\n\n"
+        "Нажимая «Оплатить», вы подтверждаете согласие с условиями "
+        "обработки данных и пользовательским соглашением.\n\n"
+        f"Пользовательское соглашение: {offer_url}"
+    )
+
+
 def _subscription_required_message() -> str:
     return "Нужна активная подписка. Откройте тарифы и выберите подписку."
 
@@ -3027,6 +3046,11 @@ def create_router(services: AppServices) -> Router:
             )
         elif payment["provider"] == "yookassa" and selected_plan is not None:
             payment_text = _format_yookassa_payment_screen(
+                selected_plan,
+                public_offer_url=services.settings.public_offer_url,
+            )
+        elif payment["provider"] == "platega" and selected_plan is not None:
+            payment_text = _format_platega_payment_screen(
                 selected_plan,
                 public_offer_url=services.settings.public_offer_url,
             )

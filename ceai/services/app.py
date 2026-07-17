@@ -52,6 +52,14 @@ def build_services(db: Database, settings: Settings) -> AppServices:
             yookassa_request_timeout_seconds=(
                 settings.yookassa_request_timeout_seconds
             ),
+            platega_merchant_id=settings.platega_merchant_id,
+            platega_secret=settings.platega_secret,
+            platega_api_base_url=settings.platega_api_base_url,
+            platega_return_path=settings.platega_return_path,
+            platega_failed_path=settings.platega_failed_path,
+            platega_request_timeout_seconds=(
+                settings.platega_request_timeout_seconds
+            ),
             crypto_pay_token=settings.crypto_pay_token,
             crypto_pay_api_base_url=settings.crypto_pay_api_base_url,
             crypto_pay_webhook_secret=settings.crypto_pay_webhook_secret,

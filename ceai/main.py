@@ -28,7 +28,8 @@ from ceai.runtime_diagnostics import (
 )
 from ceai.seed import seed_reference_data
 from ceai.services.app import AppServices, build_services
-from ceai.services.exceptions import BusinessRuleError
+from ceai.services.exceptions import BusinessRuleError, NotFoundError
+from ceai.services.platega import PlategaCallbackAuthenticationError
 from ceai.services.vpn import VpnPaymentVerificationError
 from ceai.bot.handlers import create_router
 from ceai.vpn_bot.handlers import (
@@ -96,6 +97,9 @@ async def payment_return(request: web.Request) -> web.Response:
 async def auto_renewal_loop(services: AppServices) -> None:
     interval_seconds = int(os.getenv("AUTO_RENEWAL_INTERVAL_SECONDS", "900"))
     while True:
+        if services.settings.payment_provider != "yookassa":
+            await asyncio.sleep(max(60, interval_seconds))
+            continue
         try:
             results = await asyncio.to_thread(
                 services.payments.process_due_auto_renewals
@@ -150,6 +154,79 @@ async def vpn_payment_return(request: web.Request) -> web.Response:
 async def vpn_payment_failed(request: web.Request) -> web.Response:
     # A failed browser redirect is not authoritative payment state either.
     raise web.HTTPFound(location=_vpn_bot_url(request.app["settings"]))
+
+
+async def platega_payment_failed(request: web.Request) -> web.Response:
+    raise web.HTTPFound(location="https://t.me/aiceabot")
+
+
+def register_platega_routes(
+    app: web.Application,
+    *,
+    settings: Settings,
+    services: AppServices,
+    bot: Bot,
+) -> None:
+    webhook_path = _normalize_path(settings.platega_webhook_path)
+    return_path = _normalize_path(settings.platega_return_path)
+    failed_path = _normalize_path(settings.platega_failed_path)
+
+    async def platega_webhook(request: web.Request) -> web.Response:
+        content_length = request.content_length
+        if content_length is not None and content_length > PLATEGA_CALLBACK_MAX_BODY_BYTES:
+            return web.json_response(
+                {"ok": False, "error": "payload_too_large"}, status=413
+            )
+        raw_body = await request.read()
+        if len(raw_body) > PLATEGA_CALLBACK_MAX_BODY_BYTES:
+            return web.json_response(
+                {"ok": False, "error": "payload_too_large"}, status=413
+            )
+        try:
+            payload = json.loads(raw_body.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            return web.json_response(
+                {"ok": False, "error": "invalid_json"}, status=400
+            )
+        if not isinstance(payload, dict):
+            return web.json_response(
+                {"ok": False, "error": "invalid_payload"}, status=400
+            )
+        try:
+            result = await asyncio.to_thread(
+                services.payments.process_platega_webhook,
+                headers=request.headers,
+                payload=payload,
+            )
+        except PlategaCallbackAuthenticationError:
+            return web.json_response(
+                {"ok": False, "error": "invalid_authentication"}, status=401
+            )
+        except (BusinessRuleError, NotFoundError) as exc:
+            logging.warning("Platega webhook rejected: %s", exc)
+            return web.json_response(
+                {"ok": False, "error": "invalid_callback"}, status=400
+            )
+        except Exception:
+            logging.exception("Platega webhook failed")
+            return web.json_response(
+                {"ok": False, "error": "callback_unavailable"},
+                status=503,
+                headers={"Retry-After": "300"},
+            )
+        await notify_payment_result(bot=bot, services=services, result=result)
+        return web.json_response(
+            {
+                "ok": True,
+                "processed": result.processed,
+                "duplicate": result.duplicate,
+                "credited_coins": result.credited_coins,
+            }
+        )
+
+    app.router.add_post(webhook_path, platega_webhook)
+    app.router.add_get(return_path, payment_return)
+    app.router.add_get(failed_path, platega_payment_failed)
 
 
 def _secure_header_matches(expected: str, received: str) -> bool:
@@ -343,6 +420,7 @@ async def run_webhook(
     crypto_webhook_path = _crypto_webhook_path(settings)
     app.router.add_get(yookassa_return_path, payment_return)
     app.router.add_get("/telegram/status", telegram_status)
+    register_platega_routes(app, settings=settings, services=services, bot=bot)
     register_vpn_platega_routes(app, settings=settings, services=services)
 
     async def notify_vpn_ready(completion) -> None:
