@@ -46,7 +46,8 @@ class VpnNginxConfigTest(unittest.TestCase):
             'add_header X-Robots-Tag "noindex, nofollow, noarchive" always;',
             v2box_bridge,
         )
-        self.assertNotIn("add_header routing", config)
+        self.assertIn('add_header routing-enable "0" always;', config)
+        self.assertNotIn('add_header routing "', config)
         self.assertNotIn("happ://routing/off", config)
         self.assertNotIn("happ://routing/onadd/", config)
 
