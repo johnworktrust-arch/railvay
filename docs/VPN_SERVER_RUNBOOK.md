@@ -350,14 +350,52 @@ sudo ss -lntp
 
 `127.0.0.1:8000` должен слушаться локально; `0.0.0.0:8000` — стоп-условие.
 
-Создать двух разных администраторов. Человеческий sudo-admin используется только
-через SSH tunnel; Railway получает отдельного non-sudo admin, который владеет
-только пользователями бота.
+Создать три разные учётные записи. Человеческий sudo-admin используется
+только через SSH tunnel; worker получает отдельного non-sudo admin,
+который владеет только пользователями бота; отдельный sudo-admin нужен
+только root-скрипту Host Settings, так как Marzban v0.8.4 не имеет
+более узкой роли для `/api/hosts`.
 
 ```bash
 sudo marzban cli admin create -u cea-human-admin --sudo
 sudo marzban cli admin create -u cea-railway-bot --no-sudo
 ```
+
+Перед созданием технического sudo-admin убедиться, что запущен
+зафиксированный в `deploy/vpn/docker-compose.yml` image Marzban v0.8.4,
+а не `latest`. Команда `admin create` ниже — точный контракт CLI v0.8.4:
+пароль передаётся через `MARZBAN_ADMIN_PASSWORD`, а `-tg 0 -dc 0`
+отключают интерактивные запросы Telegram ID и Discord webhook. Случайный
+пароль не выводится в терминал и тот же value атомарно попадает
+в отдельный credentials-файл:
+
+```bash
+sudo -i
+set -euo pipefail
+umask 077
+expected_image='ghcr.io/gozargah/marzban@sha256:8e422c21997e5d2e3fa231eeff73c0a19193c20fc02fa4958e9368abb9623b8d'
+actual_image="$(docker inspect --format '{{.Config.Image}}' ceavpn-marzban)"
+[[ "$actual_image" == "$expected_image" ]]
+[[ ! -e /root/ceavpn-sudo-admin.env ]]
+MARZBAN_SUDO_PASSWORD="$(openssl rand -base64 48 | tr -d '\n')"
+export MARZBAN_ADMIN_PASSWORD="$MARZBAN_SUDO_PASSWORD"
+marzban cli admin create -u cea-hosts-admin --sudo -tg 0 -dc 0
+unset MARZBAN_ADMIN_PASSWORD
+credentials_tmp="$(mktemp /root/ceavpn-sudo-admin.env.new.XXXXXX)"
+trap 'rm -f -- "$credentials_tmp"' EXIT
+printf 'MARZBAN_SUDO_USERNAME=%q\nMARZBAN_SUDO_PASSWORD=%q\n' \
+  'cea-hosts-admin' "$MARZBAN_SUDO_PASSWORD" \
+  > "$credentials_tmp"
+chmod 0600 "$credentials_tmp"
+mv "$credentials_tmp" /root/ceavpn-sudo-admin.env
+trap - EXIT
+unset MARZBAN_SUDO_PASSWORD expected_image actual_image credentials_tmp
+exit
+```
+
+`/root/ceavpn-sudo-admin.env` не должен попадать в
+`/root/ceavpn-admin.env`, `/etc/ceavpn/worker.env`, Railway, backup логов
+или shell history. Worker всегда остаётся на `cea-railway-bot --no-sudo`.
 
 Не задавать `SUDO_USERNAME`/`SUDO_PASSWORD` в `.env`: официальная документация
 рекомендует CLI. Для панели:
@@ -376,12 +414,31 @@ ssh -L 8000:127.0.0.1:8000 ceaops@VPS_IPV4
 ```bash
 sudo cp -a /var/lib/marzban/xray_config.json \
   "/var/lib/marzban/xray_config.json.before-reality.$(date -u +%Y%m%dT%H%M%SZ)"
-cd /opt/marzban
-sudo docker compose exec marzban xray x25519
-openssl rand -hex 8
+sudo bash -c '
+set -euo pipefail
+umask 077
+[[ ! -e /root/ceavpn-reality-keys.txt ]] || {
+  echo "Reality key file already exists; refusing to rotate it" >&2
+  exit 1
+}
+tmp="$(mktemp /root/ceavpn-reality-keys.txt.new.XXXXXX)"
+trap '\''rm -f -- "$tmp"'\'' EXIT
+docker compose -f /opt/marzban/docker-compose.yml exec -T marzban \
+  xray x25519 >"$tmp"
+grep -q "^Private key:[[:space:]]*[^[:space:]]" "$tmp"
+grep -q "^Public key:[[:space:]]*[^[:space:]]" "$tmp"
+chmod 0600 "$tmp"
+mv "$tmp" /root/ceavpn-reality-keys.txt
+trap - EXIT
+'
 ```
 
-В Core Settings создать единственный inbound `VLESS_REALITY_443`:
+Команда не выводит Reality private key в терминал и атомарно
+создаёт `/root/ceavpn-reality-keys.txt` с mode `0600`. Не вставлять
+содержимое этого файла в чат, shell history или issue tracker.
+
+Основной inbound в проверенном шаблоне имеет точный tag
+`VLESS TCP REALITY`:
 
 - listen `0.0.0.0`, TCP port `443`;
 - protocol `vless`, `decryption: none`;
@@ -416,6 +473,61 @@ sudo marzban logs
 В Host Settings указать address `vpn1.example.com`, port `443`, SNI
 `cover-vpn1.example.com`, fingerprint `chrome` и правильный Reality public key.
 Не публиковать AAAA до отдельного IPv6-теста.
+
+### 8.1. TLS WebSocket fallback на существующем `8443`
+
+Резервный transport не требует нового публичного порта. В Xray используется
+inbound с точным tag `VLESS WS TLS FALLBACK`, который слушает только
+`127.0.0.1:10001`. Активный Nginx listener подписок на `8443` проксирует только
+один exact секретный path на этот loopback. Не открывать `10001` в UFW/Aéza и
+не создавать отдельный listener `2053`.
+В Xray этот inbound стоит первым: Marzban v0.8.4 сортирует URI по
+порядку Xray config, поэтому Happ первым импортирует рабочий TLS/WS URI.
+
+`deploy/vpn/apply-reality-config.sh` совместно рендерит Xray и Nginx templates.
+При первом запуске он атомарно создаёт root-only
+`/root/ceavpn-fallback.env`, затем проверяет JSON, запускает `xray run -test`,
+проверяет candidate и активную конфигурацию через `nginx -t`, сохраняет backup
+обоих файлов и только после этого перезапускает Marzban и reload Nginx. Default
+активного Nginx-файла для первого узла — `/etc/nginx/sites-enabled/ceavpn`.
+Секретный path не выводится.
+
+Перед отдельным окном изменений скопировать именно проверенные файлы из этого
+репозитория, не скачивая шаблоны со стороннего URL:
+
+```bash
+install -o root -g root -m 0644 deploy/vpn/xray_config.json \
+  /opt/marzban/xray_config.template.json
+install -o root -g root -m 0644 deploy/vpn/nginx.conf \
+  /opt/marzban/nginx.template.conf
+install -o root -g root -m 0755 deploy/vpn/apply-reality-config.sh \
+  /opt/ceavpn/apply-reality-config.sh
+install -o root -g root -m 0755 deploy/vpn/configure-marzban-hosts.sh \
+  /opt/ceavpn/configure-marzban-hosts.sh
+/opt/ceavpn/apply-reality-config.sh
+```
+
+После успешного применения выполнить от root:
+
+```bash
+/opt/ceavpn/configure-marzban-hosts.sh
+```
+
+Скрипт использует только sudo-admin credentials из
+`/root/ceavpn-sudo-admin.env`; worker этот файл не читает. Скрипт читает
+текущее состояние `GET /api/hosts` и одним partial `PUT /api/hosts` обновляет
+только два tag:
+
+| Inbound tag | Address | Public port | SNI / Host | Security |
+|---|---|---:|---|---|
+| `VLESS WS TLS FALLBACK` | `sub.79-137-197-51.sslip.io` | `8443` | `sub.79-137-197-51.sslip.io` | TLS, `http/1.1` |
+| `VLESS TCP REALITY` | `79.137.197.51` | `443` | `cover.79-137-197-51.sslip.io` | inbound default / REALITY |
+
+Fallback path берётся из root-only env и не должен попадать в команды, вывод
+API или логи. Скрипт проверяет, что Host Settings всех остальных inbound tag
+сохранились, а при ошибке пытается вернуть исходные настройки двух управляемых
+tag. Provisioning worker должен назначать пользователю оба точных tag; иначе
+в subscription не появится второй URI.
 
 Создать одноразового smoke-user с лимитом 100 МБ и сроком 24 часа. Проверить
 подключение с домашней сети и мобильного интернета, DNS/IP leak, остановку после

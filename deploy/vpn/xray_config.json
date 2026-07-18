@@ -19,6 +19,28 @@
   },
   "inbounds": [
     {
+      "tag": "VLESS WS TLS FALLBACK",
+      "listen": "127.0.0.1",
+      "port": 10001,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "none",
+        "wsSettings": {
+          "path": "__FALLBACK_WS_PATH__"
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
+      }
+    },
+    {
       "tag": "VLESS TCP REALITY",
       "listen": "0.0.0.0",
       "port": 443,

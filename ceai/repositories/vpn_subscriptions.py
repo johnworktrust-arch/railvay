@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 from typing import Any, Dict, List
 
@@ -263,6 +264,47 @@ class VpnSubscriptionRepository:
                 LIMIT ?
                 """,
                 (due_at or iso_now(), limit),
+            ).fetchall()
+        )
+
+    def list_active_requiring_profile_update(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        server_id: int,
+        profile_version: str,
+        active_at: str | None = None,
+        limit: int = 1,
+    ) -> List[Dict[str, Any]]:
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", profile_version):
+            raise ValueError("invalid VPN profile version")
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero")
+        idempotency_prefix = f"vpn:profile:{profile_version}:"
+        return rows_to_dicts(
+            conn.execute(
+                """
+                SELECT s.*
+                FROM vpn_subscriptions s
+                WHERE s.server_id = ?
+                  AND s.status = 'active'
+                  AND s.ends_at > ?
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM vpn_provisioning_jobs job
+                      WHERE job.subscription_id = s.id
+                        AND job.idempotency_key =
+                            ? || CAST(s.id AS TEXT)
+                  )
+                ORDER BY s.id ASC
+                LIMIT ?
+                """,
+                (
+                    server_id,
+                    active_at or iso_now(),
+                    idempotency_prefix,
+                    limit,
+                ),
             ).fetchall()
         )
 

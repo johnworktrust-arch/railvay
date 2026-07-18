@@ -1,11 +1,27 @@
 from __future__ import annotations
 
+import json
 import re
 import unittest
 from pathlib import Path
 
 
 class VpnNginxConfigTest(unittest.TestCase):
+    def test_ws_tls_profile_precedes_reality_in_xray_config(self) -> None:
+        config = json.loads(
+            (
+                Path(__file__).resolve().parents[1]
+                / "deploy"
+                / "vpn"
+                / "xray_config.json"
+            ).read_text(encoding="utf-8")
+        )
+
+        self.assertEqual(
+            [inbound["tag"] for inbound in config["inbounds"]],
+            ["VLESS WS TLS FALLBACK", "VLESS TCP REALITY"],
+        )
+
     def test_browser_requests_still_receive_a_raw_happ_subscription(self) -> None:
         config = (
             Path(__file__).resolve().parents[1] / "deploy" / "vpn" / "nginx.conf"

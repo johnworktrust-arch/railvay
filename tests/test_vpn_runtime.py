@@ -82,7 +82,12 @@ class VpnRuntimeTest(unittest.TestCase):
         self.assertEqual(job["operation"], "create")
         self.assertEqual(
             job["marzban_user"]["inbounds"],
-            {"vless": ["VLESS TCP REALITY"]},
+            {
+                "vless": [
+                    "VLESS TCP REALITY",
+                    "VLESS WS TLS FALLBACK",
+                ]
+            },
         )
 
         completion = self.vpn.complete_worker_job(
@@ -104,6 +109,232 @@ class VpnRuntimeTest(unittest.TestCase):
                 (int(self.user["id"]),),
             ).fetchone()
         self.assertEqual(claim["status"], "provisioned")
+
+    def test_worker_converges_existing_active_subscription_to_profile_v2(self) -> None:
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        create = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        assert create is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(create["job_id"]),
+            lease_token=str(create["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/profile-v2",
+        )
+
+        migration = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+            worker_inbound_tags=[
+                "VLESS TCP REALITY",
+                "VLESS WS TLS FALLBACK",
+            ],
+        )
+        self.assertIsNotNone(migration)
+        assert migration is not None
+        self.assertEqual(migration["operation"], "update")
+        self.assertEqual(
+            migration["marzban_user"]["inbounds"],
+            {
+                "vless": [
+                    "VLESS TCP REALITY",
+                    "VLESS WS TLS FALLBACK",
+                ]
+            },
+        )
+
+        completion = self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(migration["job_id"]),
+            lease_token=str(migration["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/profile-v2",
+        )
+        self.assertEqual(completion.subscription["subscription_url"], "")
+        stored = self.vpn.get_current_subscription(int(self.user["id"]))
+        assert stored is not None
+        self.assertEqual(
+            stored["subscription_url"],
+            "https://sub.example.test:8443/sub/profile-v2",
+        )
+
+        self.assertIsNone(
+            self.vpn.claim_worker_job(
+                worker_id="worker-nl1",
+                lease_seconds=60,
+                control_plane_ready=True,
+                worker_inbound_tags=[
+                    "VLESS TCP REALITY",
+                    "VLESS WS TLS FALLBACK",
+                ],
+            )
+        )
+        with self.db.transaction() as conn:
+            profile_jobs = conn.execute(
+                """
+                SELECT operation, status, idempotency_key
+                FROM vpn_provisioning_jobs
+                WHERE subscription_id = ?
+                  AND idempotency_key LIKE 'vpn:profile:%'
+                """,
+                (int(trial.subscription["id"]),),
+            ).fetchall()
+        self.assertEqual(
+            [
+                (row["operation"], row["status"], row["idempotency_key"])
+                for row in profile_jobs
+            ],
+            [
+                (
+                    "update",
+                    "completed",
+                    f"vpn:profile:v2:{trial.subscription['id']}",
+                )
+            ],
+        )
+
+    def test_legacy_worker_neither_creates_nor_claims_profile_v2_job(self) -> None:
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        create = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        assert create is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(create["job_id"]),
+            lease_token=str(create["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/legacy",
+        )
+
+        self.assertIsNone(
+            self.vpn.claim_worker_job(
+                worker_id="worker-nl1",
+                lease_seconds=60,
+                control_plane_ready=True,
+            )
+        )
+        with self.db.transaction() as conn:
+            profile_key = f"vpn:profile:v2:{trial.subscription['id']}"
+            self.assertIsNone(
+                conn.execute(
+                    """
+                    SELECT id FROM vpn_provisioning_jobs
+                    WHERE idempotency_key = ?
+                    """,
+                    (profile_key,),
+                ).fetchone()
+            )
+            self.vpn.jobs.enqueue(
+                conn,
+                subscription_id=int(trial.subscription["id"]),
+                operation="update",
+                idempotency_key=profile_key,
+            )
+
+        self.assertIsNone(
+            self.vpn.claim_worker_job(
+                worker_id="worker-nl1",
+                lease_seconds=60,
+                control_plane_ready=True,
+                worker_inbound_tags=["VLESS TCP REALITY"],
+            )
+        )
+        with self.db.transaction() as conn:
+            profile_job = conn.execute(
+                """
+                SELECT status FROM vpn_provisioning_jobs
+                WHERE idempotency_key = ?
+                """,
+                (profile_key,),
+            ).fetchone()
+        self.assertEqual(profile_job["status"], "pending")
+
+    def test_profile_convergence_failures_preserve_active_entitlement(self) -> None:
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        create = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        assert create is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(create["job_id"]),
+            lease_token=str(create["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/profile-retry",
+        )
+
+        migration = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+            worker_inbound_tags=[
+                "VLESS TCP REALITY",
+                "VLESS WS TLS FALLBACK",
+            ],
+        )
+        assert migration is not None
+
+        for attempt in range(5):
+            self.vpn.fail_worker_job(
+                worker_id="worker-nl1",
+                job_id=int(migration["job_id"]),
+                lease_token=str(migration["lease_token"]),
+                error_message="fallback inbound is not ready",
+            )
+            if attempt == 4:
+                break
+            with self.db.transaction() as conn:
+                conn.execute(
+                    """
+                    UPDATE vpn_provisioning_jobs
+                    SET next_attempt_at = ?
+                    WHERE id = ?
+                    """,
+                    (
+                        (utcnow() - timedelta(seconds=1)).isoformat(),
+                        int(migration["job_id"]),
+                    ),
+                )
+            migration = self.vpn.claim_worker_job(
+                worker_id="worker-nl1",
+                lease_seconds=60,
+                control_plane_ready=True,
+                worker_inbound_tags=[
+                    "VLESS TCP REALITY",
+                    "VLESS WS TLS FALLBACK",
+                ],
+            )
+            assert migration is not None
+
+        stored = self.vpn.get_current_subscription(int(self.user["id"]))
+        assert stored is not None
+        self.assertEqual(stored["id"], trial.subscription["id"])
+        self.assertEqual(stored["status"], "active")
+        with self.db.transaction() as conn:
+            job = conn.execute(
+                """
+                SELECT status, attempts
+                FROM vpn_provisioning_jobs
+                WHERE id = ?
+                """,
+                (int(migration["job_id"]),),
+            ).fetchone()
+        self.assertEqual((job["status"], job["attempts"]), ("failed", 5))
 
     def test_server_upsert_does_not_reactivate_manually_disabled_server(self) -> None:
         repository = VpnServerRepository()

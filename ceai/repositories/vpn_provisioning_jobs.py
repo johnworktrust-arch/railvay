@@ -112,6 +112,7 @@ class VpnProvisioningJobRepository:
         lease_seconds: int = 60,
         lease_token: str | None = None,
         server_id: int | None = None,
+        excluded_idempotency_prefix: str | None = None,
     ) -> Dict[str, Any] | None:
         """Atomically claim one due job, including a job with an expired lease."""
 
@@ -119,6 +120,11 @@ class VpnProvisioningJobRepository:
             raise ValueError("lease_seconds must be greater than zero")
         if lease_token is not None and not lease_token:
             raise ValueError("lease_token must not be empty")
+        if (
+            excluded_idempotency_prefix is not None
+            and not excluded_idempotency_prefix
+        ):
+            raise ValueError("excluded_idempotency_prefix must not be empty")
 
         current = due_at or iso_now()
         lease_expires_at = (parse_iso(current) + timedelta(seconds=lease_seconds)).isoformat()
@@ -135,7 +141,11 @@ class VpnProvisioningJobRepository:
                 WHERE (
                     (status IN ('pending', 'failed') AND next_attempt_at <= ?)
                     OR (status = 'running' AND lease_expires_at <= ?)
-                )
+                  )
+                  AND (
+                      CAST(? AS TEXT) IS NULL
+                      OR idempotency_key NOT LIKE (CAST(? AS TEXT) || '%')
+                  )
                   AND (
                       ? IS NULL OR subscription_id IN (
                           SELECT id FROM vpn_subscriptions WHERE server_id = ?
@@ -166,6 +176,8 @@ class VpnProvisioningJobRepository:
                 current,
                 current,
                 current,
+                excluded_idempotency_prefix,
+                excluded_idempotency_prefix,
                 server_id,
                 server_id,
                 current,

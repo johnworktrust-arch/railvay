@@ -275,6 +275,36 @@ class VpnRepositoryTest(unittest.TestCase):
         self.assertEqual(expired["status"], "expired")
         self.assertEqual([row["id"] for row in due], [subscription["id"]])
 
+    def test_profile_update_candidates_are_active_and_idempotent(self) -> None:
+        subscription = self._create_subscription()
+        with self.db.transaction() as conn:
+            self.subscriptions.mark_active(
+                conn,
+                subscription_id=subscription["id"],
+                subscription_url="https://vpn1.example.test/sub/token",
+            )
+            candidates = self.subscriptions.list_active_requiring_profile_update(
+                conn,
+                server_id=subscription["server_id"],
+                profile_version="v2",
+            )
+            self.jobs.enqueue(
+                conn,
+                subscription_id=subscription["id"],
+                operation="update",
+                idempotency_key=f"vpn:profile:v2:{subscription['id']}",
+            )
+            already_queued = (
+                self.subscriptions.list_active_requiring_profile_update(
+                    conn,
+                    server_id=subscription["server_id"],
+                    profile_version="v2",
+                )
+            )
+
+        self.assertEqual([row["id"] for row in candidates], [subscription["id"]])
+        self.assertEqual(already_queued, [])
+
     def test_provisioning_jobs_are_idempotent_and_retryable(self) -> None:
         subscription = self._create_subscription()
         current = utcnow()

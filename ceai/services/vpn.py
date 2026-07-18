@@ -40,6 +40,11 @@ _PLATEGA_RECONCILIATION_BATCH_SIZE = 20
 _PLATEGA_FAILED_RECHECK_WINDOW = timedelta(minutes=10)
 _PLATEGA_PAID_DISPUTE_HORIZON = timedelta(days=400)
 _PLATEGA_PAID_RECONCILIATION_LIMIT = 2
+_MARZBAN_VLESS_INBOUND_TAGS = (
+    "VLESS TCP REALITY",
+    "VLESS WS TLS FALLBACK",
+)
+_MARZBAN_PROFILE_VERSION = "v2"
 
 
 class VpnPaymentVerificationError(BusinessRuleError):
@@ -1164,6 +1169,7 @@ class VpnService:
         worker_id: str,
         lease_seconds: int,
         control_plane_ready: bool = False,
+        worker_inbound_tags: Any = None,
     ) -> Dict[str, Any] | None:
         with self.db.transaction() as conn:
             server = self.servers.get_by_worker_id(conn, worker_id)
@@ -1171,12 +1177,21 @@ class VpnService:
                 raise BusinessRuleError("Unknown or inactive VPN worker")
             if control_plane_ready is not True:
                 raise BusinessRuleError("VPN worker control plane is not ready")
+            profile_v2_ready = (
+                isinstance(worker_inbound_tags, list)
+                and tuple(worker_inbound_tags) == _MARZBAN_VLESS_INBOUND_TAGS
+            )
 
             # Only a signed claim made after the worker successfully queried
             # its loopback Marzban API may renew checkout readiness.
             self.servers.mark_healthy(conn, server_id=int(server["id"]))
 
-            due = self.subscriptions.list_due_for_expiration(conn, limit=100)
+            current = utcnow().isoformat()
+            due = self.subscriptions.list_due_for_expiration(
+                conn,
+                due_at=current,
+                limit=100,
+            )
             for subscription in due:
                 if int(subscription["server_id"]) != int(server["id"]):
                     continue
@@ -1201,7 +1216,40 @@ class VpnService:
                 conn,
                 lease_seconds=lease_seconds,
                 server_id=int(server["id"]),
+                excluded_idempotency_prefix=(
+                    None if profile_v2_ready else "vpn:profile:v2:"
+                ),
             )
+            if job is None and profile_v2_ready:
+                # Migrate one existing active account at a time only while the
+                # normal provisioning queue is idle. The fixed profile-version
+                # key makes this safe on every worker poll and across restarts.
+                profile_updates = (
+                    self.subscriptions.list_active_requiring_profile_update(
+                        conn,
+                        server_id=int(server["id"]),
+                        profile_version=_MARZBAN_PROFILE_VERSION,
+                        active_at=current,
+                        limit=1,
+                    )
+                )
+                for subscription in profile_updates:
+                    subscription_id = int(subscription["id"])
+                    self.jobs.enqueue(
+                        conn,
+                        subscription_id=subscription_id,
+                        operation="update",
+                        idempotency_key=(
+                            f"vpn:profile:{_MARZBAN_PROFILE_VERSION}:"
+                            f"{subscription_id}"
+                        ),
+                    )
+                if profile_updates:
+                    job = self.jobs.claim_due(
+                        conn,
+                        lease_seconds=lease_seconds,
+                        server_id=int(server["id"]),
+                    )
             if job is None:
                 return None
 
@@ -1223,7 +1271,9 @@ class VpnService:
                         "proxies": {
                             "vless": {"flow": "xtls-rprx-vision"},
                         },
-                        "inbounds": {"vless": ["VLESS TCP REALITY"]},
+                        "inbounds": {
+                            "vless": list(_MARZBAN_VLESS_INBOUND_TAGS),
+                        },
                         "expire": int(self._datetime(subscription["ends_at"]).timestamp()),
                         "data_limit": 0,
                         "data_limit_reset_strategy": "no_reset",
@@ -1297,16 +1347,13 @@ class VpnService:
             if user is None:
                 raise RuntimeError("VPN subscription user is missing")
             completion_subscription = subscription
-            if (
-                operation == "update"
-                and str(job.get("idempotency_key") or "").startswith(
-                    "vpn:chargeback:"
-                )
-            ):
+            if operation == "update" and str(
+                job.get("idempotency_key") or ""
+            ).startswith(("vpn:chargeback:", "vpn:profile:")):
                 # `notify_vpn_ready` deliberately ignores completions without a
                 # URL. Keep the real URL in the database/Marzban, but suppress a
                 # misleading second "VPN готов" message for this purely
-                # technical expiry correction.
+                # technical profile or expiry correction.
                 completion_subscription = dict(subscription)
                 completion_subscription["subscription_url"] = ""
             return VpnJobCompletion(
@@ -1342,7 +1389,14 @@ class VpnService:
                 error_message=clean_error,
                 next_attempt_at=next_attempt.isoformat(),
             )
-            if attempts >= 5 and str(job["operation"]) != "disable":
+            is_profile_convergence = str(
+                job.get("idempotency_key") or ""
+            ).startswith("vpn:profile:")
+            if (
+                attempts >= 5
+                and str(job["operation"]) != "disable"
+                and not is_profile_convergence
+            ):
                 self.subscriptions.mark_status(
                     conn,
                     subscription_id=int(job["subscription_id"]),

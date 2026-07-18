@@ -127,6 +127,35 @@ https://your-service.up.railway.app/payments/vpn/platega/webhook
 запускается только после аутентифицированного callback и серверной проверки
 статуса, суммы и валюты платежа.
 
+### VPN transport profiles
+
+Первый VPN-узел публикует два профиля одного пользователя. В Xray
+порядок фиксирован: Happ первым получает совместимый TLS/WS-профиль:
+
+- `VLESS WS TLS FALLBACK` — резервный WebSocket transport через тот же
+  публичный Nginx, который раздаёт подписки:
+  `sub.79-137-197-51.sslip.io:8443`;
+- `VLESS TCP REALITY` — дополнительный transport на `79.137.197.51:443`.
+
+Xray принимает fallback только на `127.0.0.1:10001`; этот порт нельзя открывать
+в firewall. Секретный WebSocket path генерируется один раз скриптом
+`deploy/vpn/apply-reality-config.sh`, хранится на VPS в root-only файле
+`/root/ceavpn-fallback.env` и атомарно подставляется в Xray и активный Nginx
+config `/etc/nginx/sites-enabled/ceavpn`. Значение path нельзя коммитить,
+печатать в логах или отправлять в чат.
+
+После применения Xray/Nginx config скрипт
+`deploy/vpn/configure-marzban-hosts.sh` идемпотентно настраивает Host Settings:
+Reality остаётся на `443`, а TLS WebSocket fallback использует именно `8443`.
+Скрипт отправляет в `/api/hosts` только два управляемых inbound tag и проверяет,
+что настройки остальных tag не изменились. Worker должен назначать пользователю
+оба точных tag через `MARZBAN_INBOUND_TAGS`.
+
+`configure-marzban-hosts.sh` использует отдельную root-only учётную
+запись из `/root/ceavpn-sudo-admin.env`, потому что Marzban v0.8.4
+разрешает менять Host Settings только sudo-admin. Эти credentials нельзя
+копировать в `/root/ceavpn-admin.env` или в environment worker-сервиса.
+
 1. Создайте проект Railway из GitHub-репозитория.
 2. В сервисе откройте `Settings -> Networking` и нажмите `Generate Domain`.
 3. Добавьте Postgres в Railway и подключите `DATABASE_URL` к сервису. В продакшене SQLite запрещён по умолчанию: файл внутри контейнера может быть пересоздан при деплое, и тогда пропадут пользователи, подписки, платежи и балансы.

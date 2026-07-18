@@ -152,6 +152,7 @@ def register_vpn_worker_routes(
                 worker_id=worker_id,
                 lease_seconds=max(30, min(settings.vpn_worker_lease_seconds, 600)),
                 control_plane_ready=payload.get("control_plane_ready") is True,
+                worker_inbound_tags=payload.get("inbound_tags"),
             )
         except BusinessRuleError as exc:
             raise web.HTTPForbidden(text=str(exc)) from exc

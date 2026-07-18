@@ -33,6 +33,12 @@ LOGGER = logging.getLogger("ceavpn.worker")
 JSON_LIMIT_BYTES = 1_048_576
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,64}$")
 OPERATIONS = {"create", "update", "disable", "sync"}
+PRIMARY_MARZBAN_INBOUND_TAG = "VLESS TCP REALITY"
+FALLBACK_MARZBAN_INBOUND_TAG = "VLESS WS TLS FALLBACK"
+DEFAULT_MARZBAN_INBOUND_TAGS = (
+    PRIMARY_MARZBAN_INBOUND_TAG,
+    FALLBACK_MARZBAN_INBOUND_TAG,
+)
 
 
 class WorkerError(Exception):
@@ -174,6 +180,34 @@ def _validated_local_marzban_base(value: str) -> str:
     return normalized
 
 
+def _validated_marzban_inbound_tags(env: Mapping[str, str]) -> tuple[str, ...]:
+    configured = str(env.get("MARZBAN_INBOUND_TAGS") or "").strip()
+    if configured:
+        tags = tuple(part.strip() for part in configured.split(","))
+    else:
+        # Existing installations have only the singular variable. Falling back
+        # to the primary tag also avoids assigning an undeployed fallback when
+        # neither variable has been configured yet.
+        legacy = str(
+            env.get("MARZBAN_INBOUND_TAG") or PRIMARY_MARZBAN_INBOUND_TAG
+        ).strip()
+        tags = (legacy,)
+
+    if (
+        not tags
+        or len(tags) > 16
+        or any(not tag or len(tag) > 128 for tag in tags)
+        or len(set(tags)) != len(tags)
+        or any(
+            ord(character) < 0x20 or ord(character) == 0x7F
+            for tag in tags
+            for character in tag
+        )
+    ):
+        raise ConfigurationError("invalid_marzban_inbound_tags")
+    return tags
+
+
 @dataclass(frozen=True)
 class WorkerConfig:
     worker_id: str
@@ -183,7 +217,7 @@ class WorkerConfig:
     marzban_base_url: str
     marzban_username: str
     marzban_password: str
-    inbound_tag: str = "VLESS TCP REALITY"
+    inbound_tags: tuple[str, ...] = DEFAULT_MARZBAN_INBOUND_TAGS
     claim_path: str = "/internal/vpn/worker/claim"
     result_path: str = "/internal/vpn/worker/result"
     fail_path: str = "/internal/vpn/worker/fail"
@@ -237,7 +271,7 @@ class WorkerConfig:
                 _required_env(source, "MARZBAN_BOT_PASSWORD"),
                 "MARZBAN_BOT_PASSWORD",
             ),
-            inbound_tag=str(source.get("MARZBAN_INBOUND_TAG") or "VLESS TCP REALITY").strip(),
+            inbound_tags=_validated_marzban_inbound_tags(source),
             claim_path=claim_path,
             result_path=result_path,
             fail_path=fail_path,
@@ -297,15 +331,23 @@ class SignedRailwayClient:
         self.clock = clock
         self.nonce_factory = nonce_factory
 
-    def claim(self, *, control_plane_ready: bool) -> Optional[Dict[str, Any]]:
+    def claim(
+        self,
+        *,
+        control_plane_ready: bool,
+        verified_inbound_tags: tuple[str, ...],
+    ) -> Optional[Dict[str, Any]]:
         if control_plane_ready is not True:
             raise WorkerError("marzban_not_ready", retryable=False)
+        if verified_inbound_tags != self.config.inbound_tags:
+            raise WorkerError("marzban_inbounds_not_verified", retryable=False)
         response = self._post(
             self.config.claim_path,
             {
                 "worker_id": self.config.worker_id,
                 "lease_seconds": self.config.lease_seconds,
                 "control_plane_ready": True,
+                "inbound_tags": list(verified_inbound_tags),
             },
         )
         if response.status == 204 or not response.body:
@@ -375,17 +417,32 @@ class LocalMarzbanClient:
         self.transport = transport
         self._token = ""
 
-    def healthcheck(self) -> None:
-        """Authenticate to Marzban and query a stable local API endpoint."""
+    def healthcheck(self) -> tuple[str, ...]:
+        """Authenticate and verify every configured inbound exists locally."""
 
         response = self._authorized_request(
             "GET", "/api/user/cea_worker_healthcheck"
         )
         # A missing sentinel user is the normal response.  Both statuses prove
         # that the loopback API accepted our bearer token and handled a query.
-        if response.status in {200, 404}:
-            return
-        raise ApiError("marzban_healthcheck", response.status)
+        if response.status not in {200, 404}:
+            raise ApiError("marzban_healthcheck", response.status)
+
+        inbounds = self._require_object(
+            self._authorized_request("GET", "/api/inbounds"),
+            "marzban_inbounds",
+        )
+        raw_vless = inbounds.get("vless")
+        if not isinstance(raw_vless, list):
+            raise WorkerError("invalid_marzban_inbounds_response", retryable=False)
+        available_tags = {
+            str(inbound.get("tag"))
+            for inbound in raw_vless
+            if isinstance(inbound, Mapping) and isinstance(inbound.get("tag"), str)
+        }
+        if any(tag not in available_tags for tag in self.config.inbound_tags):
+            raise WorkerError("marzban_inbounds_not_ready")
+        return self.config.inbound_tags
 
     def get_user(self, username: str) -> Optional[Dict[str, Any]]:
         response = self._authorized_request(
@@ -427,13 +484,7 @@ class LocalMarzbanClient:
     ) -> Dict[str, Any]:
         desired = {
             "username": _validated_username(username),
-            "proxies": {
-                "vless": {
-                    "id": str(uuid.uuid4()),
-                    "flow": "xtls-rprx-vision",
-                }
-            },
-            "inbounds": {"vless": [self.config.inbound_tag]},
+            "inbounds": {"vless": list(self.config.inbound_tags)},
             "expire": _validated_expire(expire),
             "data_limit": _validated_data_limit(data_limit),
             "data_limit_reset_strategy": "no_reset",
@@ -442,7 +493,17 @@ class LocalMarzbanClient:
         }
         existing = self.get_user(username)
         if existing is None:
-            user = self.create_user(desired)
+            user = self.create_user(
+                {
+                    **desired,
+                    "proxies": {
+                        "vless": {
+                            "id": str(uuid.uuid4()),
+                            "flow": "xtls-rprx-vision",
+                        }
+                    },
+                }
+            )
         else:
             user = self.update_user(username, _mutable_user_fields(desired))
         return self._ensure_subscription_url(user, username)
@@ -585,6 +646,7 @@ def _mutable_user_fields(payload: Mapping[str, Any]) -> Dict[str, Any]:
         "data_limit_reset_strategy",
         "status",
         "note",
+        "inbounds",
     }
     return {key: value for key, value in payload.items() if key in allowed}
 
@@ -759,8 +821,11 @@ class VpnWorker:
         self.marzban = marzban or LocalMarzbanClient(config)
 
     def run_once(self) -> bool:
-        self.marzban.healthcheck()
-        raw_job = self.railway.claim(control_plane_ready=True)
+        verified_inbound_tags = self.marzban.healthcheck()
+        raw_job = self.railway.claim(
+            control_plane_ready=True,
+            verified_inbound_tags=verified_inbound_tags,
+        )
         if raw_job is None:
             return False
         try:
