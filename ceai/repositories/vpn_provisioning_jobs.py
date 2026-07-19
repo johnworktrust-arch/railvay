@@ -144,7 +144,7 @@ class VpnProvisioningJobRepository:
                   )
                   AND (
                       CAST(? AS TEXT) IS NULL
-                      OR idempotency_key NOT LIKE (CAST(? AS TEXT) || '%')
+                      OR idempotency_key NOT LIKE (CAST(? AS TEXT) || '%%')
                   )
                   AND (
                       ? IS NULL OR subscription_id IN (

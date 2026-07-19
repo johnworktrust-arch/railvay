@@ -68,6 +68,7 @@ class DatabaseTransactionTest(unittest.TestCase):
         self.assertIsNone(claimed)
         query, params = raw.statements[-1]
         self.assertIn("CAST(%s AS TEXT) IS NULL", query)
+        self.assertIn("CAST(%s AS TEXT) || '%%'", query)
         self.assertIsNone(params[5])
         self.assertIsNone(params[6])
 
