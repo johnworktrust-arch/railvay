@@ -476,13 +476,13 @@ sudo marzban logs
 
 ### 8.1. TLS WebSocket fallback на существующем `8443`
 
-Резервный transport не требует нового публичного порта. В Xray используется
+Публичный Happ-совместимый transport не требует нового публичного порта. В Xray используется
 inbound с точным tag `VLESS WS TLS FALLBACK`, который слушает только
 `127.0.0.1:10001`. Активный Nginx listener подписок на `8443` проксирует только
 один exact секретный path на этот loopback. Не открывать `10001` в UFW/Aéza и
 не создавать отдельный listener `2053`.
-В Xray этот inbound стоит первым: Marzban v0.8.4 сортирует URI по
-порядку Xray config, поэтому Happ первым импортирует рабочий TLS/WS URI.
+В Xray этот inbound стоит первым. Reality остаётся в Xray как технический резерв,
+но его Host Setting имеет `is_disabled=true`, поэтому в Happ публикуется только TLS/WS URI.
 
 `deploy/vpn/apply-reality-config.sh` совместно рендерит Xray и Nginx templates.
 При первом запуске он атомарно создаёт root-only
@@ -520,14 +520,14 @@ install -o root -g root -m 0755 deploy/vpn/configure-marzban-hosts.sh \
 
 | Inbound tag | Address | Public port | SNI / Host | Security |
 |---|---|---:|---|---|
-| `VLESS WS TLS FALLBACK` | `sub.79-137-197-51.sslip.io` | `8443` | `sub.79-137-197-51.sslip.io` | TLS, `http/1.1` |
-| `VLESS TCP REALITY` | `79.137.197.51` | `443` | `cover.79-137-197-51.sslip.io` | inbound default / REALITY |
+| `VLESS WS TLS FALLBACK` | `sub.79-137-197-51.sslip.io` | `8443` | `sub.79-137-197-51.sslip.io` | TLS, `http/1.1`; публикуется как `🇳🇱 Нидерланды · Амстердам` |
+| `VLESS TCP REALITY` | `79.137.197.51` | `443` | `cover.79-137-197-51.sslip.io` | REALITY; `is_disabled=true`, не публикуется |
 
 Fallback path берётся из root-only env и не должен попадать в команды, вывод
 API или логи. Скрипт проверяет, что Host Settings всех остальных inbound tag
 сохранились, а при ошибке пытается вернуть исходные настройки двух управляемых
-tag. Provisioning worker должен назначать пользователю оба точных tag; иначе
-в subscription не появится второй URI.
+tag. Provisioning worker должен назначать пользователю оба точных tag. Два tag означают
+два транспорта одного VPS, а не два купленных сервера.
 
 Создать одноразового smoke-user с лимитом 100 МБ и сроком 24 часа. Проверить
 подключение с домашней сети и мобильного интернета, DNS/IP leak, остановку после

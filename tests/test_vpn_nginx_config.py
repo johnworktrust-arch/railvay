@@ -67,6 +67,42 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertNotIn("happ://routing/off", config)
         self.assertNotIn("happ://routing/onadd/", config)
 
+    def test_happ_publishes_only_the_named_netherlands_ws_profile(self) -> None:
+        root = Path(__file__).resolve().parents[1]
+        hosts_script = (
+            root / "deploy" / "vpn" / "configure-marzban-hosts.sh"
+        ).read_text(encoding="utf-8")
+
+        reality = re.search(
+            r"reality_tag: \[\{(?P<body>.*?)\}\],\n\s*fallback_tag:",
+            hosts_script,
+            flags=re.DOTALL,
+        )
+        fallback = re.search(
+            r"fallback_tag: \[\{(?P<body>.*?)\}\],\n\}",
+            hosts_script,
+            flags=re.DOTALL,
+        )
+        self.assertIsNotNone(reality)
+        self.assertIsNotNone(fallback)
+        assert reality is not None and fallback is not None
+        self.assertIn('"is_disabled": True', reality.group("body"))
+        self.assertIn('"is_disabled": False', fallback.group("body"))
+        self.assertIn(
+            '"remark": "🇳🇱 Нидерланды · Амстердам"',
+            fallback.group("body"),
+        )
+
+        smoke_script = (
+            root / "deploy" / "vpn" / "smoke-test.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn("expected_vless_profiles=1", smoke_script)
+        self.assertIn(
+            'profiles[0]["remark"] == "🇳🇱 Нидерланды · Амстердам"',
+            smoke_script,
+        )
+        self.assertIn('require(kinds == ["ws-tls"]', smoke_script)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -145,7 +145,7 @@ for tag in (reality_tag, fallback_tag):
 
 desired = {
     reality_tag: [{
-        "remark": "⚡ CEA VPN Reality",
+        "remark": "🇳🇱 Нидерланды · Амстердам (Reality)",
         "address": "79.137.197.51",
         "port": 443,
         "sni": "cover.79-137-197-51.sslip.io",
@@ -155,7 +155,10 @@ desired = {
         "alpn": "",
         "fingerprint": "chrome",
         "allowinsecure": False,
-        "is_disabled": False,
+        # Reality remains configured on the same VPS as a rollback option, but
+        # Marzban must not publish it to clients while Happ cannot use it
+        # reliably. Disabled hosts are omitted from generated subscriptions.
+        "is_disabled": True,
         "mux_enable": False,
         "fragment_setting": None,
         "noise_setting": None,
@@ -163,7 +166,8 @@ desired = {
         "use_sni_as_host": False,
     }],
     fallback_tag: [{
-        "remark": "🚀 CEA VPN",
+        # Happ uses the first flag emoji in the remark as the server icon.
+        "remark": "🇳🇱 Нидерланды · Амстердам",
         "address": "sub.79-137-197-51.sslip.io",
         "port": 8443,
         "sni": "sub.79-137-197-51.sslip.io",
@@ -219,7 +223,7 @@ chmod 0600 \
   "$work_dir/original.json"
 
 if [[ "$change_state" == "unchanged" ]]; then
-  echo "Marzban Reality and fallback host overrides are already configured"
+  echo "Marzban Netherlands host overrides are already configured"
   exit 0
 fi
 if [[ "$change_state" != "changed" ]]; then
@@ -277,4 +281,4 @@ for tag in target_tags:
 PY
 
 rollback_needed=0
-echo "Marzban Reality and TLS WebSocket fallback host overrides configured"
+echo "Marzban Netherlands WS/TLS profile configured; Reality profile hidden"

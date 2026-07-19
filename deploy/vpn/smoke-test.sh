@@ -229,18 +229,15 @@ if ! inbound_tags="$(jq -cer '
   echo "VPN smoke test failed: no active VLESS inbound tags" >&2
   exit 1
 fi
-expected_vless_profiles="$(jq -er '
-  if . == ["VLESS TCP REALITY"] then
-    1
-  elif . == ["VLESS TCP REALITY", "VLESS WS TLS FALLBACK"] then
-    2
-  else
-    empty
-  end
-' <<<"$inbound_tags")" || {
+if ! jq -e '
+  . == ["VLESS TCP REALITY", "VLESS WS TLS FALLBACK"]
+' <<<"$inbound_tags" >/dev/null; then
   echo "VPN smoke test failed: unexpected active VLESS inbound tags" >&2
   exit 1
-}
+fi
+# Both transports remain configured on the one VPS for rollback safety, but
+# only the Happ-compatible WS/TLS host is published to client subscriptions.
+expected_vless_profiles=1
 
 jq -n \
   --arg username "$username" \
@@ -542,6 +539,7 @@ def parse_vless(value):
     }
     return config, {
         "kind": kind,
+        "remark": unquote(parsed.fragment),
         "endpoint_family": endpoint_family,
         "endpoint_port": port,
     }
@@ -610,9 +608,12 @@ try:
 
     require(profiles, "no_supported_vless_profiles")
     require(len(profiles) == expected_profile_count, "missing_vless_profile")
-    if expected_profile_count == 2:
-        kinds = sorted(profile["kind"] for profile in profiles)
-        require(kinds == ["reality", "ws-tls"], "invalid_dual_vless_profiles")
+    kinds = sorted(profile["kind"] for profile in profiles)
+    require(kinds == ["ws-tls"], "invalid_public_vless_profile")
+    require(
+        profiles[0]["remark"] == "🇳🇱 Нидерланды · Амстердам",
+        "invalid_public_profile_name",
+    )
     Path(manifest_path).write_text(json.dumps({"profiles": profiles}), encoding="utf-8")
     os.chmod(manifest_path, 0o600)
 except (ValidationError, OSError, ValueError, json.JSONDecodeError) as exc:
