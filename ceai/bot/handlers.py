@@ -703,43 +703,40 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
     coins = int(plan.get("coins_amount") or 0)
     price = int(plan.get("price_rub") or 0)
     stars_amount = telegram_stars_amount_for_rub(price)
-    features = loads_dict(plan.get("features"))
-    description = str(features.get("description") or "").strip()
+    deepseek_requests = coins
+    standard_requests = coins // 3
+    video_requests = coins // 25
     meta = {
         "start": {
-            "icon": "⭐️",
             "label": "Старт",
         },
         "basic": {
-            "icon": "🔥",
             "label": "Базовый",
         },
         "pro": {
-            "icon": "⚡️",
             "label": "Про",
         },
     }.get(
         code,
         {
-            "icon": "💳",
             "label": str(plan.get("name") or "Тариф"),
         },
     )
     lines = [
-        f"{meta['icon']} <b>{meta['label']}</b>",
+        f"Тариф: {meta['label']}",
+        f"Стоимость: {price} ₽ или {stars_amount} ⭐",
+        "Действует: 30 дней",
         "",
-        f"{price} ₽ или {stars_amount} ⭐",
-        f"{format_coin_amount(coins)} · 30 дней",
+        f"После оплаты начисляется {format_coin_amount(coins)} и открывается "
+        "доступ ко всем актуальным AI-инструментам.",
+        "",
+        "Куда можно потратить (если выбрать один инструмент):",
+        f"— до {deepseek_requests} запросов DeepSeek",
+        f"— до {standard_requests} запросов ChatGPT, изображений или озвучек",
+        f"— до {video_requests} видео Kling",
+        "",
+        _format_payment_methods(),
     ]
-    if description:
-        lines.extend([description, ""])
-    lines.extend(
-        [
-            "Доступны: DeepSeek, ChatGPT, GPT Image, Kling и озвучка.",
-            "",
-            _format_payment_methods(),
-        ]
-    )
     return "\n".join(lines)
 
 
