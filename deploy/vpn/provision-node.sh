@@ -13,6 +13,7 @@ for path in \
   "$bundle_dir/docker-compose.yml" \
   "$bundle_dir/xray_config.json" \
   "$bundle_dir/nginx.conf" \
+  "$bundle_dir/connect.html" \
   "$bundle_dir/apply-reality-config.sh" \
   "$bundle_dir/configure-marzban-hosts.sh" \
   "$bundle_dir/install-worker.sh" \
@@ -61,6 +62,8 @@ install -o root -g root -m 0644 \
   "$bundle_dir/xray_config.json" /opt/marzban/xray_config.template.json
 install -o root -g root -m 0644 \
   "$bundle_dir/nginx.conf" /opt/marzban/nginx.template.conf
+install -o root -g root -m 0644 \
+  "$bundle_dir/connect.html" /opt/marzban/connect.html
 install -o root -g root -m 0755 \
   "$bundle_dir/apply-reality-config.sh" /opt/ceavpn/apply-reality-config.sh
 install -o root -g root -m 0755 \

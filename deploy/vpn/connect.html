@@ -1,0 +1,283 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="dark">
+  <title>Подключение CEA VPN</title>
+  <style>
+    * { box-sizing: border-box; }
+    html { background: #080b13; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      padding: 24px 16px 52px;
+      color: #f7f8fc;
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      background:
+        radial-gradient(circle at 50% -10%, #292456 0, #111525 38%, #080b13 76%);
+    }
+    .shell { width: min(720px, 100%); margin: auto; }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin: 4px 2px 28px;
+    }
+    .mark {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background: linear-gradient(145deg, #8b5cf6, #4f46e5);
+      box-shadow: 0 12px 35px #563fc766;
+      font-size: 22px;
+    }
+    .brand b { font-size: 20px; letter-spacing: .02em; }
+    .brand span {
+      display: block;
+      margin-top: 2px;
+      color: #8d95aa;
+      font-size: 12px;
+    }
+    .hero { margin: 0 auto 26px; text-align: center; }
+    .hero h1 {
+      margin: 0 0 12px;
+      font-size: clamp(30px, 8vw, 48px);
+      line-height: 1.05;
+    }
+    .hero p {
+      max-width: 540px;
+      margin: 0 auto;
+      color: #aeb5c8;
+      font-size: 16px;
+      line-height: 1.5;
+    }
+    .platforms {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 8px;
+      margin: 24px 0;
+    }
+    .platform {
+      padding: 11px 7px;
+      border: 1px solid #282e42;
+      border-radius: 12px;
+      background: #151a29;
+      color: #aeb5c8;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .platform.active {
+      border-color: #7c63ff;
+      background: #292348;
+      box-shadow: inset 0 0 0 1px #7c63ff55;
+      color: #fff;
+    }
+    .steps { display: grid; gap: 12px; }
+    .card {
+      display: grid;
+      grid-template-columns: 46px 1fr;
+      gap: 14px;
+      padding: 20px;
+      border: 1px solid #252a3c;
+      border-radius: 20px;
+      background: #121724ee;
+      box-shadow: 0 16px 50px #00000024;
+    }
+    .number {
+      display: grid;
+      place-items: center;
+      width: 42px;
+      height: 42px;
+      border-radius: 14px;
+      background: #24203f;
+      color: #a995ff;
+      font-weight: 900;
+    }
+    .content h2 { margin: 1px 0 7px; font-size: 18px; }
+    .content p { margin: 0; color: #9ca4b8; line-height: 1.5; }
+    .action {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 100%;
+      min-height: 50px;
+      margin-top: 16px;
+      border: 0;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #7555f8, #5269f5);
+      box-shadow: 0 10px 28px #5f56ee42;
+      color: white;
+      font-size: 16px;
+      font-weight: 800;
+      text-decoration: none;
+      cursor: pointer;
+    }
+    .action.secondary { background: #232a3d; box-shadow: none; }
+    .action.done { background: #1f9d69; box-shadow: none; }
+    .manual {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-top: 14px;
+      padding: 10px 10px 10px 13px;
+      border: 1px solid #2c3348;
+      border-radius: 12px;
+      background: #0c101b;
+    }
+    .manual code {
+      min-width: 0;
+      flex: 1;
+      overflow: hidden;
+      color: #b8c0d6;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .copy {
+      padding: 9px 12px;
+      border: 0;
+      border-radius: 9px;
+      background: #2b3248;
+      color: #fff;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .hint {
+      margin: 22px 10px 0;
+      color: #737c94;
+      font-size: 13px;
+      line-height: 1.45;
+      text-align: center;
+    }
+    @media (max-width: 520px) {
+      body { padding: 18px 12px 38px; }
+      .brand { margin-bottom: 24px; }
+      .platforms { grid-template-columns: repeat(2, 1fr); }
+      .card { grid-template-columns: 38px 1fr; gap: 11px; padding: 17px 15px; }
+      .number { width: 36px; height: 36px; border-radius: 11px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="shell">
+    <header class="brand">
+      <div class="mark">🛡</div>
+      <div><b>CEA VPN</b><span>Безопасное подключение</span></div>
+    </header>
+
+    <section class="hero">
+      <h1>Подключите VPN<br>за пару минут</h1>
+      <p>
+        Выберите ваше устройство и выполните три простых шага.
+        Персональная подписка уже готова.
+      </p>
+    </section>
+
+    <nav class="platforms" aria-label="Выбор устройства">
+      <button class="platform" data-os="ios">iPhone</button>
+      <button class="platform" data-os="android">Android</button>
+      <button class="platform" data-os="windows">Windows</button>
+      <button class="platform" data-os="macos">macOS</button>
+    </nav>
+
+    <section class="steps">
+      <article class="card">
+        <div class="number">1</div>
+        <div class="content">
+          <h2>Установите Happ</h2>
+          <p>
+            Скачайте бесплатное приложение для вашего устройства
+            с официальной страницы.
+          </p>
+          <a
+            class="action secondary"
+            href="https://www.happ.su/main"
+            target="_blank"
+            rel="noopener noreferrer"
+          >Скачать Happ</a>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="number">2</div>
+        <div class="content">
+          <h2>Добавьте подписку</h2>
+          <p>
+            Нажмите кнопку и разрешите открыть Happ.
+            Все доступные страны появятся автоматически.
+          </p>
+          <a class="action" id="add-subscription" href="#">Добавить подписку</a>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="number">3</div>
+        <div class="content">
+          <h2>Включите VPN</h2>
+          <p>
+            В Happ выберите нужную страну, нажмите большую кнопку
+            подключения и подтвердите создание VPN.
+          </p>
+          <div class="action done">Готово — можно подключаться</div>
+        </div>
+      </article>
+
+      <article class="card">
+        <div class="number">?</div>
+        <div class="content">
+          <h2>Если кнопка не открылась</h2>
+          <p>
+            Скопируйте ссылку, затем в Happ нажмите <b>+</b>
+            и выберите добавление подписки из буфера.
+          </p>
+          <div class="manual">
+            <code id="subscription"></code>
+            <button class="copy" id="copy" type="button">Копировать</button>
+          </div>
+        </div>
+      </article>
+    </section>
+
+    <p class="hint">
+      Не передавайте эту страницу другим людям —
+      ссылка является вашим личным ключом.
+    </p>
+  </main>
+
+  <script>
+    const platforms = [...document.querySelectorAll(".platform")];
+    const agent = navigator.userAgent.toLowerCase();
+    const os = agent.includes("android")
+      ? "android"
+      : agent.includes("iphone") || agent.includes("ipad")
+        ? "ios"
+        : agent.includes("win")
+          ? "windows"
+          : "macos";
+
+    for (const button of platforms) {
+      button.classList.toggle("active", button.dataset.os === os);
+      button.addEventListener("click", () => {
+        for (const item of platforms) item.classList.remove("active");
+        button.classList.add("active");
+      });
+    }
+
+    const token = location.pathname.split("/").filter(Boolean).at(-1);
+    const subscriptionUrl =
+      `https://${location.hostname}:8443/sub/${encodeURIComponent(token)}`;
+    document.getElementById("subscription").textContent = subscriptionUrl;
+    document.getElementById("add-subscription").href =
+      `happ://add/${subscriptionUrl}`;
+
+    const copy = document.getElementById("copy");
+    copy.addEventListener("click", async () => {
+      await navigator.clipboard.writeText(subscriptionUrl);
+      copy.textContent = "Скопировано";
+      setTimeout(() => { copy.textContent = "Копировать"; }, 1800);
+    });
+  </script>
+</body>
+</html>

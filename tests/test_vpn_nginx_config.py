@@ -35,16 +35,22 @@ class VpnNginxConfigTest(unittest.TestCase):
         assert connect_block is not None
         setup_guide = connect_block.group(0)
         self.assertIn("[A-Za-z0-9._~-]{1,160}", setup_guide)
-        self.assertIn("Подключите VPN", setup_guide)
-        self.assertIn("https://www.happ.su/main", setup_guide)
-        self.assertIn(
-            "happ://add/https://__SUB_DOMAIN__:8443/sub/$1",
-            setup_guide,
-        )
-        self.assertIn("Добавить подписку", setup_guide)
-        self.assertIn("Копировать", setup_guide)
+        self.assertIn("try_files /connect.html =404;", setup_guide)
         self.assertIn('add_header Cache-Control "no-store" always;', setup_guide)
         self.assertIn('add_header X-Frame-Options "DENY" always;', setup_guide)
+
+        setup_html = (
+            Path(__file__).resolve().parents[1]
+            / "deploy"
+            / "vpn"
+            / "connect.html"
+        ).read_text(encoding="utf-8")
+        self.assertIn("Подключите VPN", setup_html)
+        self.assertIn("https://www.happ.su/main", setup_html)
+        self.assertIn("happ://add/", setup_html)
+        self.assertIn("Добавить подписку", setup_html)
+        self.assertIn("Копировать", setup_html)
+        self.assertIn("location.pathname", setup_html)
 
         happ_block = re.search(
             r'location ~ "\^/happ/.*?\n    }', config, flags=re.DOTALL
@@ -98,6 +104,16 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertIn(
             "/etc/nginx/snippets/ceavpn-relays.conf",
             apply_script,
+        )
+        provision_script = (
+            Path(__file__).resolve().parents[1]
+            / "deploy"
+            / "vpn"
+            / "provision-node.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            '"$bundle_dir/connect.html" /opt/marzban/connect.html',
+            provision_script,
         )
 
     def test_happ_can_publish_multiple_named_region_ws_profiles(self) -> None:
