@@ -108,7 +108,7 @@ HISTORY_PAGE_SIZE = 3
 GIFT_CHANNEL_USERNAME = "ceafamily"
 GIFT_CHANNEL_CHAT_ID = f"@{GIFT_CHANNEL_USERNAME}"
 GIFT_CHANNEL_URL = f"https://t.me/{GIFT_CHANNEL_USERNAME}"
-GIFT_DURATION_DAYS = 3
+GIFT_DURATION_DAYS = 30
 GIFT_COINS_AMOUNT = 5
 GIFT_PLAN_CODE = "start"
 TTS_VOICES = (
@@ -664,9 +664,9 @@ def _format_gift_check_unavailable() -> str:
 
 def _format_gift_activated(result: Dict[str, Any]) -> str:
     return (
-        f"🎁 <b>Пробный доступ активирован на {GIFT_DURATION_DAYS} дня</b>\n\n"
+        "🎁 <b>Бесплатный доступ активирован</b>\n\n"
         "На ваш баланс зачислено "
-        f"{int(result.get('credited_coins') or 0)} Coin."
+        f"{format_coin_amount(result.get('credited_coins'))}."
     )
 
 
