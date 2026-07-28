@@ -48,8 +48,12 @@ timedatectl set-ntp true
 
 install -d -o root -g root -m 0755 \
   /opt/marzban /opt/ceavpn /etc/ceavpn /var/lib/marzban \
-  /var/www/letsencrypt
+  /var/www/letsencrypt /etc/nginx/snippets
 install -d -o root -g root -m 0755 /var/lib/marzban/xray-core
+if [[ ! -e /etc/nginx/snippets/ceavpn-relays.conf ]]; then
+  install -o root -g root -m 0644 /dev/null \
+    /etc/nginx/snippets/ceavpn-relays.conf
+fi
 
 install -o root -g root -m 0644 \
   "$bundle_dir/docker-compose.yml" /opt/marzban/docker-compose.yml

@@ -66,6 +66,21 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertNotIn('add_header routing "', config)
         self.assertNotIn("happ://routing/off", config)
         self.assertNotIn("happ://routing/onadd/", config)
+        self.assertIn(
+            "include /etc/nginx/snippets/ceavpn-relays.conf;",
+            config,
+        )
+
+        apply_script = (
+            Path(__file__).resolve().parents[1]
+            / "deploy"
+            / "vpn"
+            / "apply-reality-config.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn(
+            "/etc/nginx/snippets/ceavpn-relays.conf",
+            apply_script,
+        )
 
     def test_happ_can_publish_multiple_named_region_ws_profiles(self) -> None:
         root = Path(__file__).resolve().parents[1]

@@ -71,6 +71,11 @@ if [[ ! -d "$(dirname "$nginx_output")" ]]; then
   exit 1
 fi
 install -d -o root -g root -m 0700 "$backup_dir"
+install -d -o root -g root -m 0755 /etc/nginx/snippets
+if [[ ! -e /etc/nginx/snippets/ceavpn-relays.conf ]]; then
+  install -o root -g root -m 0644 /dev/null \
+    /etc/nginx/snippets/ceavpn-relays.conf
+fi
 
 private_key="$(
   sed -n \
