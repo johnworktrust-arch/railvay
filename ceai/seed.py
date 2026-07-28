@@ -16,10 +16,7 @@ PLANS = [
         "duration_days": 30,
         "coins_amount": 25,
         "features": {
-            "description": "Для знакомства со всеми AI-инструментами Cea AI",
-            "usage_example": (
-                "До 8 запросов ChatGPT, 8 изображений или 1 видео Kling"
-            ),
+            "description": "Для знакомства с Cea AI.",
         },
     },
     {
@@ -29,10 +26,7 @@ PLANS = [
         "duration_days": 30,
         "coins_amount": 60,
         "features": {
-            "description": "Для регулярной работы с текстом, фото и видео",
-            "usage_example": (
-                "До 20 запросов ChatGPT, 20 изображений или 2 видео Kling"
-            ),
+            "description": "Для регулярного использования.",
         },
     },
     {
@@ -42,10 +36,7 @@ PLANS = [
         "duration_days": 30,
         "coins_amount": 130,
         "features": {
-            "description": "Для активного использования всех возможностей Cea AI",
-            "usage_example": (
-                "До 43 запросов ChatGPT, 43 изображений или 5 видео Kling"
-            ),
+            "description": "Для активной работы с AI-инструментами.",
         },
     },
 ]

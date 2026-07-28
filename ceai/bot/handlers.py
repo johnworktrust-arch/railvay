@@ -702,65 +702,44 @@ def _format_plan_details(plan: Dict[str, Any]) -> str:
     code = str(plan.get("code") or "")
     coins = int(plan.get("coins_amount") or 0)
     price = int(plan.get("price_rub") or 0)
-    chatgpt_requests = coins // 3
-    deepseek_requests = coins
-    image_requests = coins // 3
-    video_requests = coins // 25
-    tts_requests = coins // 3
     stars_amount = telegram_stars_amount_for_rub(price)
     features = loads_dict(plan.get("features"))
     description = str(features.get("description") or "").strip()
-    usage_example = str(features.get("usage_example") or "").strip()
     meta = {
         "start": {
             "icon": "⭐️",
             "label": "Старт",
-            "tag": "для знакомства",
-            "extra": "➕ Подходит, чтобы спокойно попробовать Cea AI",
         },
         "basic": {
             "icon": "🔥",
             "label": "Базовый",
-            "tag": "популярный",
-            "extra": "➕ Лучший вариант для регулярного общения с нейросетями",
         },
         "pro": {
             "icon": "⚡️",
             "label": "Про",
-            "tag": "максимум",
-            "extra": "➕ Больше всего коинов и запас для активной работы",
         },
     }.get(
         code,
         {
             "icon": "💳",
             "label": str(plan.get("name") or "Тариф"),
-            "tag": "30 дней",
-            "extra": "➕ Доступ к текстовым нейросетям Cea AI",
         },
     )
     lines = [
-        f"{meta['icon']} {meta['label']} — {price} ₽ / {stars_amount} ⭐",
-        f"({meta['tag']})",
+        f"{meta['icon']} <b>{meta['label']}</b>",
         "",
+        f"{price} ₽ или {stars_amount} ⭐",
+        f"{format_coin_amount(coins)} · 30 дней",
     ]
     if description:
         lines.extend([description, ""])
     lines.extend(
         [
-            "➕ DeepSeek, ChatGPT, GPT Image, Kling и озвучка",
-            f"➕ {format_coin_amount(coins)}",
-            f"➕ До {deepseek_requests} запросов DeepSeek",
-            f"➕ До {chatgpt_requests} запросов ChatGPT",
-            f"➕ До {image_requests} изображений GPT Image",
-            f"➕ До {video_requests} видео Kling",
-            f"➕ До {tts_requests} озвучек",
-            "➕ Срок действия — 30 дней",
+            "Доступны: DeepSeek, ChatGPT, GPT Image, Kling и озвучка.",
+            "",
+            _format_payment_methods(),
         ]
     )
-    if usage_example:
-        lines.extend(["", f"Пример использования: {usage_example}."])
-    lines.extend([str(meta["extra"]), "", _format_payment_methods()])
     return "\n".join(lines)
 
 
