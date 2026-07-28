@@ -28,6 +28,9 @@ class VpnNginxConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('proxy_set_header Accept "text/plain";', config)
+        self.assertIn("server 127.0.0.1:8010", config)
+        self.assertIn("server 127.0.0.1:8000 backup", config)
+        self.assertIn("proxy_pass http://ceavpn_subscription_backend;", config)
         connect_block = re.search(
             r'location ~ "\^/connect/.*?\n    }', config, flags=re.DOTALL
         )
@@ -118,6 +121,14 @@ class VpnNginxConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn(
             '"$bundle_dir/connect.html" /opt/marzban/connect.html',
+            provision_script,
+        )
+        self.assertIn(
+            '"$bundle_dir/subscription_proxy.py"',
+            provision_script,
+        )
+        self.assertIn(
+            "systemctl enable --now ceavpn-subscription-proxy.service",
             provision_script,
         )
 

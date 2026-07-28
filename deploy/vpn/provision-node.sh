@@ -19,6 +19,8 @@ for path in \
   "$bundle_dir/install-worker.sh" \
   "$bundle_dir/worker.py" \
   "$bundle_dir/ceavpn-worker.service" \
+  "$bundle_dir/subscription_proxy.py" \
+  "$bundle_dir/ceavpn-subscription-proxy.service" \
   "$bundle_dir/marzban" \
   "$bundle_dir/xray-core/xray" \
   "$node_file"; do
@@ -76,6 +78,14 @@ install -o root -g root -m 0755 \
 install -o root -g root -m 0644 \
   "$bundle_dir/ceavpn-worker.service" \
   /opt/ceavpn/ceavpn-worker.service
+install -o root -g root -m 0755 \
+  "$bundle_dir/subscription_proxy.py" \
+  /opt/ceavpn/subscription_proxy.py
+install -o root -g root -m 0644 \
+  "$bundle_dir/ceavpn-subscription-proxy.service" \
+  /etc/systemd/system/ceavpn-subscription-proxy.service
+systemctl daemon-reload
+systemctl enable --now ceavpn-subscription-proxy.service
 install -o root -g root -m 0755 "$bundle_dir/marzban" /usr/local/bin/marzban
 if [[ ! -x /var/lib/marzban/xray-core/xray ]]; then
   cp -a "$bundle_dir/xray-core/." /var/lib/marzban/xray-core/
