@@ -642,8 +642,7 @@ def _format_gift_screen() -> str:
     return (
         f"🎁 <b>{format_coin_amount(GIFT_COINS_AMOUNT)} бесплатно</b>\n\n"
         f"Чтобы получить доступ, подпишитесь на канал "
-        f"@{GIFT_CHANNEL_USERNAME}.\n\n"
-        "<blockquote>▶ После подписки нажмите проверку ❞</blockquote>"
+        f"@{GIFT_CHANNEL_USERNAME}."
     )
 
 
