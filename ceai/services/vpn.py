@@ -25,6 +25,7 @@ from ceai.services.platega import (
     PlategaClient,
     PlategaError,
     PlategaTransaction,
+    is_compatible_payment_amount,
 )
 from ceai.services.referrals import ReferralService
 from ceai.time_utils import parse_iso, utcnow
@@ -663,7 +664,10 @@ class VpnService:
                     "Platega вернула другой заказ."
                 )
             if (
-                int(payment["amount_rub"]) != int(remote.amount_rub)
+                not is_compatible_payment_amount(
+                    charged_amount_rub=remote.amount_rub,
+                    expected_amount_rub=int(payment["amount_rub"]),
+                )
                 or str(payment.get("currency") or "") != "RUB"
                 or remote.currency != "RUB"
             ):

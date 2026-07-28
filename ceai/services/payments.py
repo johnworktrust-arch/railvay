@@ -31,6 +31,7 @@ from ceai.services.platega import (
     PlategaClient,
     PlategaError,
     PlategaTransaction,
+    is_compatible_payment_amount,
 )
 from ceai.services.referrals import ReferralService
 from ceai.time_utils import utcnow
@@ -797,7 +798,7 @@ class PaymentService:
             "verified_transaction": {
                 "id": remote.transaction_id,
                 "status": remote.status,
-                "amount": remote.amount_rub,
+                "amount": str(remote.amount_rub),
                 "currency": remote.currency,
                 "payment_method": remote.payment_method,
             },
@@ -855,7 +856,10 @@ class PaymentService:
             )
         if payment is None:
             raise NotFoundError("Платеж Platega не найден")
-        if remote.currency != "RUB" or remote.amount_rub != int(payment["amount_rub"]):
+        if remote.currency != "RUB" or not is_compatible_payment_amount(
+            charged_amount_rub=remote.amount_rub,
+            expected_amount_rub=int(payment["amount_rub"]),
+        ):
             raise BusinessRuleError(
                 "Сумма или валюта платежа Platega не совпадает."
             )

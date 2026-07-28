@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 import uuid
+from decimal import Decimal
 
 from ceai.database import Database
 from ceai.seed import seed_reference_data
@@ -127,7 +128,7 @@ class AiPlategaPaymentTest(unittest.TestCase):
         self.client.transactions[payment["external_id"]] = PlategaTransaction(
             transaction_id=current.transaction_id,
             status=PLATEGA_CONFIRMED,
-            amount_rub=current.amount_rub + 1,
+            amount_rub=Decimal(current.amount_rub) - Decimal("0.01"),
             currency="RUB",
             payment_method=2,
         )
@@ -148,6 +149,25 @@ class AiPlategaPaymentTest(unittest.TestCase):
             ).fetchone()["count"]
         self.assertEqual(stored["status"], "pending")
         self.assertEqual(credits, 0)
+
+    def test_confirmed_payment_accepts_platega_fee_added_on_top(self) -> None:
+        payment = self._create()
+        current = self.client.transactions[payment["external_id"]]
+        self.client.transactions[payment["external_id"]] = PlategaTransaction(
+            transaction_id=current.transaction_id,
+            status=PLATEGA_CONFIRMED,
+            amount_rub=Decimal("324.42"),
+            currency="RUB",
+            payment_method=2,
+        )
+
+        result = self.payments.process_platega_webhook(
+            headers={"X-MerchantId": "merchant", "X-Secret": "secret"},
+            payload={"id": payment["external_id"], "status": "CONFIRMED"},
+        )
+
+        self.assertTrue(result.processed)
+        self.assertGreater(result.credited_coins, 0)
 
     def test_reconciliation_recovers_confirmed_payment_without_callback(self) -> None:
         payment = self._create()

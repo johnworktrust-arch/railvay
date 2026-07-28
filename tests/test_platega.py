@@ -4,6 +4,7 @@ import io
 import json
 import unittest
 import urllib.error
+from decimal import Decimal
 from unittest.mock import Mock, patch
 
 from ceai.services.platega import (
@@ -200,10 +201,10 @@ class PlategaClientTest(unittest.TestCase):
             transaction_response(status="EXPIRED"),
             transaction_response(paymentDetails=None),
             transaction_response(paymentDetails={"amount": True, "currency": "RUB"}),
-            transaction_response(paymentDetails={"amount": "189.01", "currency": "RUB"}),
+            transaction_response(paymentDetails={"amount": "189.001", "currency": "RUB"}),
             transaction_response(paymentDetails={"amount": " 189", "currency": "RUB"}),
             transaction_response(paymentDetails={"amount": "1e2", "currency": "RUB"}),
-            transaction_response(paymentDetails={"amount": 189.5, "currency": "RUB"}),
+            transaction_response(paymentDetails={"amount": 189.501, "currency": "RUB"}),
             transaction_response(paymentDetails={"amount": 0, "currency": "RUB"}),
             transaction_response(paymentDetails={"amount": 189, "currency": "rub"}),
             transaction_response(paymentDetails={"amount": 189, "currency": 643}),
@@ -233,6 +234,7 @@ class PlategaClientTest(unittest.TestCase):
             "189,00",
             "189 RUB",
             "189.00 RUB",
+            "204.07 RUB",
         ):
             with self.subTest(amount=amount):
                 client = self.make_client()
@@ -242,9 +244,10 @@ class PlategaClientTest(unittest.TestCase):
                         paymentDetails={"amount": amount, "currency": "RUB"}
                     ),
                 )
+                expected = Decimal("204.07") if amount == "204.07 RUB" else 189
                 self.assertEqual(
                     client.get_transaction(TRANSACTION_ID).amount_rub,
-                    189,
+                    expected,
                 )
 
     def test_callback_authentication_is_case_insensitive_for_header_names(self) -> None:

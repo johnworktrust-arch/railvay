@@ -32,8 +32,9 @@ _MAX_TEXT_FIELD_LENGTH = 4096
 _MAX_HEADER_LENGTH = 4096
 _MAX_PAYMENT_AMOUNT_RUB = 10**12
 _RUBLE_AMOUNT_RE = re.compile(
-    r"(?P<amount>(?:0|[1-9][0-9]*)(?:[.,]0{1,2})?)(?: RUB)?"
+    r"(?P<amount>(?:0|[1-9][0-9]*)(?:[.,][0-9]{1,2})?)(?: RUB)?"
 )
+_MAX_CUSTOMER_FEE_PERCENT = Decimal("20")
 
 
 class PlategaError(RuntimeError):
@@ -72,9 +73,29 @@ class PlategaCreatedPayment:
 class PlategaTransaction:
     transaction_id: str
     status: str
-    amount_rub: int
+    amount_rub: Decimal
     currency: str
     payment_method: str | int | None
+
+
+def is_compatible_payment_amount(
+    *,
+    charged_amount_rub: Decimal | int,
+    expected_amount_rub: int,
+) -> bool:
+    """Accept the tariff price plus Platega's customer-facing acquiring fee."""
+    if (
+        isinstance(expected_amount_rub, bool)
+        or not isinstance(expected_amount_rub, int)
+        or expected_amount_rub <= 0
+    ):
+        return False
+    charged = Decimal(charged_amount_rub)
+    expected = Decimal(expected_amount_rub)
+    maximum = expected * (
+        Decimal("1") + _MAX_CUSTOMER_FEE_PERCENT / Decimal("100")
+    )
+    return expected <= charged <= maximum
 
 
 class _RejectRedirectHandler(urllib.request.HTTPRedirectHandler):
@@ -399,7 +420,7 @@ def _validate_input_amount(value: int) -> int:
     return value
 
 
-def _validate_response_amount(value: Any) -> int:
+def _validate_response_amount(value: Any) -> Decimal:
     if isinstance(value, bool):
         raise PlategaResponseError("Platega returned an invalid payment amount.")
     if isinstance(value, str):
@@ -424,10 +445,10 @@ def _validate_response_amount(value: Any) -> int:
         not amount.is_finite()
         or amount <= 0
         or amount > _MAX_PAYMENT_AMOUNT_RUB
-        or amount != amount.to_integral_value()
+        or amount.as_tuple().exponent < -2
     ):
         raise PlategaResponseError("Platega returned an invalid payment amount.")
-    return int(amount)
+    return amount
 
 
 def _validate_currency(value: Any) -> str:
