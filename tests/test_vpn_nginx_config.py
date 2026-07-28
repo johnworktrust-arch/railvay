@@ -51,6 +51,11 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertIn("Добавить подписку", setup_html)
         self.assertIn("Копировать", setup_html)
         self.assertIn("location.pathname", setup_html)
+        self.assertIn("overflow-x: hidden", setup_html)
+        self.assertIn("grid-template-columns: 34px minmax(0, 1fr)", setup_html)
+        self.assertIn(".content {", setup_html)
+        self.assertIn("min-width: 0", setup_html)
+        self.assertIn('<details class="fallback">', setup_html)
 
         happ_block = re.search(
             r'location ~ "\^/happ/.*?\n    }', config, flags=re.DOTALL
