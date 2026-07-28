@@ -17,7 +17,7 @@ class VpnPlanRepository:
         duration_days: int,
         price_rub: int,
         price_stars: int,
-        max_devices: int = 3,
+        max_devices: int = 1,
         is_active: bool = True,
     ) -> Dict[str, Any]:
         now = iso_now()

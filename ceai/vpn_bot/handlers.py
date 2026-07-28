@@ -365,7 +365,7 @@ def trial_expiry_reminder_screen(
         "<blockquote>"
         "🎁 <b>3 дня бесплатно</b>\n"
         "Трафик: безлимит\n"
-        "Устройств: до 3"
+        "Устройств: 1"
         "</blockquote>\n"
         "📶 Успейте продлить подписку заранее, чтобы продолжить "
         "пользоваться интернетом без перерыва."
@@ -444,7 +444,7 @@ def subscription_screen(
         )
 
     plan_name = subscription.get("plan_name") or "3 бесплатных дня"
-    max_devices = int(subscription.get("plan_max_devices") or 3)
+    max_devices = int(subscription.get("plan_max_devices") or 1)
     ends_at = _format_ends_at(subscription["ends_at"])
     rows: list[list[InlineKeyboardButton]] = []
     subscription_url = str(subscription.get("subscription_url") or "")
@@ -495,8 +495,7 @@ def subscription_screen(
         "📦 <b>Информация о тарифе:</b>\n"
         "<blockquote>"
         f"💎 <b>Тариф:</b> {escape(str(plan_name))}\n"
-        f"📱 <b>Лимит устройств:</b> до {max_devices}\n"
-        "🌍 <b>Локации:</b> Нидерланды, США, Финляндия"
+        f"📱 <b>Лимит устройств:</b> {max_devices}"
         "</blockquote>\n"
         f"📅 <b>Срок действия:</b> {escape(ends_at)} (МСК)\n\n"
         "💡 Нажмите «Подключить VPN» — откроется персональная "
@@ -670,7 +669,13 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "vpn:plans")
     async def plans(callback: CallbackQuery) -> None:
         if callback.message:
-            await _screen(callback.message, "<b>Подключить VPN 🚀</b>\n\nЛюбой тариф включает до <b>3 устройств.</b>\n\n<blockquote>▶ Выберите срок подписки</blockquote>", plans_keyboard())
+            await _screen(
+                callback.message,
+                "<b>Подключить VPN 🚀</b>\n\n"
+                "Любой тариф предназначен для <b>1 устройства.</b>\n\n"
+                "<blockquote>▶ Выберите срок подписки</blockquote>",
+                plans_keyboard(),
+            )
         await callback.answer()
 
     @router.callback_query(F.data.startswith("vpn:tariff:"))
@@ -682,7 +687,15 @@ def create_vpn_router(services: AppServices) -> Router:
             return
         name, old, price = tariff_data
         if callback.message:
-            await _screen(callback.message, f"Покупка VPN\n\nТариф: <b>{name}</b>\nДоступно: <b>до 3 устройств</b>\nК оплате: <b>{old}₽ / {price} ⭐</b>\n\n<blockquote>▶ Выбери способ оплаты</blockquote>", payment_keyboard(code))
+            await _screen(
+                callback.message,
+                "Покупка VPN\n\n"
+                f"Тариф: <b>{name}</b>\n"
+                "Доступно: <b>1 устройство</b>\n"
+                f"К оплате: <b>{old}₽ / {price} ⭐</b>\n\n"
+                "<blockquote>▶ Выбери способ оплаты</blockquote>",
+                payment_keyboard(code),
+            )
         await callback.answer()
 
     @router.callback_query(F.data.startswith("vpn:payment:"))
@@ -705,7 +718,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     callback.message,
                     "Покупка VPN\n\n"
                     f"Тариф: <b>{name}</b>\n"
-                    "Доступно: <b>до 3 устройств</b>\n"
+                    "Доступно: <b>1 устройство</b>\n"
                     f"К оплате: <b>{old}₽ / {price} ⭐</b>\n\n"
                     "<blockquote>▶ Способы оплаты обновились. "
                     "Выберите оплату через Platega.</blockquote>",
@@ -760,7 +773,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     callback.message,
                     f"📦 <b>Заказ: CEA-{int(order['id']):06d}</b>\n\n"
                     f"VPN: <b>{name}</b>\n"
-                    "Доступно: <b>до 3 устройств</b>\n"
+                    "Доступно: <b>1 устройство</b>\n"
                     f"Оплата: <b>{labels[method]}</b>\n"
                     f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
                     "<blockquote>▶ Оплатите заказ и нажмите проверку</blockquote>\n\n"
@@ -804,7 +817,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 callback.message,
                 f"📦 <b>Тестовый заказ: CEA-TEST-{int(order['id']):06d}</b>\n\n"
                 f"VPN: <b>{name}</b>\n"
-                "Доступно: <b>до 3 устройств</b>\n"
+                "Доступно: <b>1 устройство</b>\n"
                 f"Оплата: <b>{labels[method]}</b>\n"
                 f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
                 "<blockquote>🧪 Личный тестовый режим владельца</blockquote>\n\n"

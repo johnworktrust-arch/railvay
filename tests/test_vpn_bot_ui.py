@@ -45,6 +45,7 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertIn("9 часов 51 минута", text)
         self.assertIn("24 июля 2026 года, 20:34 (МСК)", text)
         self.assertIn("3 дня бесплатно", text)
+        self.assertIn("Устройств: 1", text)
         self.assertEqual(
             keyboard.inline_keyboard[0][0].callback_data,
             "vpn:plans",
@@ -60,7 +61,7 @@ class VpnBotUiTest(unittest.TestCase):
             {
                 "status": "active",
                 "plan_name": "30 дней",
-                "plan_max_devices": 4,
+                "plan_max_devices": 1,
                 "server_region": "NL",
                 "ends_at": datetime(2026, 8, 23, 19, 35, tzinfo=timezone.utc),
                 "subscription_url": subscription_url,
@@ -89,7 +90,11 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertIn("Баланс:</b> 5 ₽", text)
         self.assertIn(subscription_url, text)
         self.assertIn("Тариф:</b> 30 дней", text)
-        self.assertIn("Лимит устройств:</b> до 4", text)
+        self.assertIn("Лимит устройств:</b> 1", text)
+        self.assertNotIn("Локации:", text)
+        self.assertNotIn("Нидерланды", text)
+        self.assertNotIn("США", text)
+        self.assertNotIn("Финляндия", text)
         self.assertIn("23 августа 2026 года, 22:35 (МСК)", text)
 
     def test_connect_landing_url_uses_the_same_strict_origin_check(self) -> None:
