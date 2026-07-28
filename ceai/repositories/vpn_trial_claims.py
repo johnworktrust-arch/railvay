@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import sqlite3
-from typing import Any, Dict, Tuple
+from typing import Any, Dict, List, Tuple
 
 from ceai.repositories.base import row_to_dict
 from ceai.time_utils import iso_now
@@ -73,6 +73,98 @@ class VpnTrialClaimRepository:
                 "SELECT * FROM vpn_trial_claims WHERE subscription_id = ?",
                 (subscription_id,),
             ).fetchone()
+        )
+
+    def claim_due_expiry_reminders(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        now: str,
+        remind_by: str,
+        stale_before: str,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        candidates = conn.execute(
+            """
+            SELECT
+                claim.id AS claim_id,
+                claim.subscription_id,
+                subscription.ends_at,
+                subscription.plan_id,
+                user.telegram_id
+            FROM vpn_trial_claims claim
+            JOIN vpn_subscriptions subscription
+              ON subscription.id = claim.subscription_id
+            JOIN users user
+              ON user.id = claim.user_id
+            WHERE claim.status = 'provisioned'
+              AND claim.expiry_reminder_sent_at IS NULL
+              AND (
+                    claim.expiry_reminder_claimed_at IS NULL
+                    OR claim.expiry_reminder_claimed_at <= ?
+              )
+              AND subscription.status = 'active'
+              AND subscription.kind = 'trial'
+              AND subscription.billing_kind = 'trial'
+              AND subscription.ends_at > ?
+              AND subscription.ends_at <= ?
+            ORDER BY subscription.ends_at ASC, claim.id ASC
+            LIMIT ?
+            """,
+            (stale_before, now, remind_by, limit),
+        ).fetchall()
+
+        claimed: List[Dict[str, Any]] = []
+        for candidate in candidates:
+            cursor = conn.execute(
+                """
+                UPDATE vpn_trial_claims
+                SET expiry_reminder_claimed_at = ?, updated_at = ?
+                WHERE id = ?
+                  AND expiry_reminder_sent_at IS NULL
+                  AND (
+                        expiry_reminder_claimed_at IS NULL
+                        OR expiry_reminder_claimed_at <= ?
+                  )
+                """,
+                (now, now, int(candidate["claim_id"]), stale_before),
+            )
+            if cursor.rowcount == 1:
+                claimed.append(row_to_dict(candidate) or {})
+        return claimed
+
+    def mark_expiry_reminder_sent(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        claim_id: int,
+        sent_at: str,
+    ) -> None:
+        conn.execute(
+            """
+            UPDATE vpn_trial_claims
+            SET expiry_reminder_sent_at = ?,
+                expiry_reminder_claimed_at = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (sent_at, sent_at, claim_id),
+        )
+
+    def release_expiry_reminder(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        claim_id: int,
+    ) -> None:
+        conn.execute(
+            """
+            UPDATE vpn_trial_claims
+            SET expiry_reminder_claimed_at = NULL, updated_at = ?
+            WHERE id = ?
+              AND expiry_reminder_sent_at IS NULL
+            """,
+            (iso_now(), claim_id),
         )
 
     def mark_status(

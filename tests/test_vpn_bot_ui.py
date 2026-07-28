@@ -6,12 +6,54 @@ from datetime import datetime, timezone
 from ceai.vpn_bot.handlers import (
     connect_landing_url,
     happ_landing_url,
+    main_keyboard,
     subscription_screen,
+    trial_expiry_reminder_screen,
     v2box_landing_url,
 )
 
 
 class VpnBotUiTest(unittest.TestCase):
+    def test_main_menu_hides_trial_after_it_has_been_used(self) -> None:
+        available = main_keyboard(
+            support_username="cea_help",
+            trial_available=True,
+        )
+        used = main_keyboard(
+            support_username="cea_help",
+            trial_available=False,
+        )
+
+        self.assertEqual(available.inline_keyboard[0][0].text, "🎁 3 дня бесплатно")
+        self.assertFalse(
+            any(
+                button.callback_data == "vpn:trial"
+                for row in used.inline_keyboard
+                for button in row
+            )
+        )
+        self.assertEqual(used.inline_keyboard[0][0].text, "Подключить VPN 🚀")
+
+    def test_trial_expiry_reminder_shows_time_and_renewal_button(self) -> None:
+        now = datetime(2026, 7, 24, 7, 43, tzinfo=timezone.utc)
+        text, keyboard = trial_expiry_reminder_screen(
+            datetime(2026, 7, 24, 17, 34, tzinfo=timezone.utc),
+            now=now,
+        )
+
+        self.assertIn("Пробный период скоро закончится", text)
+        self.assertIn("9 часов 51 минута", text)
+        self.assertIn("24 июля 2026 года, 20:34 (МСК)", text)
+        self.assertIn("3 дня бесплатно", text)
+        self.assertEqual(
+            keyboard.inline_keyboard[0][0].callback_data,
+            "vpn:plans",
+        )
+        self.assertEqual(
+            keyboard.inline_keyboard[1][0].callback_data,
+            "vpn:subscription",
+        )
+
     def test_active_subscription_shows_profile_and_setup_guide(self) -> None:
         subscription_url = "https://sub.example.test:8443/sub/secret-token"
         text, keyboard = subscription_screen(

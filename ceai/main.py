@@ -9,6 +9,7 @@ import re
 from contextlib import suppress
 
 from aiogram import Bot, Dispatcher
+from aiogram.exceptions import TelegramForbiddenError
 from aiogram.types import BotCommand, InlineKeyboardButton, InlineKeyboardMarkup
 from aiogram.webhook.aiohttp_server import SimpleRequestHandler, setup_application
 from aiohttp import ClientSession, ClientTimeout, web
@@ -38,6 +39,7 @@ from ceai.vpn_bot.handlers import (
     subscription_copy_button,
     subscription_open_button,
     subscription_v2box_button,
+    trial_expiry_reminder_screen,
 )
 from ceai.vpn_worker_api import register_vpn_worker_routes
 
@@ -130,7 +132,10 @@ async def platega_reconciliation_loop(services: AppServices, bot: Bot) -> None:
         await asyncio.sleep(max(30, interval_seconds))
 
 
-async def vpn_maintenance_loop(services: AppServices) -> None:
+async def vpn_maintenance_loop(
+    services: AppServices,
+    vpn_bot: Bot | None = None,
+) -> None:
     interval_seconds = int(os.getenv("VPN_MAINTENANCE_INTERVAL_SECONDS", "60"))
     while True:
         try:
@@ -143,6 +148,45 @@ async def vpn_maintenance_loop(services: AppServices) -> None:
                 )
         except Exception:
             logging.exception("Platega VPN reconciliation loop failed")
+        if vpn_bot is not None:
+            try:
+                reminders = await asyncio.to_thread(
+                    services.vpn.claim_due_trial_expiry_reminders
+                )
+            except Exception:
+                reminders = []
+                logging.exception("Could not claim VPN trial expiry reminders")
+            for reminder in reminders:
+                claim_id = int(reminder["claim_id"])
+                text, keyboard = trial_expiry_reminder_screen(
+                    reminder["ends_at"]
+                )
+                try:
+                    await vpn_bot.send_message(
+                        chat_id=int(reminder["telegram_id"]),
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode="HTML",
+                    )
+                except TelegramForbiddenError:
+                    # A blocked/deactivated chat cannot become deliverable later.
+                    await asyncio.to_thread(
+                        services.vpn.complete_trial_expiry_reminder,
+                        claim_id,
+                    )
+                except Exception:
+                    await asyncio.to_thread(
+                        services.vpn.release_trial_expiry_reminder,
+                        claim_id,
+                    )
+                    logging.exception(
+                        "Could not send VPN trial expiry reminder"
+                    )
+                else:
+                    await asyncio.to_thread(
+                        services.vpn.complete_trial_expiry_reminder,
+                        claim_id,
+                    )
         try:
             queued = await asyncio.to_thread(services.vpn.enqueue_due_expirations)
             if queued:
@@ -627,7 +671,9 @@ async def run_webhook(
     platega_reconciliation_task = asyncio.create_task(
         platega_reconciliation_loop(services, bot)
     )
-    vpn_maintenance_task = asyncio.create_task(vpn_maintenance_loop(services))
+    vpn_maintenance_task = asyncio.create_task(
+        vpn_maintenance_loop(services, vpn_bot)
+    )
     logging.info("Webhook endpoint listening on 0.0.0.0:%s%s", port, webhook_path)
     logging.info("Health endpoint listening on 0.0.0.0:%s/healthz", port)
     try:
@@ -707,7 +753,9 @@ async def main() -> None:
             platega_reconciliation_task = asyncio.create_task(
                 platega_reconciliation_loop(services, bot)
             )
-            vpn_maintenance_task = asyncio.create_task(vpn_maintenance_loop(services))
+            vpn_maintenance_task = asyncio.create_task(
+                vpn_maintenance_loop(services, vpn_bot)
+            )
             try:
                 if vpn_bot and vpn_dispatcher:
                     await vpn_bot.delete_webhook(drop_pending_updates=False)

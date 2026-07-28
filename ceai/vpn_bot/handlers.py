@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import math
 import re
 from datetime import datetime, timezone
 from html import escape
@@ -190,9 +191,23 @@ def happ_subscription_instructions() -> str:
     )
 
 
-def main_keyboard(*, support_username: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [InlineKeyboardButton(text="🎁 3 дня бесплатно", callback_data="vpn:trial", style="success")],
+def main_keyboard(
+    *,
+    support_username: str,
+    trial_available: bool = True,
+) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if trial_available:
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🎁 3 дня бесплатно",
+                    callback_data="vpn:trial",
+                    style="success",
+                )
+            ]
+        )
+    rows.extend([
         [InlineKeyboardButton(text="Подключить VPN 🚀", callback_data="vpn:plans", style="primary")],
         [InlineKeyboardButton(text="👤 Моя подписка", callback_data="vpn:subscription")],
         [InlineKeyboardButton(text="🥷 Заработать", callback_data="vpn:earn")],
@@ -201,6 +216,7 @@ def main_keyboard(*, support_username: str) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🛡 О сервисе", callback_data="vpn:about"),
         ],
     ])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def plans_keyboard() -> InlineKeyboardMarkup:
@@ -298,6 +314,80 @@ def _format_ends_at(value: Any) -> str:
         f"{local.day} {months[local.month - 1]} {local.year} года, "
         f"{local:%H:%M}"
     )
+
+
+def _plural_ru(value: int, one: str, few: str, many: str) -> str:
+    if value % 10 == 1 and value % 100 != 11:
+        return one
+    if value % 10 in {2, 3, 4} and value % 100 not in {12, 13, 14}:
+        return few
+    return many
+
+
+def trial_expiry_reminder_screen(
+    ends_at: Any,
+    *,
+    now: datetime | None = None,
+) -> tuple[str, InlineKeyboardMarkup]:
+    parsed_end = (
+        ends_at
+        if isinstance(ends_at, datetime)
+        else datetime.fromisoformat(str(ends_at))
+    )
+    if parsed_end.tzinfo is None:
+        parsed_end = parsed_end.replace(tzinfo=timezone.utc)
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        current = current.replace(tzinfo=timezone.utc)
+    total_minutes = max(
+        1,
+        math.ceil((parsed_end - current).total_seconds() / 60),
+    )
+    hours, minutes = divmod(total_minutes, 60)
+    remaining_parts: list[str] = []
+    if hours:
+        remaining_parts.append(
+            f"{hours} {_plural_ru(hours, 'час', 'часа', 'часов')}"
+        )
+    if minutes:
+        remaining_parts.append(
+            f"{minutes} {_plural_ru(minutes, 'минута', 'минуты', 'минут')}"
+        )
+    remaining = " ".join(remaining_parts) or "меньше минуты"
+    text = (
+        "⚠️ <b>Пробный период скоро закончится</b>\n\n"
+        "Статус подписки:\n"
+        "<blockquote>"
+        f"⌛ <b>Осталось времени:</b> {escape(remaining)}\n"
+        f"📅 <b>Дата окончания:</b> {escape(_format_ends_at(parsed_end))} (МСК)"
+        "</blockquote>\n"
+        "Тариф:\n"
+        "<blockquote>"
+        "🎁 <b>3 дня бесплатно</b>\n"
+        "Трафик: безлимит\n"
+        "Устройств: до 3"
+        "</blockquote>\n"
+        "📶 Успейте продлить подписку заранее, чтобы продолжить "
+        "пользоваться интернетом без перерыва."
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Продлить подписку",
+                    callback_data="vpn:plans",
+                    style="success",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text="👤 Моя подписка",
+                    callback_data="vpn:subscription",
+                )
+            ],
+        ]
+    )
+    return text, keyboard
 
 
 def subscription_screen(
@@ -438,12 +528,16 @@ def _referral_text(user: Dict[str, Any], stats: Any, bot_username: str) -> str:
 def create_vpn_router(services: AppServices) -> Router:
     router = Router(name="vpn")
 
-    async def show_main(message: Message) -> None:
+    async def show_main(message: Message, *, user_id: int) -> None:
+        trial_available = not services.vpn.has_used_trial(user_id)
         await _screen(
             message,
             "<b>Привет! Я — CEA VPN 🥷</b>\n\nПомогу подключить VPN за пару минут.\n\n"
             "⚡ Быстрое подключение\n🛡 Защищённое соединение\n🌍 Доступ к нужным сайтам",
-            main_keyboard(support_username=services.settings.vpn_support_username),
+            main_keyboard(
+                support_username=services.settings.vpn_support_username,
+                trial_available=trial_available,
+            ),
         )
 
     @router.message(CommandStart())
@@ -453,17 +547,18 @@ def create_vpn_router(services: AppServices) -> Router:
         services.referrals.apply_start_referral(
             user_id=user["id"], start_text=message.text, user_was_registered=existing is not None
         )
-        await show_main(message)
+        await show_main(message, user_id=int(user["id"]))
 
     @router.message(Command("menu"))
     async def menu(message: Message) -> None:
-        services.users.ensure_telegram_user(**_user_kwargs(message))
-        await show_main(message)
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        await show_main(message, user_id=int(user["id"]))
 
     @router.callback_query(F.data == "vpn:main")
     async def main(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         if callback.message:
-            await show_main(callback.message)
+            await show_main(callback.message, user_id=int(user["id"]))
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:about")

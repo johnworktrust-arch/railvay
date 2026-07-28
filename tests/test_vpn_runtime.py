@@ -110,6 +110,50 @@ class VpnRuntimeTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(claim["status"], "provisioned")
 
+    def test_trial_expiry_reminder_is_claimed_once_and_can_retry(self) -> None:
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        job = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        assert job is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(job["job_id"]),
+            lease_token=str(job["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/reminder",
+        )
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE vpn_subscriptions
+                SET ends_at = ?
+                WHERE id = ?
+                """,
+                (
+                    (utcnow() + timedelta(hours=9, minutes=50)).isoformat(),
+                    int(trial.subscription["id"]),
+                ),
+            )
+
+        first = self.vpn.claim_due_trial_expiry_reminders()
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0]["telegram_id"], self.user["telegram_id"])
+        self.assertEqual(self.vpn.claim_due_trial_expiry_reminders(), [])
+
+        claim_id = int(first[0]["claim_id"])
+        self.vpn.release_trial_expiry_reminder(claim_id)
+        retried = self.vpn.claim_due_trial_expiry_reminders()
+        self.assertEqual([item["claim_id"] for item in retried], [claim_id])
+
+        self.vpn.complete_trial_expiry_reminder(claim_id)
+        self.assertEqual(self.vpn.claim_due_trial_expiry_reminders(), [])
+        self.assertTrue(self.vpn.has_used_trial(int(self.user["id"])))
+
     def test_worker_converges_existing_active_subscription_to_profile_v3(self) -> None:
         trial = self.vpn.claim_trial(
             user_id=int(self.user["id"]),

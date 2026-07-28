@@ -1076,6 +1076,39 @@ class VpnService:
         with self.db.transaction() as conn:
             return self.subscriptions.get_latest_for_user(conn, user_id)
 
+    def has_used_trial(self, user_id: int) -> bool:
+        with self.db.transaction() as conn:
+            return self.trials.get_by_user_id(conn, user_id) is not None
+
+    def claim_due_trial_expiry_reminders(
+        self,
+        *,
+        remind_before_hours: int = 10,
+        lease_seconds: int = 300,
+        limit: int = 100,
+    ) -> list[Dict[str, Any]]:
+        now = utcnow()
+        with self.db.transaction() as conn:
+            return self.trials.claim_due_expiry_reminders(
+                conn,
+                now=now.isoformat(),
+                remind_by=(now + timedelta(hours=remind_before_hours)).isoformat(),
+                stale_before=(now - timedelta(seconds=lease_seconds)).isoformat(),
+                limit=limit,
+            )
+
+    def complete_trial_expiry_reminder(self, claim_id: int) -> None:
+        with self.db.transaction() as conn:
+            self.trials.mark_expiry_reminder_sent(
+                conn,
+                claim_id=claim_id,
+                sent_at=utcnow().isoformat(),
+            )
+
+    def release_trial_expiry_reminder(self, claim_id: int) -> None:
+        with self.db.transaction() as conn:
+            self.trials.release_expiry_reminder(conn, claim_id=claim_id)
+
     def _fulfill_paid_payment(
         self,
         conn: Any,
