@@ -16,6 +16,7 @@ backup_dir="/root/ceavpn-config-backups"
 nginx_test_config=""
 reality_new=""
 fallback_new=""
+node_file="/root/ceavpn-node.env"
 
 if [[ $EUID -ne 0 ]]; then
   echo "run as root" >&2
@@ -31,6 +32,7 @@ cleanup() {
   unset CEAVPN_REALITY_SHORT_ID CEAVPN_FALLBACK_WS_PATH
   unset CEAVPN_XRAY_TEMPLATE CEAVPN_XRAY_OUTPUT
   unset CEAVPN_NGINX_TEMPLATE CEAVPN_NGINX_OUTPUT
+  unset CEAVPN_SUB_DOMAIN CEAVPN_COVER_DOMAIN
   rm -f -- "$xray_new" "$nginx_new"
   if [[ -n "$nginx_test_config" ]]; then
     rm -f -- "$nginx_test_config"
@@ -49,6 +51,7 @@ for path in \
   "$xray_template" \
   "$nginx_template" \
   "$key_file" \
+  "$node_file" \
   "$compose_file"; do
   if [[ ! -s "$path" ]]; then
     echo "missing required file: $path" >&2
@@ -69,8 +72,18 @@ if [[ ! -d "$(dirname "$nginx_output")" ]]; then
 fi
 install -d -o root -g root -m 0700 "$backup_dir"
 
-private_key="$(sed -n 's/^Private key:[[:space:]]*//p' "$key_file")"
-public_key="$(sed -n 's/^Public key:[[:space:]]*//p' "$key_file")"
+private_key="$(
+  sed -n \
+    -e 's/^Private key:[[:space:]]*//p' \
+    -e 's/^PrivateKey:[[:space:]]*//p' \
+    "$key_file"
+)"
+public_key="$(
+  sed -n \
+    -e 's/^Public key:[[:space:]]*//p' \
+    -e 's/^Password (PublicKey):[[:space:]]*//p' \
+    "$key_file"
+)"
 if [[ -z "$private_key" || -z "$public_key" ]]; then
   echo "could not parse Reality keys" >&2
   exit 1
@@ -105,6 +118,11 @@ chmod 0600 "$fallback_file"
 source "$reality_file"
 # shellcheck disable=SC1090
 source "$fallback_file"
+# shellcheck disable=SC1090
+source "$node_file"
+
+: "${CEAVPN_SUB_DOMAIN:?CEAVPN_SUB_DOMAIN is required}"
+: "${CEAVPN_COVER_DOMAIN:?CEAVPN_COVER_DOMAIN is required}"
 
 if [[ "$REALITY_PUBLIC_KEY" != "$public_key" ]]; then
   echo "Reality public key does not match the private-key source" >&2
@@ -127,6 +145,7 @@ export CEAVPN_XRAY_TEMPLATE="$xray_template"
 export CEAVPN_XRAY_OUTPUT="$xray_new"
 export CEAVPN_NGINX_TEMPLATE="$nginx_template"
 export CEAVPN_NGINX_OUTPUT="$nginx_new"
+export CEAVPN_SUB_DOMAIN CEAVPN_COVER_DOMAIN
 
 python3 - <<'PY'
 import json
@@ -146,16 +165,19 @@ xray_replacements = {
     "__REALITY_PUBLIC_KEY__": os.environ["CEAVPN_REALITY_PUBLIC_KEY"],
     "__REALITY_SHORT_ID__": os.environ["CEAVPN_REALITY_SHORT_ID"],
     "__FALLBACK_WS_PATH__": os.environ["CEAVPN_FALLBACK_WS_PATH"],
+    "__COVER_DOMAIN__": os.environ["CEAVPN_COVER_DOMAIN"],
 }
 nginx_replacements = {
     "__FALLBACK_WS_PATH__": os.environ["CEAVPN_FALLBACK_WS_PATH"],
+    "__SUB_DOMAIN__": os.environ["CEAVPN_SUB_DOMAIN"],
+    "__COVER_DOMAIN__": os.environ["CEAVPN_COVER_DOMAIN"],
 }
 
 for placeholder in xray_replacements:
     if xray_template.count(placeholder) != 1:
         raise SystemExit(f"invalid Xray placeholder count: {placeholder}")
 for placeholder in nginx_replacements:
-    if nginx_template.count(placeholder) != 1:
+    if nginx_template.count(placeholder) < 1:
         raise SystemExit(f"invalid Nginx placeholder count: {placeholder}")
 
 rendered_xray = xray_template

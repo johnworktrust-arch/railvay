@@ -152,6 +152,27 @@ VPN_PLANS = [
     ("vpn-12m", "1 год", 365, 1290, 999),
 ]
 
+VPN_ADDITIONAL_SERVERS = (
+    {
+        "code": "us-1",
+        "name": "CEA VPN Charlotte 1",
+        "provider": "marzban",
+        "region": "US",
+        "api_base_url": "http://127.0.0.1:8000",
+        "worker_id": "cea-vpn-us",
+        "subscription_base_url": "https://sub.77-110-119-28.sslip.io:8443",
+    },
+    {
+        "code": "fi-1",
+        "name": "CEA VPN Helsinki 1",
+        "provider": "marzban",
+        "region": "FI",
+        "api_base_url": "http://127.0.0.1:8000",
+        "worker_id": "cea-vpn-fi",
+        "subscription_base_url": "https://sub.138-124-59-14.sslip.io:8443",
+    },
+)
+
 
 def seed_reference_data(db: Database) -> None:
     settings = load_settings()
@@ -184,6 +205,8 @@ def seed_reference_data(db: Database) -> None:
             worker_id=settings.vpn_worker_id,
             subscription_base_url=settings.vpn_subscription_base_url,
         )
+        for server in VPN_ADDITIONAL_SERVERS:
+            vpn_server_repo.upsert(conn, **server)
         conn.execute(
             """
             UPDATE model_prices

@@ -5,6 +5,7 @@ set -Eeuo pipefail
 # separate from /root/ceavpn-admin.env, which belongs to the non-sudo worker.
 admin_file="/root/ceavpn-sudo-admin.env"
 fallback_file="/root/ceavpn-fallback.env"
+node_file="/root/ceavpn-node.env"
 api_base="http://127.0.0.1:8000"
 reality_tag="VLESS TCP REALITY"
 fallback_tag="VLESS WS TLS FALLBACK"
@@ -60,7 +61,7 @@ cleanup() {
 }
 trap cleanup EXIT
 
-for path in "$admin_file" "$fallback_file"; do
+for path in "$admin_file" "$fallback_file" "$node_file"; do
   if [[ ! -s "$path" ]]; then
     echo "missing required file: $path" >&2
     exit 1
@@ -78,10 +79,16 @@ done
 source "$admin_file"
 # shellcheck disable=SC1090
 source "$fallback_file"
+# shellcheck disable=SC1090
+source "$node_file"
 
 : "${MARZBAN_SUDO_USERNAME:?MARZBAN_SUDO_USERNAME is required}"
 : "${MARZBAN_SUDO_PASSWORD:?MARZBAN_SUDO_PASSWORD is required}"
 : "${FALLBACK_WS_PATH:?FALLBACK_WS_PATH is required}"
+: "${CEAVPN_PUBLIC_IP:?CEAVPN_PUBLIC_IP is required}"
+: "${CEAVPN_SUB_DOMAIN:?CEAVPN_SUB_DOMAIN is required}"
+: "${CEAVPN_COVER_DOMAIN:?CEAVPN_COVER_DOMAIN is required}"
+: "${CEAVPN_REGION_REMARK:?CEAVPN_REGION_REMARK is required}"
 
 if [[ ! "$FALLBACK_WS_PATH" =~ ^/ws-[0-9a-f]{48}$ ]]; then
   echo "invalid fallback WebSocket path" >&2
@@ -123,6 +130,8 @@ export CEAVPN_HOSTS_PAYLOAD="$work_dir/payload.json"
 export CEAVPN_HOSTS_ORIGINAL="$work_dir/original.json"
 export CEAVPN_REALITY_TAG="$reality_tag"
 export CEAVPN_FALLBACK_TAG="$fallback_tag"
+export CEAVPN_PUBLIC_IP CEAVPN_SUB_DOMAIN CEAVPN_COVER_DOMAIN
+export CEAVPN_REGION_REMARK
 export FALLBACK_WS_PATH
 
 change_state="$(python3 - <<'PY'
@@ -133,6 +142,10 @@ from pathlib import Path
 reality_tag = os.environ["CEAVPN_REALITY_TAG"]
 fallback_tag = os.environ["CEAVPN_FALLBACK_TAG"]
 fallback_path = os.environ["FALLBACK_WS_PATH"]
+public_ip = os.environ["CEAVPN_PUBLIC_IP"]
+sub_domain = os.environ["CEAVPN_SUB_DOMAIN"]
+cover_domain = os.environ["CEAVPN_COVER_DOMAIN"]
+region_remark = os.environ["CEAVPN_REGION_REMARK"]
 baseline = json.loads(
     Path(os.environ["CEAVPN_HOSTS_BASELINE"]).read_text(encoding="utf-8")
 )
@@ -145,10 +158,10 @@ for tag in (reality_tag, fallback_tag):
 
 desired = {
     reality_tag: [{
-        "remark": "🇳🇱 Нидерланды · Амстердам (Reality)",
-        "address": "79.137.197.51",
+        "remark": f"{region_remark} (Reality)",
+        "address": public_ip,
         "port": 443,
-        "sni": "cover.79-137-197-51.sslip.io",
+        "sni": cover_domain,
         "host": None,
         "path": None,
         "security": "inbound_default",
@@ -167,11 +180,11 @@ desired = {
     }],
     fallback_tag: [{
         # Happ uses the first flag emoji in the remark as the server icon.
-        "remark": "🇳🇱 Нидерланды · Амстердам",
-        "address": "sub.79-137-197-51.sslip.io",
+        "remark": region_remark,
+        "address": sub_domain,
         "port": 8443,
-        "sni": "sub.79-137-197-51.sslip.io",
-        "host": "sub.79-137-197-51.sslip.io",
+        "sni": sub_domain,
+        "host": sub_domain,
         "path": fallback_path,
         "security": "tls",
         "alpn": "http/1.1",
@@ -223,7 +236,7 @@ chmod 0600 \
   "$work_dir/original.json"
 
 if [[ "$change_state" == "unchanged" ]]; then
-  echo "Marzban Netherlands host overrides are already configured"
+  echo "Marzban host overrides are already configured"
   exit 0
 fi
 if [[ "$change_state" != "changed" ]]; then

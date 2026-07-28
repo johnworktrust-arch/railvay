@@ -36,7 +36,7 @@ class VpnNginxConfigTest(unittest.TestCase):
         bridge = happ_block.group(0)
         self.assertIn("[A-Za-z0-9._~-]{1,160}", bridge)
         self.assertIn(
-            "happ://add/https://sub.79-137-197-51.sslip.io:8443/sub/$1",
+            "happ://add/https://__SUB_DOMAIN__:8443/sub/$1",
             bridge,
         )
         self.assertIn("access_log off;", bridge)
@@ -52,7 +52,7 @@ class VpnNginxConfigTest(unittest.TestCase):
         v2box_bridge = v2box_block.group(0)
         self.assertIn("[A-Za-z0-9._~-]{1,160}", v2box_bridge)
         self.assertIn(
-            "v2box://install-sub?url=https%3A%2F%2Fsub.79-137-197-51.sslip.io%3A8443%2Fsub%2F$1&name=CEA%20VPN",
+            "v2box://install-sub?url=https%3A%2F%2F__SUB_DOMAIN__%3A8443%2Fsub%2F$1&name=CEA%20VPN",
             v2box_bridge,
         )
         self.assertIn("access_log off;", v2box_bridge)
@@ -67,7 +67,7 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertNotIn("happ://routing/off", config)
         self.assertNotIn("happ://routing/onadd/", config)
 
-    def test_happ_publishes_only_the_named_netherlands_ws_profile(self) -> None:
+    def test_happ_publishes_only_the_named_region_ws_profile(self) -> None:
         root = Path(__file__).resolve().parents[1]
         hosts_script = (
             root / "deploy" / "vpn" / "configure-marzban-hosts.sh"
@@ -89,7 +89,7 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertIn('"is_disabled": True', reality.group("body"))
         self.assertIn('"is_disabled": False', fallback.group("body"))
         self.assertIn(
-            '"remark": "🇳🇱 Нидерланды · Амстердам"',
+            '"remark": region_remark',
             fallback.group("body"),
         )
 
@@ -98,7 +98,7 @@ class VpnNginxConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
         self.assertIn("expected_vless_profiles=1", smoke_script)
         self.assertIn(
-            'profiles[0]["remark"] == "🇳🇱 Нидерланды · Амстердам"',
+            'profiles[0]["remark"] == expected_profile_remark',
             smoke_script,
         )
         self.assertIn('require(kinds == ["ws-tls"]', smoke_script)

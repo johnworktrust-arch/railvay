@@ -10,6 +10,7 @@ from aiohttp import web
 
 from ceai.config import Settings
 from ceai.database import Database
+from ceai.repositories.vpn_servers import VpnServerRepository
 from ceai.repositories.vpn_worker_nonces import VpnWorkerNonceRepository
 from ceai.services.app import AppServices
 from ceai.services.exceptions import BusinessRuleError
@@ -43,6 +44,7 @@ class VpnWorkerAuthenticator:
         self.db = db
         self.settings = settings
         self.nonces = VpnWorkerNonceRepository()
+        self.servers = VpnServerRepository()
 
     def authorize(
         self,
@@ -61,11 +63,16 @@ class VpnWorkerAuthenticator:
         nonce = str(headers.get(NONCE_HEADER, "")).strip()
         signature = str(headers.get(SIGNATURE_HEADER, "")).strip().lower()
         if (
-            worker_id != self.settings.vpn_worker_id
+            not worker_id
             or not timestamp
             or not (16 <= len(nonce) <= 128)
             or len(signature) != 64
         ):
+            raise web.HTTPUnauthorized(text="Invalid VPN worker authentication")
+
+        with self.db.transaction() as conn:
+            server = self.servers.get_by_worker_id(conn, worker_id)
+        if server is None or not bool(server["is_active"]):
             raise web.HTTPUnauthorized(text="Invalid VPN worker authentication")
 
         try:

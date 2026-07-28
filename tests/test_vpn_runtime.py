@@ -549,6 +549,58 @@ class VpnRuntimeTest(unittest.TestCase):
                 body=body,
             )
 
+    def test_worker_hmac_accepts_another_registered_active_worker(self) -> None:
+        secret = "s" * 48
+        with self.db.transaction() as conn:
+            VpnServerRepository().upsert(
+                conn,
+                code="us-1",
+                name="USA",
+                provider="marzban",
+                region="US",
+                api_base_url="http://127.0.0.1:8000",
+                worker_id="worker-us1",
+                subscription_base_url="https://sub-us.example.test:8443",
+            )
+        settings = Settings(
+            telegram_bot_token="token",
+            database_url="sqlite:///:memory:",
+            app_env="test",
+            mock_payment_base_url="https://pay.example.test",
+            vpn_worker_id="worker-nl1",
+            vpn_worker_secret=secret,
+            vpn_worker_clock_skew_seconds=300,
+        )
+        authenticator = VpnWorkerAuthenticator(self.db, settings)
+        body = b'{"worker_id":"worker-us1"}'
+        timestamp = str(int(time.time()))
+        nonce = "nonce-us-1234567890abcdef"
+        canonical = canonical_worker_request(
+            method="POST",
+            path_query="/internal/vpn/worker/claim",
+            timestamp=timestamp,
+            nonce=nonce,
+            body=body,
+        )
+        signature = hmac.new(
+            secret.encode(), canonical, hashlib.sha256
+        ).hexdigest()
+        headers = {
+            WORKER_ID_HEADER: "worker-us1",
+            TIMESTAMP_HEADER: timestamp,
+            NONCE_HEADER: nonce,
+            SIGNATURE_HEADER: signature,
+        }
+        self.assertEqual(
+            authenticator.authorize(
+                method="POST",
+                path_query="/internal/vpn/worker/claim",
+                headers=headers,
+                body=body,
+            ),
+            "worker-us1",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

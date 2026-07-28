@@ -238,6 +238,7 @@ fi
 # Both transports remain configured on the one VPS for rollback safety, but
 # only the Happ-compatible WS/TLS host is published to client subscriptions.
 expected_vless_profiles=1
+expected_profile_remark="${VPN_SMOKE_EXPECTED_REMARK:-🇳🇱 Нидерланды · Амстердам}"
 
 jq -n \
   --arg username "$username" \
@@ -345,6 +346,7 @@ fi
 if ! python3 - \
   "$subscription_headers" "$subscription_body" "$response" \
   "$uuid" "$workdir" "$manifest" "$expected_vless_profiles" \
+  "$expected_profile_remark" \
   2>"$parser_error" <<'PY'
 import base64
 import binascii
@@ -365,6 +367,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
     output_dir,
     manifest_path,
     expected_profile_count_text,
+    expected_profile_remark,
 ) = sys.argv[1:]
 expected_profile_count = int(expected_profile_count_text)
 
@@ -611,7 +614,7 @@ try:
     kinds = sorted(profile["kind"] for profile in profiles)
     require(kinds == ["ws-tls"], "invalid_public_vless_profile")
     require(
-        profiles[0]["remark"] == "🇳🇱 Нидерланды · Амстердам",
+        profiles[0]["remark"] == expected_profile_remark,
         "invalid_public_profile_name",
     )
     Path(manifest_path).write_text(json.dumps({"profiles": profiles}), encoding="utf-8")

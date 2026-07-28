@@ -31,6 +31,10 @@ set +a
 : "${MARZBAN_BOT_USERNAME:?MARZBAN_BOT_USERNAME is required}"
 : "${MARZBAN_BOT_PASSWORD:?MARZBAN_BOT_PASSWORD is required}"
 
+worker_id="${VPN_WORKER_ID:-cea-vpn-nl1}"
+railway_base_url="${VPN_RAILWAY_BASE_URL:-https://railvay-production-8ba7.up.railway.app}"
+subscription_base_url="${VPN_SUBSCRIPTION_BASE_URL:-https://sub.79-137-197-51.sslip.io:8443}"
+
 install -d -o root -g root -m 0755 /opt/ceavpn /etc/ceavpn
 install -o root -g root -m 0755 "$staging_dir/worker.py" /opt/ceavpn/worker.py
 install -o root -g root -m 0644 \
@@ -39,12 +43,12 @@ install -o root -g root -m 0644 \
 
 umask 077
 {
-  printf 'VPN_WORKER_ID=%s\n' 'cea-vpn-nl1'
+  printf 'VPN_WORKER_ID=%s\n' "$worker_id"
   printf 'VPN_WORKER_SECRET=%s\n' "$VPN_WORKER_SECRET"
   printf 'VPN_RAILWAY_BASE_URL=%s\n' \
-    'https://railvay-production-8ba7.up.railway.app'
+    "$railway_base_url"
   printf 'VPN_SUBSCRIPTION_BASE_URL=%s\n' \
-    'https://sub.79-137-197-51.sslip.io:8443'
+    "$subscription_base_url"
   printf 'MARZBAN_BASE_URL=%s\n' 'http://127.0.0.1:8000'
   printf 'MARZBAN_BOT_USERNAME=%s\n' "$MARZBAN_BOT_USERNAME"
   printf 'MARZBAN_BOT_PASSWORD=%s\n' "$MARZBAN_BOT_PASSWORD"
