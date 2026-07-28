@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import base64
 import json
 import time
 import urllib.error
@@ -36,8 +37,6 @@ class KlingVideoProvider:
     ) -> ProviderResult:
         if str(model.get("generation_type") or "") != "video":
             raise ProviderError("Kling provider supports only video generation")
-        if image_input is not None:
-            raise ProviderError("Kling image-to-video is not connected yet")
 
         config = loads_dict(model.get("config"))
         prompt = prompt_text.strip()
@@ -45,7 +44,7 @@ class KlingVideoProvider:
             raise ProviderError("Kling prompt is empty")
 
         duration_seconds = int(config.get("duration_seconds") or 5)
-        payload = {
+        payload: Dict[str, Any] = {
             "model_name": str(config.get("api_model") or "kling-v3"),
             "prompt": prompt,
             "negative_prompt": str(config.get("negative_prompt") or ""),
@@ -54,16 +53,21 @@ class KlingVideoProvider:
             "sound": str(config.get("sound") or "off"),
             "aspect_ratio": str(config.get("aspect_ratio") or "16:9"),
         }
+        task_path = "/v1/videos/text2video"
+        if image_input is not None:
+            task_path = "/v1/videos/image2video"
+            payload["image"] = base64.b64encode(image_input.data).decode("ascii")
+            payload.pop("aspect_ratio", None)
         external_task_id = str(config.get("external_task_id") or "").strip()
         if external_task_id:
             payload["external_task_id"] = external_task_id
 
-        created = self._request_json("POST", "/v1/videos/text2video", payload=payload)
+        created = self._request_json("POST", task_path, payload=payload)
         task_id = _extract_task_id(created)
         if not task_id:
             raise ProviderError("Kling API returned no task_id")
 
-        completed = self._poll_task(task_id)
+        completed = self._poll_task(task_id, task_path=task_path)
         video = _extract_video(completed)
         video_url = str(video.get("url") or video.get("watermark_url") or "").strip()
         if not video_url:
@@ -91,11 +95,11 @@ class KlingVideoProvider:
             duration_seconds=actual_duration,
         )
 
-    def _poll_task(self, task_id: str) -> Dict[str, Any]:
+    def _poll_task(self, task_id: str, *, task_path: str) -> Dict[str, Any]:
         deadline = time.monotonic() + self.poll_timeout_seconds
         last_payload: Dict[str, Any] | None = None
         while time.monotonic() <= deadline:
-            raw = self._request_json("GET", f"/v1/videos/text2video/{task_id}")
+            raw = self._request_json("GET", f"{task_path}/{task_id}")
             last_payload = raw
             data = _extract_data(raw)
             status = str(data.get("task_status") or "").strip().lower()

@@ -129,6 +129,25 @@ def subscription_required_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def insufficient_coins_keyboard(
+    *, back_callback: str = "menu:work"
+) -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💳 Подписка и тарифы", callback_data="menu:plans:work"
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=BACK_TO_MENU_BUTTON, callback_data=back_callback
+                )
+            ],
+        ]
+    )
+
+
 def work_access_required_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[

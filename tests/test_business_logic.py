@@ -1306,6 +1306,50 @@ class BusinessLogicTest(unittest.TestCase):
         self.assertAlmostEqual(result.provider_cost_amount, 0.588)
         self.assertEqual(result.provider_cost_currency, "USD")
 
+    def test_kling_video_provider_uses_image_to_video_for_uploaded_image(self) -> None:
+        provider = KlingVideoProvider(api_key="test-key", poll_interval_seconds=0)
+        calls = []
+
+        def fake_request_json(method, path, *, payload=None):
+            calls.append((method, path, payload))
+            if method == "POST":
+                return {"code": 0, "data": {"task_id": "image-task"}}
+            return {
+                "code": 0,
+                "data": {
+                    "task_status": "succeed",
+                    "task_result": {
+                        "videos": [{"url": "https://cdn.test/image-video.mp4"}]
+                    },
+                },
+            }
+
+        provider._request_json = fake_request_json
+        result = provider.generate(
+            model={
+                "generation_type": "video",
+                "config": {
+                    "api_model": "kling-v3",
+                    "duration_seconds": 5,
+                    "aspect_ratio": "16:9",
+                },
+            },
+            prompt_text="Камера плавно приближается",
+            image_input=ImageInput(
+                data=b"image-bytes",
+                mime_type="image/jpeg",
+                file_name="photo.jpg",
+            ),
+        )
+
+        self.assertEqual(calls[0][1], "/v1/videos/image2video")
+        self.assertEqual(calls[0][2]["image"], "aW1hZ2UtYnl0ZXM=")
+        self.assertNotIn("aspect_ratio", calls[0][2])
+        self.assertEqual(
+            calls[1], ("GET", "/v1/videos/image2video/image-task", None)
+        )
+        self.assertEqual(result.result["url"], "https://cdn.test/image-video.mp4")
+
     def test_generation_recovers_active_subscription_from_paid_payment(self) -> None:
         payment = self.services.payments.create_mock_payment(
             user_id=self.user["id"], plan_code="start"
@@ -1704,7 +1748,10 @@ class MigrationAndUITest(unittest.TestCase):
             handlers_source,
         )
         self.assertIn("_image_input_from_message", handlers_source)
-        self.assertIn("DEFAULT_IMAGE_EDIT_PROMPT", handlers_source)
+        self.assertIn("_image_reference_from_message", handlers_source)
+        self.assertIn('"pending_image"', handlers_source)
+        self.assertIn("Теперь отправьте текстовый запрос.", handlers_source)
+        self.assertNotIn("DEFAULT_IMAGE_EDIT_PROMPT", handlers_source)
         self.assertIn("_format_media_generation_caption", handlers_source)
         self.assertIn("_format_video_generation_result", handlers_source)
         self.assertIn("send_video(", handlers_source)
@@ -2546,7 +2593,11 @@ class MigrationAndUITest(unittest.TestCase):
 
     def test_subscription_required_message_has_plan_buttons_without_test_copy(self) -> None:
         from ceai.bot.handlers import _subscription_required_message
-        from ceai.bot.keyboards import payment_keyboard, subscription_required_keyboard
+        from ceai.bot.keyboards import (
+            insufficient_coins_keyboard,
+            payment_keyboard,
+            subscription_required_keyboard,
+        )
 
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
         keyboard = subscription_required_keyboard()
@@ -2564,6 +2615,16 @@ class MigrationAndUITest(unittest.TestCase):
             "Нужна активная подписка. Откройте тарифы и выберите подписку.",
         )
         self.assertIn("reply_markup=subscription_required_keyboard()", handlers_source)
+        insufficient_keyboard = insufficient_coins_keyboard().inline_keyboard
+        self.assertEqual(
+            [row[0].text for row in insufficient_keyboard],
+            ["💳 Подписка и тарифы", "⬅️ Назад"],
+        )
+        self.assertEqual(
+            [row[0].callback_data for row in insufficient_keyboard],
+            ["menu:plans:work", "menu:work"],
+        )
+        self.assertIn("reply_markup=insufficient_coins_keyboard()", handlers_source)
         self.assertNotIn("оплатите тестово", handlers_source.casefold())
         self.assertNotIn("Оплатить тестово", payment_labels)
         self.assertNotIn("Тестовая ссылка оплаты", payment_labels)

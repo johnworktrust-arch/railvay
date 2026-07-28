@@ -51,6 +51,7 @@ from ceai.bot.keyboards import (
     gift_subscription_keyboard,
     history_keyboard,
     history_result_keyboard,
+    insufficient_coins_keyboard,
     inline_back_to_menu_keyboard,
     main_menu_button_keyboard,
     main_menu_keyboard,
@@ -103,7 +104,6 @@ TELEGRAM_STARS_INVOICE_MESSAGE_ID = "telegram_stars_invoice_message_id"
 START_TEXT_ALIASES = {"старт", "/старт", "start", "/start", "начать"}
 TTS_VOICE_SAMPLES_DIR = Path(__file__).resolve().parents[1] / "assets" / "tts_voices"
 MAX_IMAGE_INPUT_BYTES = 20 * 1024 * 1024
-DEFAULT_IMAGE_EDIT_PROMPT = "Улучши изображение, сохранив основной сюжет."
 HISTORY_PAGE_SIZE = 3
 GIFT_CHANNEL_USERNAME = "ceafamily"
 GIFT_CHANNEL_CHAT_ID = f"@{GIFT_CHANNEL_USERNAME}"
@@ -130,36 +130,61 @@ def _is_user_message(message: Message) -> bool:
     return bool(from_user and not from_user.is_bot)
 
 
-async def _image_input_from_message(message: Message) -> ImageInput | None:
-    file_id: str | None = None
+def _image_reference_from_message(message: Message) -> Dict[str, str] | None:
     mime_type = "image/jpeg"
     file_name = "telegram-photo.jpg"
 
     if message.photo:
         photo = message.photo[-1]
-        file_id = photo.file_id
+        file_id = str(photo.file_id)
     elif message.document and str(message.document.mime_type or "").startswith("image/"):
         document = message.document
-        file_id = document.file_id
+        file_id = str(document.file_id)
         mime_type = str(document.mime_type or "image/png")
         file_name = str(document.file_name or "telegram-image")
-
-    if not file_id:
+    else:
         return None
 
-    file = await message.bot.get_file(file_id)
+    if not file_id.strip():
+        return None
+    return {
+        "file_id": file_id,
+        "mime_type": mime_type,
+        "file_name": file_name,
+    }
+
+
+async def _image_input_from_reference(
+    bot: Any, reference: Dict[str, Any]
+) -> ImageInput:
+    file_id = str(reference.get("file_id") or "").strip()
+    if not file_id:
+        raise ValueError("Изображение не найдено. Отправьте его ещё раз.")
+
+    file = await bot.get_file(file_id)
     if not file.file_path:
         raise ValueError("Не получилось получить файл изображения.")
 
     buffer = io.BytesIO()
-    await message.bot.download_file(file.file_path, destination=buffer)
+    await bot.download_file(file.file_path, destination=buffer)
     data = buffer.getvalue()
     if len(data) > MAX_IMAGE_INPUT_BYTES:
         raise ValueError("Изображение слишком большое. Отправьте файл до 20 МБ.")
     if not data:
         raise ValueError("Изображение не загрузилось. Попробуйте отправить его ещё раз.")
 
-    return ImageInput(data=data, mime_type=mime_type, file_name=file_name)
+    return ImageInput(
+        data=data,
+        mime_type=str(reference.get("mime_type") or "image/jpeg"),
+        file_name=str(reference.get("file_name") or "telegram-photo.jpg"),
+    )
+
+
+async def _image_input_from_message(message: Message) -> ImageInput | None:
+    reference = _image_reference_from_message(message)
+    if reference is None:
+        return None
+    return await _image_input_from_reference(message.bot, reference)
 
 
 def _user_kwargs(message_or_callback: Message | CallbackQuery) -> Dict[str, Any]:
@@ -3875,13 +3900,14 @@ def create_router(services: AppServices) -> Router:
                 )
                 return
             except InsufficientCoinsError:
-                _clear_dialog_state(services, user["id"])
                 await _show_screen(
                     message,
                     services,
                     user["id"],
                     "Недостаточно коинов для этой модели. Выберите тариф или модель дешевле.",
-                    reply_markup=main_menu_keyboard(),
+                    reply_markup=insufficient_coins_keyboard(
+                        back_callback="text_chat:back"
+                    ),
                 )
                 return
             except GenerationProviderFailedError as exc:
@@ -3965,29 +3991,70 @@ def create_router(services: AppServices) -> Router:
             if model["generation_type"] == "tts"
             else "menu:work"
         )
+        prompt_text = (message.text or message.caption or "").strip()
         image_input: ImageInput | None = None
-        if model["generation_type"] == "image":
+        accepts_image = model["generation_type"] in {"image", "video"}
+        current_image_reference = (
+            _image_reference_from_message(message) if accepts_image else None
+        )
+        pending_image_reference = payload.get("pending_image")
+        if not isinstance(pending_image_reference, dict):
+            pending_image_reference = None
+
+        if current_image_reference is not None and not prompt_text:
+            next_payload = dict(payload)
+            next_payload["model_price_id"] = model_price_id
+            next_payload["pending_image"] = current_image_reference
+            _set_dialog_state(
+                services,
+                user["id"],
+                state="waiting_prompt",
+                payload=next_payload,
+            )
+            await _show_screen(
+                message,
+                services,
+                user["id"],
+                "Изображение получено.\n\nТеперь отправьте текстовый запрос.",
+                reply_markup=back_keyboard(prompt_back_callback),
+                delete_current=True,
+            )
+            return
+
+        image_reference = current_image_reference or pending_image_reference
+        if image_reference is not None:
             try:
-                image_input = await _image_input_from_message(message)
-            except ValueError as exc:
+                image_input = await _image_input_from_reference(
+                    message.bot, image_reference
+                )
+            except (TelegramBadRequest, ValueError) as exc:
+                next_payload = dict(payload)
+                next_payload.pop("pending_image", None)
+                _set_dialog_state(
+                    services,
+                    user["id"],
+                    state="waiting_prompt",
+                    payload=next_payload,
+                )
                 await _show_screen(
                     message,
                     services,
                     user["id"],
-                    str(exc),
+                    f"{exc}\n\nОтправьте изображение ещё раз.",
                     reply_markup=back_keyboard(prompt_back_callback),
                     delete_current=True,
                 )
                 return
 
-        prompt_text = (message.text or message.caption or "").strip()
-        if image_input is not None and not prompt_text:
-            prompt_text = DEFAULT_IMAGE_EDIT_PROMPT
         if not prompt_text:
             prompt_hint = (
                 "Введите текст для генерации или отправьте изображение с описанием правки."
                 if model["generation_type"] == "image"
-                else "Отправьте текстовый prompt."
+                else (
+                    "Введите текст для генерации или отправьте изображение."
+                    if model["generation_type"] == "video"
+                    else "Отправьте текстовый запрос."
+                )
             )
             await _show_screen(
                 message,
@@ -4037,7 +4104,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Недостаточно коинов для этой модели. Выберите тариф или модель дешевле.",
-                reply_markup=back_keyboard("menu:work"),
+                reply_markup=insufficient_coins_keyboard(),
             )
             return
         except GenerationProviderFailedError as exc:
