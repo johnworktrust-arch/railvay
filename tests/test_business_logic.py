@@ -1895,7 +1895,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Купить коины отдельно", labels)
         self.assertNotIn("❌ Отменить подписку", labels)
         self.assertIn("❌ Отменить подписку", subscribed_plan_labels)
-        self.assertIn("subscription:cancel_placeholder", subscribed_plan_callbacks)
+        self.assertIn(
+            "subscription:cancel_placeholder:home",
+            subscribed_plan_callbacks,
+        )
         self.assertEqual(
             crystal_labels,
             [
@@ -1907,8 +1910,8 @@ class MigrationAndUITest(unittest.TestCase):
                 "⬅️ Назад",
             ],
         )
-        self.assertIn("crystals:s", crystal_callbacks)
-        self.assertIn("crystals:xxl", crystal_callbacks)
+        self.assertIn("crystals:s:home", crystal_callbacks)
+        self.assertIn("crystals:xxl:home", crystal_callbacks)
         self.assertIn("Тариф: Старт", start_details)
         self.assertIn("Стоимость: 299 ₽ или 319 ⭐", start_details)
         self.assertIn("Действует: 30 дней", start_details)
@@ -1959,15 +1962,18 @@ class MigrationAndUITest(unittest.TestCase):
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 25, "basic": 60, "pro": 130},
         )
-        self.assertIn("coins:buy", callbacks)
+        self.assertIn("coins:buy:home", callbacks)
         self.assertEqual(
             payment_method_labels[:3],
             ["💳 Карта / СБП", "⭐️ Telegram Stars", "⬅️ Назад"],
         )
-        self.assertIn("pay_method:start:card_sbp", payment_method_callbacks)
+        self.assertIn("pay_method:start:card_sbp:home", payment_method_callbacks)
         self.assertNotIn("pay_method:start:usdt_trc20", payment_method_callbacks)
         self.assertNotIn("Крипта", payment_method_labels)
-        self.assertIn("pay_method:start:telegram_stars", payment_method_callbacks)
+        self.assertIn(
+            "pay_method:start:telegram_stars:home",
+            payment_method_callbacks,
+        )
         self.assertEqual(yookassa_payment_button.text, "💳 Оплатить")
         self.assertEqual(yookassa_payment_button.url, "https://yookassa.test/pay/1")
         self.assertEqual(main_menu_button.text, "🏠 Главное меню")
@@ -1978,7 +1984,10 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
         self.assertIn("_format_payment_checkout_screen(", handlers_source)
-        self.assertIn('F.data == "subscription:cancel_placeholder"', handlers_source)
+        self.assertIn(
+            'F.data.startswith("subscription:cancel_placeholder")',
+            handlers_source,
+        )
         self.assertIn("Отмена подписки пока не подключена", handlers_source)
         self.assertNotIn('payment_method == "card_sbp"', handlers_source)
         self.assertNotIn('"Этот способ оплаты скоро будет подключён."', handlers_source)
@@ -1993,7 +2002,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("Начислено {format_coin_amount(result.credited_coins)}", handlers_source)
         self.assertIn("@router.pre_checkout_query()", handlers_source)
         self.assertIn("@router.message(F.successful_payment)", handlers_source)
-        self.assertIn('F.data == "coins:buy"', handlers_source)
+        self.assertIn('F.data.startswith("coins:buy")', handlers_source)
         self.assertIn('F.data.startswith("crystals:")', handlers_source)
         self.assertIn("_format_crystal_packages()", handlers_source)
         self.assertIn("Покупка коинов скоро будет доступна.", handlers_source)
@@ -2023,7 +2032,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("text=text_chat_label", chat_keyboard_source)
         self.assertIn('callback_data=f"text_chat:select:{chat[\'id\']}"', chat_keyboard_source)
         self.assertIn('callback_data="text_chat:add"', chat_keyboard_source)
-        self.assertIn('callback_data="menu:main"', chat_keyboard_source)
+        self.assertIn('callback_data="models:type:text"', chat_keyboard_source)
         self.assertNotIn("ReplyKeyboardMarkup", chat_keyboard_source)
         self.assertNotIn('TEXT_CHAT_LIST_BUTTON = "К чатам"', keyboard_source)
         self.assertNotIn('"К чатам"', keyboard_source)
@@ -2182,7 +2191,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("gift:check", handlers_source)
         self.assertIn("get_chat_member", handlers_source)
         self.assertIn("grant_channel_gift", handlers_source)
-        self.assertIn('F.data == "menu:gift"', handlers_source)
+        self.assertIn('F.data.startswith("menu:gift")', handlers_source)
         self.assertIn("is_admin = bool(user and services.admin.has_admin_access(user))", handlers_source)
         self.assertIn("🔥 Начать работу", handlers_source)
         self.assertIn("Начать работу с AI-инструментами", handlers_source)
@@ -2235,7 +2244,11 @@ class MigrationAndUITest(unittest.TestCase):
         gift_rows = gift_subscription_keyboard().inline_keyboard
         self.assertEqual(gift_rows[0][0].text, "📣 Подписаться на канал")
         self.assertEqual(gift_rows[0][0].url, "https://t.me/ceafamily")
-        self.assertEqual(gift_rows[1][0].callback_data, "gift:check")
+        self.assertEqual(gift_rows[1][0].callback_data, "gift:check:main")
+        self.assertEqual(gift_rows[-1][0].callback_data, "menu:main")
+        work_gift_rows = gift_subscription_keyboard(origin="work").inline_keyboard
+        self.assertEqual(work_gift_rows[1][0].callback_data, "gift:check:work")
+        self.assertEqual(work_gift_rows[-1][0].callback_data, "menu:work")
         self.assertNotIn(
             "style", gift_rows[1][0].model_dump(exclude_none=True)
         )
@@ -2259,7 +2272,7 @@ class MigrationAndUITest(unittest.TestCase):
         )
         self.assertEqual(
             [row[0].callback_data for row in access_rows],
-            ["menu:plans", "menu:gift"],
+            ["menu:plans:work", "menu:gift:work"],
         )
 
     def test_profile_screen_has_inline_actions_and_no_bottom_prompt(self) -> None:
@@ -2520,10 +2533,11 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertEqual(keyboard[1][0].text, "➡️ След страница")
         self.assertEqual(keyboard[1][0].callback_data, "history:page:2")
         self.assertEqual(keyboard[-1][0].text, "⬅️ Назад")
-        self.assertEqual(keyboard[-1][0].callback_data, "menu:main")
+        self.assertEqual(keyboard[-1][0].callback_data, "menu:work")
 
         result_keyboard = history_result_keyboard(page=2).inline_keyboard
-        self.assertEqual(result_keyboard[0][0].text, "⬅️ К истории")
+        self.assertEqual(len(result_keyboard), 1)
+        self.assertEqual(result_keyboard[0][0].text, "⬅️ Назад")
         self.assertEqual(result_keyboard[0][0].callback_data, "history:page:2")
         self.assertIn("Результат:\nГотовое изображение", _format_history_result(rows[0]))
         self.assertIn('F.data.startswith("history:")', handlers_source)
@@ -2542,7 +2556,7 @@ class MigrationAndUITest(unittest.TestCase):
         ]
 
         self.assertEqual(labels, ["💳 Подписка и тарифы"])
-        self.assertEqual(callbacks, ["menu:plans"])
+        self.assertEqual(callbacks, ["menu:plans:work"])
         self.assertEqual(
             _subscription_required_message(),
             "Нужна активная подписка. Откройте тарифы и выберите подписку.",

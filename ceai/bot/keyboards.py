@@ -122,7 +122,7 @@ def subscription_required_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💳 Подписка и тарифы", callback_data="menu:plans"
+                    text="💳 Подписка и тарифы", callback_data="menu:plans:work"
                 )
             ],
         ]
@@ -134,12 +134,12 @@ def work_access_required_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="💳 Подписка и тарифы", callback_data="menu:plans"
+                    text="💳 Подписка и тарифы", callback_data="menu:plans:work"
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=GIFT_BUTTON, callback_data="menu:gift"
+                    text=GIFT_BUTTON, callback_data="menu:gift:work"
                 )
             ],
         ]
@@ -147,9 +147,13 @@ def work_access_required_keyboard() -> InlineKeyboardMarkup:
 
 
 def back_to_menu_keyboard() -> InlineKeyboardMarkup:
+    return back_keyboard("menu:main")
+
+
+def back_keyboard(callback_data: str) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")]
+            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data=callback_data)]
         ]
     )
 
@@ -188,8 +192,11 @@ def about_service_keyboard(
 
 
 def gift_subscription_keyboard(
-    *, info_channel_url: str = "https://t.me/ceafamily"
+    *,
+    info_channel_url: str = "https://t.me/ceafamily",
+    origin: str = "main",
 ) -> InlineKeyboardMarkup:
+    back_callback = "menu:work" if origin == "work" else "menu:main"
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -201,10 +208,15 @@ def gift_subscription_keyboard(
             [
                 InlineKeyboardButton(
                     text="✅ Проверить подписку",
-                    callback_data="gift:check",
+                    callback_data=f"gift:check:{origin}",
                 )
             ],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
+            [
+                InlineKeyboardButton(
+                    text=BACK_TO_MENU_BUTTON,
+                    callback_data=back_callback,
+                )
+            ],
         ]
     )
 
@@ -242,92 +254,114 @@ def referral_keyboard(referral_link: str) -> InlineKeyboardMarkup:
 
 
 def plans_keyboard(
-    plans: Iterable[Dict[str, Any]], *, has_active_subscription: bool = False
+    plans: Iterable[Dict[str, Any]],
+    *,
+    has_active_subscription: bool = False,
+    origin: str = "home",
 ) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
                 text=_plan_choice_label(plan),
-                callback_data=f"buy:{plan['code']}",
+                callback_data=f"buy:{plan['code']}:{origin}",
             )
         ]
         for plan in plans
     ]
     rows.append(
-        [InlineKeyboardButton(text=BUY_CRYSTALS_BUTTON, callback_data="coins:buy")]
+        [
+            InlineKeyboardButton(
+                text=BUY_CRYSTALS_BUTTON,
+                callback_data=f"coins:buy:{origin}",
+            )
+        ]
     )
     if has_active_subscription:
         rows.append(
             [
                 InlineKeyboardButton(
                     text="❌ Отменить подписку",
-                    callback_data="subscription:cancel_placeholder",
+                    callback_data=f"subscription:cancel_placeholder:{origin}",
                 )
             ]
         )
     rows.append(
-        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
+        [
+            InlineKeyboardButton(
+                text=BACK_TO_MENU_BUTTON,
+                callback_data="menu:work" if origin == "work" else "menu:home",
+            )
+        ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def payment_methods_keyboard(plan_code: str) -> InlineKeyboardMarkup:
+def payment_methods_keyboard(
+    plan_code: str, *, origin: str = "home"
+) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
                     text="💳 Карта / СБП",
-                    callback_data=f"pay_method:{plan_code}:card_sbp",
+                    callback_data=f"pay_method:{plan_code}:card_sbp:{origin}",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="⭐️ Telegram Stars",
-                    callback_data=f"pay_method:{plan_code}:telegram_stars",
+                    callback_data=f"pay_method:{plan_code}:telegram_stars:{origin}",
                 )
             ],
             [
                 InlineKeyboardButton(
-                    text=BACK_TO_MENU_BUTTON, callback_data="menu:plans"
+                    text=BACK_TO_MENU_BUTTON,
+                    callback_data=f"menu:plans:{origin}",
                 )
             ],
         ]
     )
 
 
-def crystal_packages_keyboard() -> InlineKeyboardMarkup:
+def crystal_packages_keyboard(*, origin: str = "home") -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="S - 139₽ - 10 коинов", callback_data="crystals:s"
+                    text="S - 139₽ - 10 коинов",
+                    callback_data=f"crystals:s:{origin}",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="M - 499₽ - 40 коинов (-10%)",
-                    callback_data="crystals:m",
+                    callback_data=f"crystals:m:{origin}",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="L - 999₽ - 85 коинов (-15%)",
-                    callback_data="crystals:l",
+                    callback_data=f"crystals:l:{origin}",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="XL - 2990₽ - 270 коинов (-20%)",
-                    callback_data="crystals:xl",
+                    callback_data=f"crystals:xl:{origin}",
                 )
             ],
             [
                 InlineKeyboardButton(
                     text="XXL - 9000₽ - 850 коинов (-24%)",
-                    callback_data="crystals:xxl",
+                    callback_data=f"crystals:xxl:{origin}",
                 )
             ],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:plans")],
+            [
+                InlineKeyboardButton(
+                    text=BACK_TO_MENU_BUTTON,
+                    callback_data=f"menu:plans:{origin}",
+                )
+            ],
         ]
     )
 
@@ -339,7 +373,11 @@ def _plan_choice_label(plan: Dict[str, Any]) -> str:
 
 
 def payment_keyboard(
-    payment_id: int, payment_url: str, *, provider: str = "mock"
+    payment_id: int,
+    payment_url: str,
+    *,
+    provider: str = "mock",
+    back_callback_data: str = "menu:plans",
 ) -> InlineKeyboardMarkup:
     rows = []
     if provider == "mock":
@@ -356,7 +394,12 @@ def payment_keyboard(
     else:
         rows.append([InlineKeyboardButton(text="💳 Оплатить", url=payment_url)])
     rows.append(
-        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:home")]
+        [
+            InlineKeyboardButton(
+                text=BACK_TO_MENU_BUTTON,
+                callback_data=back_callback_data,
+            )
+        ]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -381,7 +424,7 @@ def models_keyboard(models: Iterable[Dict[str, Any]]) -> InlineKeyboardMarkup:
         for model in models
     ]
     rows.append(
-        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")]
+        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:work")]
     )
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -459,7 +502,7 @@ def text_chat_keyboard(
             ],
             [
                 InlineKeyboardButton(
-                    text=BACK_TO_MENU_BUTTON, callback_data="menu:main"
+                    text=BACK_TO_MENU_BUTTON, callback_data="models:type:text"
                 )
             ],
         ]
@@ -510,7 +553,7 @@ def history_keyboard(
     if pager:
         rows.append(pager)
 
-    rows.append([InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")])
+    rows.append([InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:work")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -519,10 +562,9 @@ def history_result_keyboard(*, page: int) -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(
-                    text="⬅️ К истории", callback_data=f"history:page:{page}"
+                    text=BACK_TO_MENU_BUTTON, callback_data=f"history:page:{page}"
                 )
             ],
-            [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data="menu:main")],
         ]
     )
 
@@ -549,7 +591,8 @@ def admin_users_keyboard(
     rows = [
         [
             InlineKeyboardButton(
-                text=f"👤 {user_label(user)}", callback_data=f"admin:user:{user['id']}"
+                text=f"👤 {user_label(user)}",
+                callback_data=f"admin:user:{user['id']}:{page}",
             )
         ]
         for user in users
@@ -570,7 +613,7 @@ def admin_users_keyboard(
 
 
 def admin_user_card_keyboard(
-    user: Dict[str, Any], *, can_manage: bool
+    user: Dict[str, Any], *, can_manage: bool, users_page: int = 1
 ) -> InlineKeyboardMarkup:
     rows = []
     if can_manage:
@@ -578,7 +621,8 @@ def admin_user_card_keyboard(
             rows.append(
                 [
                     InlineKeyboardButton(
-                        text="✅ Разбанить", callback_data=f"admin:unban:{user['id']}"
+                        text="✅ Разбанить",
+                        callback_data=f"admin:unban:{user['id']}:{users_page}",
                     )
                 ]
             )
@@ -586,7 +630,8 @@ def admin_user_card_keyboard(
             rows.append(
                 [
                     InlineKeyboardButton(
-                        text="🚫 Забанить", callback_data=f"admin:ban:{user['id']}"
+                        text="🚫 Забанить",
+                        callback_data=f"admin:ban:{user['id']}:{users_page}",
                     )
                 ]
             )
@@ -594,11 +639,14 @@ def admin_user_card_keyboard(
             [
                 InlineKeyboardButton(
                     text="➕ Начислить коины",
-                    callback_data=f"admin:credit:{user['id']}",
+                    callback_data=f"admin:credit:{user['id']}:{users_page}",
                 )
             ]
         )
-    rows.append([InlineKeyboardButton(text="⬅️ Пользователи", callback_data="admin:users:1")])
+    back_callback = "admin:search" if users_page == 0 else f"admin:users:{users_page}"
+    rows.append(
+        [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data=back_callback)]
+    )
     rows.append([InlineKeyboardButton(text="⬅️ Админка", callback_data="admin:home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

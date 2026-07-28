@@ -45,6 +45,7 @@ from ceai.bot.keyboards import (
     admin_user_card_keyboard,
     admin_users_keyboard,
     about_service_keyboard,
+    back_keyboard,
     back_to_menu_keyboard,
     crystal_packages_keyboard,
     gift_subscription_keyboard,
@@ -1648,6 +1649,7 @@ async def _send_gift(
     services: AppServices,
     user_id: int,
     *,
+    origin: str = "main",
     delete_current: bool = False,
 ) -> None:
     await _show_screen(
@@ -1655,7 +1657,10 @@ async def _send_gift(
         services,
         user_id,
         _format_gift_screen(),
-        reply_markup=gift_subscription_keyboard(info_channel_url=GIFT_CHANNEL_URL),
+        reply_markup=gift_subscription_keyboard(
+            info_channel_url=GIFT_CHANNEL_URL,
+            origin=origin,
+        ),
         delete_current=delete_current,
         parse_mode="HTML",
     )
@@ -1749,6 +1754,7 @@ async def _send_plans(
     services: AppServices,
     user_id: int,
     *,
+    origin: str = "home",
     delete_current: bool = False,
 ) -> None:
     _set_dialog_state(services, user_id, state="waiting_payment_choice")
@@ -1762,6 +1768,7 @@ async def _send_plans(
         reply_markup=plans_keyboard(
             plans,
             has_active_subscription=subscription is not None,
+            origin=origin,
         ),
         delete_current=delete_current,
     )
@@ -1911,7 +1918,7 @@ async def _send_models_for_types(
             services,
             user_id,
             "Для этого раздела пока нет активных моделей.",
-            reply_markup=main_menu_keyboard(),
+            reply_markup=back_keyboard("menu:work"),
             delete_current=delete_current,
         )
         return
@@ -1928,7 +1935,7 @@ async def _send_models_for_types(
             services,
             user_id,
             _format_direct_prompt_screen(model),
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_keyboard("menu:work"),
             delete_current=delete_current,
         )
         return
@@ -1974,7 +1981,7 @@ async def _send_tts_voice_preview(
             services,
             user_id,
             "Для озвучки пока нет активной модели.",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_keyboard("menu:work"),
             delete_current=delete_current,
         )
         return
@@ -1987,7 +1994,7 @@ async def _send_tts_voice_preview(
             services,
             user_id,
             "Пример голосов временно недоступен.",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_keyboard("menu:work"),
             delete_current=delete_current,
         )
         return
@@ -2020,7 +2027,7 @@ async def _send_tts_voice_preview(
             services,
             user_id,
             "Не удалось загрузить пример голосов. Попробуйте ещё раз позже.",
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_keyboard("menu:work"),
         )
         return
     services.users.set_session(
@@ -2188,6 +2195,28 @@ async def _handle_reply_menu(
             )
         return True
 
+    if session_state == "waiting_text_chat_name" and (
+        text == BACK_TO_MENU_BUTTON or text_lower in {"назад", "back"}
+    ):
+        model_price_id = int(session_payload.get("model_price_id", 0))
+        current_chat_id = int(session_payload.get("current_text_chat_id", 0))
+        model = services.catalog.get_model(model_price_id)
+        if model is None:
+            _clear_dialog_state(services, user["id"])
+            await _send_work_menu(
+                message, services, user["id"], delete_current=True
+            )
+            return True
+        await _send_text_chat_screen(
+            message,
+            services,
+            user["id"],
+            model=model,
+            current_chat_id=current_chat_id if current_chat_id > 0 else None,
+            delete_current=True,
+        )
+        return True
+
     if text_lower in {"menu", "/menu", "главное меню", "назад", "назад в меню"} or (
         text == BACK_TO_MENU_BUTTON
     ):
@@ -2228,7 +2257,7 @@ async def _handle_reply_menu(
                 services,
                 user["id"],
                 str(exc),
-                reply_markup=inline_back_to_menu_keyboard(),
+                reply_markup=back_keyboard("text_chat:back"),
                 delete_current=True,
             )
         return True
@@ -2264,7 +2293,7 @@ async def _handle_reply_menu(
                 services,
                 user["id"],
                 "Введите название нового чата.",
-                reply_markup=inline_back_to_menu_keyboard(),
+                reply_markup=back_keyboard("text_chat:back"),
                 delete_current=True,
             )
             return True
@@ -2319,7 +2348,7 @@ async def _handle_reply_menu(
                 services,
                 user["id"],
                 _format_direct_prompt_screen(model),
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard("menu:work"),
                 delete_current=True,
             )
             return True
@@ -2548,6 +2577,7 @@ def create_router(services: AppServices) -> Router:
                 )
             elif action == "user":
                 target_user_id = int(parts[2])
+                users_page = int(parts[3]) if len(parts) > 3 else 1
                 card = services.admin.user_card(target_user_id)
                 await _show_screen(
                     callback.message,
@@ -2555,11 +2585,14 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     _format_admin_user_card(card),
                     reply_markup=admin_user_card_keyboard(
-                        card, can_manage=services.admin.can_manage(admin)
+                        card,
+                        can_manage=services.admin.can_manage(admin),
+                        users_page=users_page,
                     ),
                 )
             elif action in {"ban", "unban"}:
                 target_user_id = int(parts[2])
+                users_page = int(parts[3]) if len(parts) > 3 else 1
                 services.admin.set_blocked(
                     admin=admin,
                     target_user_id=target_user_id,
@@ -2572,25 +2605,33 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     _format_admin_user_card(card),
                     reply_markup=admin_user_card_keyboard(
-                        card, can_manage=services.admin.can_manage(admin)
+                        card,
+                        can_manage=services.admin.can_manage(admin),
+                        users_page=users_page,
                     ),
                 )
             elif action == "credit":
                 if not services.admin.can_manage(admin):
                     raise BusinessRuleError("Недостаточно прав")
                 target_user_id = int(parts[2])
+                users_page = int(parts[3]) if len(parts) > 3 else 1
                 _set_dialog_state(
                     services,
                     user["id"],
                     state="admin_waiting_credit",
-                    payload={"target_user_id": target_user_id},
+                    payload={
+                        "target_user_id": target_user_id,
+                        "users_page": users_page,
+                    },
                 )
                 await _show_screen(
                     callback.message,
                     services,
                     user["id"],
                     "Введите положительное целое число коинов для начисления.",
-                    reply_markup=admin_back_keyboard(),
+                    reply_markup=back_keyboard(
+                        f"admin:user:{target_user_id}:{users_page}"
+                    ),
                 )
             elif action == "search":
                 _set_dialog_state(
@@ -2661,7 +2702,7 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
-    @router.callback_query(F.data == "menu:gift")
+    @router.callback_query(F.data.startswith("menu:gift"))
     async def menu_gift(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         if _is_blocked_regular_user(services, user):
@@ -2670,13 +2711,19 @@ def create_router(services: AppServices) -> Router:
             await callback.answer()
             return
         _clear_dialog_state(services, user["id"])
+        parts = callback.data.split(":") if callback.data else []
+        origin = parts[2] if len(parts) > 2 and parts[2] == "work" else "main"
         if callback.message:
             await _send_gift(
-                callback.message, services, user["id"], delete_current=True
+                callback.message,
+                services,
+                user["id"],
+                origin=origin,
+                delete_current=True,
             )
         await callback.answer()
 
-    @router.callback_query(F.data == "gift:check")
+    @router.callback_query(F.data.startswith("gift:check"))
     async def gift_check(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         if _is_blocked_regular_user(services, user):
@@ -2687,6 +2734,8 @@ def create_router(services: AppServices) -> Router:
         if not callback.message:
             await callback.answer("Откройте меню подарка ещё раз.", show_alert=True)
             return
+        parts = callback.data.split(":") if callback.data else []
+        origin = parts[2] if len(parts) > 2 and parts[2] == "work" else "main"
 
         can_check, is_subscribed = await _check_gift_channel_subscription(
             callback.bot,
@@ -2699,7 +2748,8 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 _format_gift_check_unavailable(),
                 reply_markup=gift_subscription_keyboard(
-                    info_channel_url=GIFT_CHANNEL_URL
+                    info_channel_url=GIFT_CHANNEL_URL,
+                    origin=origin,
                 ),
             )
             await callback.answer()
@@ -2711,7 +2761,8 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 _format_gift_not_subscribed(),
                 reply_markup=gift_subscription_keyboard(
-                    info_channel_url=GIFT_CHANNEL_URL
+                    info_channel_url=GIFT_CHANNEL_URL,
+                    origin=origin,
                 ),
             )
             await callback.answer()
@@ -2733,7 +2784,9 @@ def create_router(services: AppServices) -> Router:
                 if result["created"]
                 else _format_gift_already_claimed(result)
             ),
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_keyboard(
+                "menu:work" if origin == "work" else "menu:main"
+            ),
             parse_mode="HTML",
         )
         await callback.answer()
@@ -2800,7 +2853,7 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
-    @router.callback_query(F.data == "menu:plans")
+    @router.callback_query(F.data.startswith("menu:plans"))
     async def menu_plans(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         if _is_blocked_regular_user(services, user):
@@ -2808,9 +2861,15 @@ def create_router(services: AppServices) -> Router:
                 await _send_blocked_notice(callback.message, services, user["id"])
             await callback.answer()
             return
+        parts = callback.data.split(":") if callback.data else []
+        origin = parts[2] if len(parts) > 2 and parts[2] == "work" else "home"
         if callback.message:
             await _send_plans(
-                callback.message, services, user["id"], delete_current=True
+                callback.message,
+                services,
+                user["id"],
+                origin=origin,
+                delete_current=True,
             )
         await callback.answer()
 
@@ -2842,7 +2901,7 @@ def create_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
-    @router.callback_query(F.data == "subscription:cancel_placeholder")
+    @router.callback_query(F.data.startswith("subscription:cancel_placeholder"))
     async def cancel_subscription_placeholder(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         if _is_blocked_regular_user(services, user):
@@ -2850,6 +2909,8 @@ def create_router(services: AppServices) -> Router:
                 await _send_blocked_notice(callback.message, services, user["id"])
             await callback.answer()
             return
+        parts = callback.data.split(":") if callback.data else []
+        origin = parts[2] if len(parts) > 2 and parts[2] == "work" else "home"
         if callback.message:
             await _show_screen(
                 callback.message,
@@ -2857,7 +2918,7 @@ def create_router(services: AppServices) -> Router:
                 user["id"],
                 "❌ Отмена подписки пока не подключена.\n\n"
                 "Если нужно остановить будущие списания, напишите в поддержку.",
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard(f"menu:plans:{origin}"),
                 delete_current=True,
             )
         await callback.answer()
@@ -2870,7 +2931,9 @@ def create_router(services: AppServices) -> Router:
                 await _send_blocked_notice(callback.message, services, user["id"])
             await callback.answer()
             return
-        plan_code = callback.data.split(":", 1)[1] if callback.data else ""
+        parts = callback.data.split(":") if callback.data else []
+        plan_code = parts[1] if len(parts) > 1 else ""
+        origin = parts[2] if len(parts) > 2 and parts[2] == "work" else "home"
         plan = next(
             (
                 candidate
@@ -2886,7 +2949,7 @@ def create_router(services: AppServices) -> Router:
                     services,
                     user["id"],
                     "Тариф не найден",
-                    reply_markup=inline_back_to_menu_keyboard(),
+                    reply_markup=back_keyboard(f"menu:plans:{origin}"),
                     delete_current=True,
                 )
             await callback.answer()
@@ -2896,7 +2959,7 @@ def create_router(services: AppServices) -> Router:
             services,
             user["id"],
             state="waiting_payment_method",
-            payload={"plan_code": plan_code},
+            payload={"plan_code": plan_code, "plans_origin": origin},
         )
         if callback.message:
             await _show_screen(
@@ -2904,7 +2967,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 _format_plan_details(plan),
-                reply_markup=payment_methods_keyboard(plan_code),
+                reply_markup=payment_methods_keyboard(plan_code, origin=origin),
                 delete_current=True,
             )
         await callback.answer()
@@ -2917,9 +2980,10 @@ def create_router(services: AppServices) -> Router:
                 await _send_blocked_notice(callback.message, services, user["id"])
             await callback.answer()
             return
-        parts = callback.data.split(":", 2) if callback.data else []
+        parts = callback.data.split(":") if callback.data else []
         plan_code = parts[1] if len(parts) >= 2 else ""
         payment_method = parts[2] if len(parts) >= 3 else ""
+        origin = parts[3] if len(parts) > 3 and parts[3] == "work" else "home"
 
         try:
             payment = await asyncio.to_thread(
@@ -2936,7 +3000,7 @@ def create_router(services: AppServices) -> Router:
                     services,
                     user["id"],
                     str(exc),
-                    reply_markup=back_to_menu_keyboard(),
+                    reply_markup=back_keyboard(f"buy:{plan_code}:{origin}"),
                     delete_current=True,
                 )
             await callback.answer()
@@ -2969,7 +3033,7 @@ def create_router(services: AppServices) -> Router:
                         currency="⭐",
                         payment_method="telegram_stars",
                     ),
-                    reply_markup=back_to_menu_keyboard(),
+                    reply_markup=back_keyboard(f"buy:{plan_code}:{origin}"),
                 )
             await callback.answer()
             return
@@ -3016,12 +3080,13 @@ def create_router(services: AppServices) -> Router:
                     payment["id"],
                     payment["payment_url"],
                     provider=str(payment["provider"]),
+                    back_callback_data=f"buy:{plan_code}:{origin}",
                 ),
                 delete_current=True,
             )
         await callback.answer()
 
-    @router.callback_query(F.data == "coins:buy")
+    @router.callback_query(F.data.startswith("coins:buy"))
     async def buy_coins_placeholder(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         if _is_blocked_regular_user(services, user):
@@ -3029,13 +3094,15 @@ def create_router(services: AppServices) -> Router:
                 await _send_blocked_notice(callback.message, services, user["id"])
             await callback.answer()
             return
+        parts = callback.data.split(":") if callback.data else []
+        origin = parts[2] if len(parts) > 2 and parts[2] == "work" else "home"
         if callback.message:
             await _show_screen(
                 callback.message,
                 services,
                 user["id"],
                 _format_crystal_packages(),
-                reply_markup=crystal_packages_keyboard(),
+                reply_markup=crystal_packages_keyboard(origin=origin),
                 delete_current=True,
             )
         await callback.answer()
@@ -3048,13 +3115,15 @@ def create_router(services: AppServices) -> Router:
                 await _send_blocked_notice(callback.message, services, user["id"])
             await callback.answer()
             return
+        parts = callback.data.split(":") if callback.data else []
+        origin = parts[2] if len(parts) > 2 and parts[2] == "work" else "home"
         if callback.message:
             await _show_screen(
                 callback.message,
                 services,
                 user["id"],
                 "Покупка коинов скоро будет доступна.",
-                reply_markup=crystal_packages_keyboard(),
+                reply_markup=back_keyboard(f"coins:buy:{origin}"),
                 delete_current=True,
             )
         await callback.answer()
@@ -3194,7 +3263,7 @@ def create_router(services: AppServices) -> Router:
             services,
             user["id"],
             _format_tts_prompt_screen(model, voice=voice),
-            reply_markup=back_to_menu_keyboard(),
+            reply_markup=back_keyboard("models:type:tts"),
         )
 
     @router.callback_query(F.data.startswith("model:"))
@@ -3242,7 +3311,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 _format_direct_prompt_screen(model),
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard("menu:work"),
                 delete_current=True,
             )
         await callback.answer()
@@ -3260,7 +3329,11 @@ def create_router(services: AppServices) -> Router:
             return
 
         session_state, session_payload = _session_state_payload(services, user["id"])
-        if session_state not in {"waiting_text_chat_choice", "waiting_text_chat_prompt"}:
+        if session_state not in {
+            "waiting_text_chat_choice",
+            "waiting_text_chat_prompt",
+            "waiting_text_chat_name",
+        }:
             await callback.answer()
             return
 
@@ -3310,7 +3383,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Введите название нового чата.",
-                reply_markup=inline_back_to_menu_keyboard(),
+                reply_markup=back_keyboard("text_chat:back"),
             )
             await callback.answer()
             return
@@ -3514,7 +3587,7 @@ def create_router(services: AppServices) -> Router:
                 _format_referral_withdrawal_unavailable(
                     referral_stats.withdrawal_min_kopecks
                 ),
-                reply_markup=inline_back_to_menu_keyboard(),
+                reply_markup=back_keyboard("menu:referral"),
                 parse_mode="HTML",
             )
             await callback.answer()
@@ -3528,7 +3601,7 @@ def create_router(services: AppServices) -> Router:
                 support_username=services.settings.support_username,
                 balance_kopecks=referral_stats.balance_kopecks,
             ),
-            reply_markup=inline_back_to_menu_keyboard(),
+            reply_markup=back_keyboard("menu:referral"),
             parse_mode="HTML",
         )
         await callback.answer()
@@ -3576,7 +3649,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 str(exc),
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard("menu:plans"),
                 delete_current=True,
             )
             return
@@ -3640,12 +3713,15 @@ def create_router(services: AppServices) -> Router:
                     user["id"],
                     _format_admin_user_card(card),
                     reply_markup=admin_user_card_keyboard(
-                        card, can_manage=services.admin.can_manage(admin)
+                        card,
+                        can_manage=services.admin.can_manage(admin),
+                        users_page=0,
                     ),
                 )
                 return
 
             target_user_id = int(payload.get("target_user_id", 0))
+            users_page = int(payload.get("users_page", 1))
             try:
                 amount = int(text)
                 balance = services.admin.manual_credit(
@@ -3661,7 +3737,9 @@ def create_router(services: AppServices) -> Router:
                     f"Новый баланс: {format_coin_amount(balance)}.\n\n"
                     f"{_format_admin_user_card(card)}",
                     reply_markup=admin_user_card_keyboard(
-                        card, can_manage=services.admin.can_manage(admin)
+                        card,
+                        can_manage=services.admin.can_manage(admin),
+                        users_page=users_page,
                     ),
                 )
             except ValueError:
@@ -3670,7 +3748,9 @@ def create_router(services: AppServices) -> Router:
                     services,
                     user["id"],
                     "Введите положительное целое число.",
-                    reply_markup=admin_back_keyboard(),
+                    reply_markup=back_keyboard(
+                        f"admin:user:{target_user_id}:{users_page}"
+                    ),
                 )
             except (BusinessRuleError, NotFoundError) as exc:
                 await _show_screen(
@@ -3678,7 +3758,9 @@ def create_router(services: AppServices) -> Router:
                     services,
                     user["id"],
                     str(exc),
-                    reply_markup=admin_back_keyboard(),
+                    reply_markup=back_keyboard(
+                        f"admin:user:{target_user_id}:{users_page}"
+                    ),
                 )
             return
 
@@ -3879,6 +3961,11 @@ def create_router(services: AppServices) -> Router:
             )
             return
 
+        prompt_back_callback = (
+            "models:type:tts"
+            if model["generation_type"] == "tts"
+            else "menu:work"
+        )
         image_input: ImageInput | None = None
         if model["generation_type"] == "image":
             try:
@@ -3889,7 +3976,7 @@ def create_router(services: AppServices) -> Router:
                     services,
                     user["id"],
                     str(exc),
-                    reply_markup=back_to_menu_keyboard(),
+                    reply_markup=back_keyboard(prompt_back_callback),
                     delete_current=True,
                 )
                 return
@@ -3908,7 +3995,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 prompt_hint,
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard(prompt_back_callback),
                 delete_current=True,
             )
             return
@@ -3951,7 +4038,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 "Недостаточно коинов для этой модели. Выберите тариф или модель дешевле.",
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard("menu:work"),
             )
             return
         except GenerationProviderFailedError as exc:
@@ -3961,7 +4048,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 str(exc),
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard("menu:work"),
             )
             return
         except NotFoundError as exc:
@@ -3971,7 +4058,7 @@ def create_router(services: AppServices) -> Router:
                 services,
                 user["id"],
                 str(exc),
-                reply_markup=back_to_menu_keyboard(),
+                reply_markup=back_keyboard("menu:work"),
             )
             return
 
