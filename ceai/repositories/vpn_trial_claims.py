@@ -91,12 +91,12 @@ class VpnTrialClaimRepository:
                 claim.subscription_id,
                 subscription.ends_at,
                 subscription.plan_id,
-                user.telegram_id
+                account.telegram_id
             FROM vpn_trial_claims claim
             JOIN vpn_subscriptions subscription
               ON subscription.id = claim.subscription_id
-            JOIN users user
-              ON user.id = claim.user_id
+            JOIN users account
+              ON account.id = claim.user_id
             WHERE claim.status = 'provisioned'
               AND claim.expiry_reminder_sent_at IS NULL
               AND (
