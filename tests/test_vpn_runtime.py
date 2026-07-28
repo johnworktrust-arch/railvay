@@ -135,6 +135,20 @@ class VpnRuntimeTest(unittest.TestCase):
                 WHERE id = ?
                 """,
                 (
+                    (utcnow() + timedelta(hours=10, minutes=1)).isoformat(),
+                    int(trial.subscription["id"]),
+                ),
+            )
+        self.assertEqual(self.vpn.claim_due_trial_expiry_reminders(), [])
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE vpn_subscriptions
+                SET ends_at = ?
+                WHERE id = ?
+                """,
+                (
                     (utcnow() + timedelta(hours=9, minutes=50)).isoformat(),
                     int(trial.subscription["id"]),
                 ),

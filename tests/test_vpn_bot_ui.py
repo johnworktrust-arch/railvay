@@ -46,9 +46,18 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertIn("24 июля 2026 года, 20:34 (МСК)", text)
         self.assertIn("3 дня бесплатно", text)
         self.assertIn("Устройств: 1", text)
+        self.assertTrue(text.startswith("<b>Пробный период скоро закончится</b>\n⚠️"))
+        self.assertEqual(
+            keyboard.inline_keyboard[0][0].text,
+            "🔄 Продлить подписку",
+        )
         self.assertEqual(
             keyboard.inline_keyboard[0][0].callback_data,
             "vpn:plans",
+        )
+        self.assertEqual(
+            keyboard.inline_keyboard[1][0].text,
+            "👤 Моя подписка",
         )
         self.assertEqual(
             keyboard.inline_keyboard[1][0].callback_data,

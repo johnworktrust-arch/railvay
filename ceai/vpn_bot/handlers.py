@@ -355,7 +355,8 @@ def trial_expiry_reminder_screen(
         )
     remaining = " ".join(remaining_parts) or "меньше минуты"
     text = (
-        "⚠️ <b>Пробный период скоро закончится</b>\n\n"
+        "<b>Пробный период скоро закончится</b>\n"
+        "⚠️\n\n"
         "Статус подписки:\n"
         "<blockquote>"
         f"⌛ <b>Осталось времени:</b> {escape(remaining)}\n"
