@@ -226,7 +226,14 @@ class PlategaClientTest(unittest.TestCase):
         self.assertEqual(client.get_transaction(TRANSACTION_ID).amount_rub, 189)
 
     def test_integral_string_api_amount_is_accepted(self) -> None:
-        for amount in ("189", "189.0", "189.00"):
+        for amount in (
+            "189",
+            "189.0",
+            "189.00",
+            "189,00",
+            "189 RUB",
+            "189.00 RUB",
+        ):
             with self.subTest(amount=amount):
                 client = self.make_client()
                 self.set_response(

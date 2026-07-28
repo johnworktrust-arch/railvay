@@ -31,7 +31,9 @@ _MAX_RESPONSE_BYTES = 1024 * 1024
 _MAX_TEXT_FIELD_LENGTH = 4096
 _MAX_HEADER_LENGTH = 4096
 _MAX_PAYMENT_AMOUNT_RUB = 10**12
-_RUBLE_AMOUNT_RE = re.compile(r"(?:0|[1-9][0-9]*)(?:\.0{1,2})?")
+_RUBLE_AMOUNT_RE = re.compile(
+    r"(?P<amount>(?:0|[1-9][0-9]*)(?:[.,]0{1,2})?)(?: RUB)?"
+)
 
 
 class PlategaError(RuntimeError):
@@ -401,14 +403,19 @@ def _validate_response_amount(value: Any) -> int:
     if isinstance(value, bool):
         raise PlategaResponseError("Platega returned an invalid payment amount.")
     if isinstance(value, str):
-        if value != value.strip() or not _RUBLE_AMOUNT_RE.fullmatch(value):
+        if value != value.strip() or not (
+            match := _RUBLE_AMOUNT_RE.fullmatch(value)
+        ):
             raise PlategaResponseError(
                 "Platega returned an invalid payment amount."
             )
+        decimal_value = match.group("amount").replace(",", ".")
     elif not isinstance(value, (int, float, Decimal)):
         raise PlategaResponseError("Platega returned an invalid payment amount.")
+    else:
+        decimal_value = str(value)
     try:
-        amount = Decimal(str(value))
+        amount = Decimal(decimal_value)
     except Exception as exc:
         raise PlategaResponseError(
             "Platega returned an invalid payment amount."
