@@ -110,7 +110,7 @@ class VpnRuntimeTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual(claim["status"], "provisioned")
 
-    def test_worker_converges_existing_active_subscription_to_profile_v2(self) -> None:
+    def test_worker_converges_existing_active_subscription_to_profile_v3(self) -> None:
         trial = self.vpn.claim_trial(
             user_id=int(self.user["id"]),
             channel="@ceafamily",
@@ -194,12 +194,12 @@ class VpnRuntimeTest(unittest.TestCase):
                 (
                     "update",
                     "completed",
-                    f"vpn:profile:v2:{trial.subscription['id']}",
+                    f"vpn:profile:v3:{trial.subscription['id']}",
                 )
             ],
         )
 
-    def test_legacy_worker_neither_creates_nor_claims_profile_v2_job(self) -> None:
+    def test_legacy_worker_neither_creates_nor_claims_profile_v3_job(self) -> None:
         trial = self.vpn.claim_trial(
             user_id=int(self.user["id"]),
             channel="@ceafamily",
@@ -225,7 +225,7 @@ class VpnRuntimeTest(unittest.TestCase):
             )
         )
         with self.db.transaction() as conn:
-            profile_key = f"vpn:profile:v2:{trial.subscription['id']}"
+            profile_key = f"vpn:profile:v3:{trial.subscription['id']}"
             self.assertIsNone(
                 conn.execute(
                     """
@@ -599,6 +599,86 @@ class VpnRuntimeTest(unittest.TestCase):
                 body=body,
             ),
             "worker-us1",
+        )
+
+    def test_one_subscription_is_provisioned_on_every_active_server(self) -> None:
+        with self.db.transaction() as conn:
+            us_server = VpnServerRepository().upsert(
+                conn,
+                code="us-1",
+                name="USA",
+                provider="marzban",
+                region="US",
+                api_base_url="http://127.0.0.1:8000",
+                worker_id="worker-us1",
+                subscription_base_url="https://sub-us.example.test:8443",
+            )
+            VpnServerRepository().mark_healthy(
+                conn, server_id=int(us_server["id"])
+            )
+
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        canonical = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        replica = self.vpn.claim_worker_job(
+            worker_id="worker-us1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        assert canonical is not None
+        assert replica is not None
+        canonical_uuid = canonical["marzban_user"]["proxies"]["vless"]["id"]
+        replica_uuid = replica["marzban_user"]["proxies"]["vless"]["id"]
+        self.assertEqual(canonical_uuid, replica_uuid)
+
+        replica_completion = self.vpn.complete_worker_job(
+            worker_id="worker-us1",
+            job_id=int(replica["job_id"]),
+            lease_token=str(replica["lease_token"]),
+            subscription_url="https://sub-us.example.test:8443/sub/us-token",
+        )
+        self.assertEqual(replica_completion.subscription["subscription_url"], "")
+
+        canonical_completion = self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(canonical["job_id"]),
+            lease_token=str(canonical["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/main-token",
+        )
+        self.assertEqual(
+            canonical_completion.subscription["subscription_url"],
+            "https://sub.example.test:8443/sub/main-token",
+        )
+        current = self.vpn.get_current_subscription(int(self.user["id"]))
+        assert current is not None
+        self.assertEqual(current["id"], trial.subscription["id"])
+        self.assertEqual(
+            current["subscription_url"],
+            "https://sub.example.test:8443/sub/main-token",
+        )
+
+        with self.db.transaction() as conn:
+            jobs = conn.execute(
+                """
+                SELECT server_id, status
+                FROM vpn_provisioning_jobs
+                WHERE subscription_id = ?
+                ORDER BY server_id
+                """,
+                (int(trial.subscription["id"]),),
+            ).fetchall()
+        self.assertEqual(
+            [(int(row["server_id"]), row["status"]) for row in jobs],
+            [
+                (int(trial.subscription["server_id"]), "completed"),
+                (int(us_server["id"]), "completed"),
+            ],
         )
 
 

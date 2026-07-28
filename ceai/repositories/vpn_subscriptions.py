@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import sqlite3
+import uuid
 from typing import Any, Dict, List
 
 from ceai.repositories.base import row_to_dict, rows_to_dicts
@@ -216,6 +217,37 @@ class VpnSubscriptionRepository:
         )
         return self._require_by_id(conn, subscription_id, "update")
 
+    def ensure_provider_uuid(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        subscription_id: int,
+    ) -> str:
+        candidate = str(uuid.uuid4())
+        conn.execute(
+            """
+            UPDATE vpn_subscriptions
+            SET provider_uuid = CASE
+                    WHEN provider_uuid IS NULL OR provider_uuid = '' THEN ?
+                    ELSE provider_uuid
+                END,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (candidate, iso_now(), subscription_id),
+        )
+        subscription = self._require_by_id(
+            conn, subscription_id, "assign provider UUID to"
+        )
+        value = str(subscription.get("provider_uuid") or "")
+        try:
+            parsed = uuid.UUID(value)
+        except ValueError as exc:
+            raise RuntimeError("VPN subscription has an invalid provider UUID") from exc
+        if parsed.version != 4:
+            raise RuntimeError("VPN subscription provider UUID is not UUIDv4")
+        return str(parsed)
+
     def update_period(
         self,
         conn: sqlite3.Connection,
@@ -303,6 +335,64 @@ class VpnSubscriptionRepository:
                     server_id,
                     active_at or iso_now(),
                     idempotency_prefix,
+                    limit,
+                ),
+            ).fetchall()
+        )
+
+    def list_active_requiring_server_replica(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        server_id: int,
+        profile_version: str,
+        active_at: str | None = None,
+        limit: int = 1,
+    ) -> List[Dict[str, Any]]:
+        if not re.fullmatch(r"[a-z0-9_-]{1,32}", profile_version):
+            raise ValueError("invalid VPN profile version")
+        if limit <= 0:
+            raise ValueError("limit must be greater than zero")
+        canonical_key = f"vpn:profile:{profile_version}:"
+        replica_key = f"vpn:replica:{profile_version}:"
+        return rows_to_dicts(
+            conn.execute(
+                """
+                SELECT s.*
+                FROM vpn_subscriptions s
+                WHERE s.server_id <> ?
+                  AND s.status = 'active'
+                  AND s.ends_at > ?
+                  AND s.provider_uuid IS NOT NULL
+                  AND s.provider_uuid <> ''
+                  AND EXISTS (
+                      SELECT 1
+                      FROM vpn_provisioning_jobs canonical_job
+                      WHERE canonical_job.subscription_id = s.id
+                        AND canonical_job.server_id = s.server_id
+                        AND canonical_job.status = 'completed'
+                        AND canonical_job.idempotency_key =
+                            ? || CAST(s.id AS TEXT)
+                  )
+                  AND NOT EXISTS (
+                      SELECT 1
+                      FROM vpn_provisioning_jobs replica_job
+                      WHERE replica_job.subscription_id = s.id
+                        AND replica_job.server_id = ?
+                        AND replica_job.idempotency_key =
+                            ? || CAST(s.id AS TEXT) ||
+                            ':server:' || CAST(? AS TEXT)
+                  )
+                ORDER BY s.id ASC
+                LIMIT ?
+                """,
+                (
+                    server_id,
+                    active_at or iso_now(),
+                    canonical_key,
+                    server_id,
+                    replica_key,
+                    server_id,
                     limit,
                 ),
             ).fetchall()

@@ -452,7 +452,12 @@ class LocalMarzbanClient:
             return None
         return self._require_object(response, "marzban_get_user")
 
-    def create_user(self, payload: Mapping[str, Any]) -> Dict[str, Any]:
+    def create_user(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        replace_proxy_on_conflict: bool = False,
+    ) -> Dict[str, Any]:
         response = self._authorized_request("POST", "/api/user", payload=payload)
         if response.status == 409:
             username = _validated_username(str(payload.get("username") or ""))
@@ -461,7 +466,12 @@ class LocalMarzbanClient:
                 raise WorkerError("marzban_conflict_without_user")
             # Preserve credentials created by the first request if its response
             # was lost.  Only converge mutable lifecycle fields.
-            return self.update_user(username, _mutable_user_fields(payload))
+            update = _mutable_user_fields(payload)
+            if replace_proxy_on_conflict and isinstance(
+                payload.get("proxies"), Mapping
+            ):
+                update["proxies"] = payload["proxies"]
+            return self.update_user(username, update)
         return self._require_object(response, "marzban_create_user")
 
     def update_user(
@@ -481,6 +491,7 @@ class LocalMarzbanClient:
         expire: int,
         subscription_id: int,
         data_limit: int = 0,
+        vless_id: Optional[str] = None,
     ) -> Dict[str, Any]:
         desired = {
             "username": _validated_username(username),
@@ -491,21 +502,37 @@ class LocalMarzbanClient:
             "status": "active",
             "note": f"CEA VPN subscription {int(subscription_id)}",
         }
+        if vless_id is not None:
+            try:
+                normalized_vless_id = str(uuid.UUID(vless_id))
+            except ValueError as exc:
+                raise WorkerError("invalid_vless_id", retryable=False) from exc
+            desired["proxies"] = {
+                "vless": {
+                    "id": normalized_vless_id,
+                    "flow": "xtls-rprx-vision",
+                }
+            }
         existing = self.get_user(username)
         if existing is None:
             user = self.create_user(
                 {
                     **desired,
-                    "proxies": {
+                    "proxies": desired.get("proxies")
+                    or {
                         "vless": {
                             "id": str(uuid.uuid4()),
                             "flow": "xtls-rprx-vision",
                         }
                     },
-                }
+                },
+                replace_proxy_on_conflict=vless_id is not None,
             )
         else:
-            user = self.update_user(username, _mutable_user_fields(desired))
+            update = _mutable_user_fields(desired)
+            if vless_id is not None:
+                update["proxies"] = desired["proxies"]
+            user = self.update_user(username, update)
         return self._ensure_subscription_url(user, username)
 
     def disable(self, username: str) -> Dict[str, Any]:
@@ -727,6 +754,7 @@ class ProvisioningJob:
     provider_username: str
     expire: Optional[int]
     data_limit: int
+    vless_id: Optional[str]
 
     @classmethod
     def from_payload(
@@ -797,6 +825,15 @@ class ProvisioningJob:
                 raise WorkerError("job_subscription_base_mismatch", retryable=False)
 
         expire = None if operation in {"disable", "sync"} else _job_expire(desired)
+        vless_id: Optional[str] = None
+        raw_proxies = desired.get("proxies")
+        if isinstance(raw_proxies, Mapping):
+            raw_vless = raw_proxies.get("vless")
+            if isinstance(raw_vless, Mapping) and raw_vless.get("id") is not None:
+                try:
+                    vless_id = str(uuid.UUID(str(raw_vless["id"])))
+                except ValueError as exc:
+                    raise WorkerError("invalid_vless_id", retryable=False) from exc
         return cls(
             job_id=job_id,
             lease_token=lease_token,
@@ -805,6 +842,7 @@ class ProvisioningJob:
             provider_username=username,
             expire=expire,
             data_limit=_validated_data_limit(desired.get("data_limit", 0)),
+            vless_id=vless_id,
         )
 
 
@@ -912,6 +950,7 @@ class VpnWorker:
                 expire=job.expire,
                 subscription_id=job.subscription_id,
                 data_limit=job.data_limit,
+                vless_id=job.vless_id,
             )
         if job.operation == "disable":
             return self.marzban.disable(job.provider_username)

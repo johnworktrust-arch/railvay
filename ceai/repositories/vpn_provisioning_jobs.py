@@ -17,21 +17,31 @@ class VpnProvisioningJobRepository:
         subscription_id: int,
         operation: str,
         idempotency_key: str,
+        server_id: int | None = None,
         next_attempt_at: str | None = None,
     ) -> Tuple[Dict[str, Any], bool]:
+        if server_id is None:
+            subscription = conn.execute(
+                "SELECT server_id FROM vpn_subscriptions WHERE id = ?",
+                (subscription_id,),
+            ).fetchone()
+            if subscription is None:
+                raise RuntimeError("VPN provisioning subscription is missing")
+            server_id = int(subscription["server_id"])
         now = iso_now()
         cursor = conn.execute(
             """
             INSERT INTO vpn_provisioning_jobs (
-                subscription_id, operation, status, attempts,
+                subscription_id, server_id, operation, status, attempts,
                 next_attempt_at, idempotency_key, created_at, updated_at
             )
-            VALUES (?, ?, 'pending', 0, ?, ?, ?, ?)
+            VALUES (?, ?, ?, 'pending', 0, ?, ?, ?, ?)
             ON CONFLICT(idempotency_key) DO NOTHING
             RETURNING id
             """,
             (
                 subscription_id,
+                server_id,
                 operation,
                 next_attempt_at or now,
                 idempotency_key,
@@ -147,9 +157,7 @@ class VpnProvisioningJobRepository:
                       OR idempotency_key NOT LIKE (CAST(? AS TEXT) || '%%')
                   )
                   AND (
-                      ? IS NULL OR subscription_id IN (
-                          SELECT id FROM vpn_subscriptions WHERE server_id = ?
-                      )
+                      ? IS NULL OR server_id = ?
                   )
                 ORDER BY
                     CASE
@@ -164,9 +172,7 @@ class VpnProvisioningJobRepository:
                   OR (status = 'running' AND lease_expires_at <= ?)
               )
               AND (
-                  ? IS NULL OR subscription_id IN (
-                      SELECT id FROM vpn_subscriptions WHERE server_id = ?
-                  )
+                  ? IS NULL OR server_id = ?
               )
             RETURNING id
             """,
@@ -273,7 +279,11 @@ class VpnProvisioningJobRepository:
                 lease_token = NULL, lease_expires_at = NULL,
                 updated_at = ?, completed_at = ?
             WHERE subscription_id = ?
-              AND idempotency_key IN (?, ?)
+              AND (
+                  idempotency_key IN (?, ?)
+                  OR idempotency_key LIKE (? || ':server:%%')
+                  OR idempotency_key LIKE (? || ':server:%%')
+              )
               AND operation IN ('create', 'update')
               AND status IN ('pending', 'failed', 'running')
             RETURNING id
@@ -283,6 +293,8 @@ class VpnProvisioningJobRepository:
                 now,
                 now,
                 subscription_id,
+                keys[0],
+                keys[1],
                 keys[0],
                 keys[1],
             ),

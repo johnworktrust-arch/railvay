@@ -67,41 +67,36 @@ class VpnNginxConfigTest(unittest.TestCase):
         self.assertNotIn("happ://routing/off", config)
         self.assertNotIn("happ://routing/onadd/", config)
 
-    def test_happ_publishes_only_the_named_region_ws_profile(self) -> None:
+    def test_happ_can_publish_multiple_named_region_ws_profiles(self) -> None:
         root = Path(__file__).resolve().parents[1]
         hosts_script = (
             root / "deploy" / "vpn" / "configure-marzban-hosts.sh"
         ).read_text(encoding="utf-8")
 
-        reality = re.search(
-            r"reality_tag: \[\{(?P<body>.*?)\}\],\n\s*fallback_tag:",
-            hosts_script,
-            flags=re.DOTALL,
-        )
-        fallback = re.search(
-            r"fallback_tag: \[\{(?P<body>.*?)\}\],\n\}",
-            hosts_script,
-            flags=re.DOTALL,
-        )
-        self.assertIsNotNone(reality)
-        self.assertIsNotNone(fallback)
-        assert reality is not None and fallback is not None
-        self.assertIn('"is_disabled": True', reality.group("body"))
-        self.assertIn('"is_disabled": False', fallback.group("body"))
+        self.assertIn('"is_disabled": True', hosts_script)
+        self.assertIn("fallback_tag: normalized_fallback_hosts", hosts_script)
         self.assertIn(
-            '"remark": region_remark',
-            fallback.group("body"),
+            'published_hosts_file.is_file()',
+            hosts_script,
         )
+        self.assertIn('"remark": remark', hosts_script)
+        self.assertIn('"is_disabled": False', hosts_script)
 
         smoke_script = (
             root / "deploy" / "vpn" / "smoke-test.sh"
         ).read_text(encoding="utf-8")
-        self.assertIn("expected_vless_profiles=1", smoke_script)
         self.assertIn(
-            'profiles[0]["remark"] == expected_profile_remark',
+            'expected_vless_profiles="${VPN_SMOKE_EXPECTED_PROFILE_COUNT:-1}"',
             smoke_script,
         )
-        self.assertIn('require(kinds == ["ws-tls"]', smoke_script)
+        self.assertIn(
+            'expected_profile_remark in {profile["remark"] for profile in profiles}',
+            smoke_script,
+        )
+        self.assertIn(
+            'require(kinds == ["ws-tls"] * expected_profile_count',
+            smoke_script,
+        )
 
 
 if __name__ == "__main__":

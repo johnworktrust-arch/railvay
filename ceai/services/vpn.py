@@ -45,7 +45,7 @@ _MARZBAN_VLESS_INBOUND_TAGS = (
     "VLESS TCP REALITY",
     "VLESS WS TLS FALLBACK",
 )
-_MARZBAN_PROFILE_VERSION = "v2"
+_MARZBAN_PROFILE_VERSION = "v3"
 
 
 class VpnPaymentVerificationError(BusinessRuleError):
@@ -190,11 +190,11 @@ class VpnService:
                 subscription_id=int(subscription["id"]),
                 channel=channel,
             )
-            self.jobs.enqueue(
+            self._enqueue_for_active_servers(
                 conn,
-                subscription_id=int(subscription["id"]),
+                subscription=subscription,
                 operation="create",
-                idempotency_key=f"vpn:create:{subscription['id']}",
+                base_idempotency_key=f"vpn:create:{subscription['id']}",
             )
             return VpnTrialOutcome(subscription=subscription, created=True)
 
@@ -1020,20 +1020,24 @@ class VpnService:
                     f"Access revoked: chargeback for VPN payment {payment_id}"
                 ),
             )
-            _, job_created = self.jobs.enqueue(
-                conn,
-                subscription_id=subscription_id,
-                operation="disable",
-                idempotency_key=f"vpn:chargeback:{payment_id}:disable",
+            job_created = bool(
+                self._enqueue_for_active_servers(
+                    conn,
+                    subscription=subscription,
+                    operation="disable",
+                    base_idempotency_key=f"vpn:chargeback:{payment_id}:disable",
+                )
             )
         else:
             # Marzban must receive the shortened expire value even when another
             # paid order or the original trial still owns valid entitlement.
-            _, job_created = self.jobs.enqueue(
-                conn,
-                subscription_id=subscription_id,
-                operation="update",
-                idempotency_key=f"vpn:chargeback:{payment_id}:update",
+            job_created = bool(
+                self._enqueue_for_active_servers(
+                    conn,
+                    subscription=subscription,
+                    operation="update",
+                    base_idempotency_key=f"vpn:chargeback:{payment_id}:update",
+                )
             )
 
         return bool(superseded or shortened or job_created)
@@ -1129,11 +1133,11 @@ class VpnService:
             )
             operation = "create"
 
-        self.jobs.enqueue(
+        self._enqueue_for_active_servers(
             conn,
-            subscription_id=int(subscription["id"]),
+            subscription=subscription,
             operation=operation,
-            idempotency_key=f"vpn:payment:{payment_id}:{operation}",
+            base_idempotency_key=f"vpn:payment:{payment_id}:{operation}",
         )
         return subscription
 
@@ -1155,16 +1159,16 @@ class VpnService:
                         subscription_id=subscription_id,
                         status="expired",
                     )
-                _, created = self.jobs.enqueue(
+                created = self._enqueue_for_active_servers(
                     conn,
-                    subscription_id=subscription_id,
+                    subscription=subscription,
                     operation="disable",
-                    idempotency_key=(
+                    base_idempotency_key=(
                         f"vpn:disable:{subscription_id}:"
                         f"{self._iso_value(subscription['ends_at'])}"
                     ),
                 )
-                queued += int(created)
+                queued += created
         return queued
 
     def claim_worker_job(
@@ -1181,7 +1185,7 @@ class VpnService:
                 raise BusinessRuleError("Unknown or inactive VPN worker")
             if control_plane_ready is not True:
                 raise BusinessRuleError("VPN worker control plane is not ready")
-            profile_v2_ready = (
+            profile_ready = (
                 isinstance(worker_inbound_tags, list)
                 and tuple(worker_inbound_tags) == _MARZBAN_VLESS_INBOUND_TAGS
             )
@@ -1197,8 +1201,6 @@ class VpnService:
                 limit=100,
             )
             for subscription in due:
-                if int(subscription["server_id"]) != int(server["id"]):
-                    continue
                 subscription_id = int(subscription["id"])
                 if subscription["status"] == "active":
                     self.subscriptions.mark_status(
@@ -1206,13 +1208,20 @@ class VpnService:
                         subscription_id=subscription_id,
                         status="expired",
                     )
+                canonical_server_id = int(subscription["server_id"])
+                base_key = (
+                    f"vpn:disable:{subscription_id}:"
+                    f"{self._iso_value(subscription['ends_at'])}"
+                )
                 self.jobs.enqueue(
                     conn,
                     subscription_id=subscription_id,
+                    server_id=int(server["id"]),
                     operation="disable",
                     idempotency_key=(
-                        f"vpn:disable:{subscription_id}:"
-                        f"{self._iso_value(subscription['ends_at'])}"
+                        base_key
+                        if int(server["id"]) == canonical_server_id
+                        else f"{base_key}:server:{int(server['id'])}"
                     ),
                 )
 
@@ -1221,10 +1230,10 @@ class VpnService:
                 lease_seconds=lease_seconds,
                 server_id=int(server["id"]),
                 excluded_idempotency_prefix=(
-                    None if profile_v2_ready else "vpn:profile:v2:"
+                    None if profile_ready else "vpn:profile:"
                 ),
             )
-            if job is None and profile_v2_ready:
+            if job is None and profile_ready:
                 # Migrate one existing active account at a time only while the
                 # normal provisioning queue is idle. The fixed profile-version
                 # key makes this safe on every worker poll and across restarts.
@@ -1239,9 +1248,13 @@ class VpnService:
                 )
                 for subscription in profile_updates:
                     subscription_id = int(subscription["id"])
+                    self.subscriptions.ensure_provider_uuid(
+                        conn, subscription_id=subscription_id
+                    )
                     self.jobs.enqueue(
                         conn,
                         subscription_id=subscription_id,
+                        server_id=int(server["id"]),
                         operation="update",
                         idempotency_key=(
                             f"vpn:profile:{_MARZBAN_PROFILE_VERSION}:"
@@ -1249,6 +1262,34 @@ class VpnService:
                         ),
                     )
                 if profile_updates:
+                    job = self.jobs.claim_due(
+                        conn,
+                        lease_seconds=lease_seconds,
+                        server_id=int(server["id"]),
+                    )
+            if job is None and profile_ready:
+                replica_updates = (
+                    self.subscriptions.list_active_requiring_server_replica(
+                        conn,
+                        server_id=int(server["id"]),
+                        profile_version=_MARZBAN_PROFILE_VERSION,
+                        active_at=current,
+                        limit=1,
+                    )
+                )
+                for subscription in replica_updates:
+                    subscription_id = int(subscription["id"])
+                    self.jobs.enqueue(
+                        conn,
+                        subscription_id=subscription_id,
+                        server_id=int(server["id"]),
+                        operation="update",
+                        idempotency_key=(
+                            f"vpn:replica:{_MARZBAN_PROFILE_VERSION}:"
+                            f"{subscription_id}:server:{int(server['id'])}"
+                        ),
+                    )
+                if replica_updates:
                     job = self.jobs.claim_due(
                         conn,
                         lease_seconds=lease_seconds,
@@ -1270,10 +1311,16 @@ class VpnService:
                 "status": desired_status,
             }
             if operation != "disable":
+                provider_uuid = self.subscriptions.ensure_provider_uuid(
+                    conn, subscription_id=int(subscription["id"])
+                )
                 payload.update(
                     {
                         "proxies": {
-                            "vless": {"flow": "xtls-rprx-vision"},
+                            "vless": {
+                                "id": provider_uuid,
+                                "flow": "xtls-rprx-vision",
+                            },
                         },
                         "inbounds": {
                             "vless": list(_MARZBAN_VLESS_INBOUND_TAGS),
@@ -1312,24 +1359,40 @@ class VpnService:
             )
             subscription_id = int(job["subscription_id"])
             operation = str(job["operation"])
+            current_subscription = self.subscriptions.get_by_id(
+                conn, subscription_id
+            )
+            if current_subscription is None:
+                raise RuntimeError("VPN subscription disappeared")
+            is_canonical = int(server["id"]) == int(
+                current_subscription["server_id"]
+            )
 
             if operation == "disable":
-                subscription = self.subscriptions.mark_status(
-                    conn,
-                    subscription_id=subscription_id,
-                    status="disabled",
-                )
+                if is_canonical:
+                    subscription = self.subscriptions.mark_status(
+                        conn,
+                        subscription_id=subscription_id,
+                        status="disabled",
+                    )
+                else:
+                    subscription = self.subscriptions.get_by_id(
+                        conn, subscription_id
+                    )
             else:
                 self._validate_subscription_url(
                     subscription_url,
                     str(server["subscription_base_url"]),
                 )
-                subscription = self.subscriptions.mark_active(
-                    conn,
-                    subscription_id=subscription_id,
-                    subscription_url=subscription_url,
-                )
-                if subscription["kind"] == "trial":
+                if is_canonical:
+                    subscription = self.subscriptions.mark_active(
+                        conn,
+                        subscription_id=subscription_id,
+                        subscription_url=subscription_url,
+                    )
+                else:
+                    subscription = current_subscription
+                if is_canonical and subscription["kind"] == "trial":
                     claim = self.trials.get_by_subscription_id(conn, subscription_id)
                     if claim is not None:
                         self.trials.mark_status(
@@ -1351,9 +1414,12 @@ class VpnService:
             if user is None:
                 raise RuntimeError("VPN subscription user is missing")
             completion_subscription = subscription
-            if operation == "update" and str(
-                job.get("idempotency_key") or ""
-            ).startswith(("vpn:chargeback:", "vpn:profile:")):
+            if int(server["id"]) != int(subscription["server_id"]) or (
+                operation == "update"
+                and str(job.get("idempotency_key") or "").startswith(
+                    ("vpn:chargeback:", "vpn:profile:", "vpn:replica:")
+                )
+            ):
                 # `notify_vpn_ready` deliberately ignores completions without a
                 # URL. Keep the real URL in the database/Marzban, but suppress a
                 # misleading second "VPN готов" message for this purely
@@ -1395,11 +1461,17 @@ class VpnService:
             )
             is_profile_convergence = str(
                 job.get("idempotency_key") or ""
-            ).startswith("vpn:profile:")
+            ).startswith(("vpn:profile:", "vpn:replica:"))
+            subscription = self.subscriptions.get_by_id(
+                conn, int(job["subscription_id"])
+            )
             if (
                 attempts >= 5
                 and str(job["operation"]) != "disable"
                 and not is_profile_convergence
+                and subscription is not None
+                and int(job["server_id"])
+                == int(subscription["server_id"])
             ):
                 self.subscriptions.mark_status(
                     conn,
@@ -1429,12 +1501,43 @@ class VpnService:
             or not secrets.compare_digest(str(job.get("lease_token") or ""), lease_token)
         ):
             raise BusinessRuleError("VPN worker lease is no longer valid")
-        subscription = self.subscriptions.get_by_id(
-            conn, int(job["subscription_id"])
-        )
-        if subscription is None or int(subscription["server_id"]) != server_id:
+        if int(job.get("server_id") or 0) != server_id:
             raise BusinessRuleError("VPN job belongs to another worker")
         return job
+
+    def _enqueue_for_active_servers(
+        self,
+        conn: Any,
+        *,
+        subscription: Mapping[str, Any],
+        operation: str,
+        base_idempotency_key: str,
+    ) -> int:
+        subscription_id = int(subscription["id"])
+        canonical_server_id = int(subscription["server_id"])
+        servers = self.servers.list_active(conn)
+        if all(int(server["id"]) != canonical_server_id for server in servers):
+            canonical = self.servers.get_by_id(conn, canonical_server_id)
+            if canonical is not None:
+                servers.append(canonical)
+
+        created_count = 0
+        for server in servers:
+            server_id = int(server["id"])
+            idempotency_key = (
+                base_idempotency_key
+                if server_id == canonical_server_id
+                else f"{base_idempotency_key}:server:{server_id}"
+            )
+            _, created = self.jobs.enqueue(
+                conn,
+                subscription_id=subscription_id,
+                server_id=server_id,
+                operation=operation,
+                idempotency_key=idempotency_key,
+            )
+            created_count += int(created)
+        return created_count
 
     @staticmethod
     def _validate_subscription_url(value: str, base_url: str) -> None:

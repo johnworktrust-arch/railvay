@@ -237,8 +237,12 @@ if ! jq -e '
 fi
 # Both transports remain configured on the one VPS for rollback safety, but
 # only the Happ-compatible WS/TLS host is published to client subscriptions.
-expected_vless_profiles=1
+expected_vless_profiles="${VPN_SMOKE_EXPECTED_PROFILE_COUNT:-1}"
 expected_profile_remark="${VPN_SMOKE_EXPECTED_REMARK:-🇳🇱 Нидерланды · Амстердам}"
+if [[ ! "$expected_vless_profiles" =~ ^[1-8]$ ]]; then
+  echo "VPN smoke test failed: expected profile count must be between 1 and 8" >&2
+  exit 1
+fi
 
 jq -n \
   --arg username "$username" \
@@ -612,9 +616,9 @@ try:
     require(profiles, "no_supported_vless_profiles")
     require(len(profiles) == expected_profile_count, "missing_vless_profile")
     kinds = sorted(profile["kind"] for profile in profiles)
-    require(kinds == ["ws-tls"], "invalid_public_vless_profile")
+    require(kinds == ["ws-tls"] * expected_profile_count, "invalid_public_vless_profile")
     require(
-        profiles[0]["remark"] == expected_profile_remark,
+        expected_profile_remark in {profile["remark"] for profile in profiles},
         "invalid_public_profile_name",
     )
     Path(manifest_path).write_text(json.dumps({"profiles": profiles}), encoding="utf-8")

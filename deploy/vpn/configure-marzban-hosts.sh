@@ -6,6 +6,7 @@ set -Eeuo pipefail
 admin_file="/root/ceavpn-sudo-admin.env"
 fallback_file="/root/ceavpn-fallback.env"
 node_file="/root/ceavpn-node.env"
+published_hosts_file="${CEAVPN_PUBLISHED_HOSTS_FILE:-/root/ceavpn-published-hosts.json}"
 api_base="http://127.0.0.1:8000"
 reality_tag="VLESS TCP REALITY"
 fallback_tag="VLESS WS TLS FALLBACK"
@@ -133,6 +134,7 @@ export CEAVPN_FALLBACK_TAG="$fallback_tag"
 export CEAVPN_PUBLIC_IP CEAVPN_SUB_DOMAIN CEAVPN_COVER_DOMAIN
 export CEAVPN_REGION_REMARK
 export FALLBACK_WS_PATH
+export CEAVPN_PUBLISHED_HOSTS_FILE="$published_hosts_file"
 
 change_state="$(python3 - <<'PY'
 import json
@@ -146,6 +148,7 @@ public_ip = os.environ["CEAVPN_PUBLIC_IP"]
 sub_domain = os.environ["CEAVPN_SUB_DOMAIN"]
 cover_domain = os.environ["CEAVPN_COVER_DOMAIN"]
 region_remark = os.environ["CEAVPN_REGION_REMARK"]
+published_hosts_file = Path(os.environ["CEAVPN_PUBLISHED_HOSTS_FILE"])
 baseline = json.loads(
     Path(os.environ["CEAVPN_HOSTS_BASELINE"]).read_text(encoding="utf-8")
 )
@@ -155,6 +158,66 @@ if not isinstance(baseline, dict):
 for tag in (reality_tag, fallback_tag):
     if tag not in baseline or not isinstance(baseline[tag], list):
         raise SystemExit(f"required inbound is missing: {tag}")
+
+fallback_hosts = [{
+    "remark": region_remark,
+    "address": sub_domain,
+    "port": 8443,
+    "sni": sub_domain,
+    "host": sub_domain,
+    "path": fallback_path,
+}]
+if published_hosts_file.is_file():
+    configured_hosts = json.loads(
+        published_hosts_file.read_text(encoding="utf-8")
+    )
+    if not isinstance(configured_hosts, list) or not configured_hosts:
+        raise SystemExit("invalid published VPN hosts file")
+    fallback_hosts = configured_hosts
+
+normalized_fallback_hosts = []
+seen_remarks = set()
+for host_config in fallback_hosts:
+    if not isinstance(host_config, dict):
+        raise SystemExit("invalid published VPN host")
+    remark = str(host_config.get("remark") or "").strip()
+    address = str(host_config.get("address") or "").strip()
+    sni = str(host_config.get("sni") or address).strip()
+    host = str(host_config.get("host") or sni).strip()
+    path = str(host_config.get("path") or "").strip()
+    port = host_config.get("port", 8443)
+    if (
+        not remark
+        or remark in seen_remarks
+        or not address
+        or not sni
+        or not host
+        or not isinstance(port, int)
+        or not (1 <= port <= 65535)
+        or not path.startswith("/ws-")
+        or len(path) != 52
+        or any(character not in "0123456789abcdef" for character in path[4:])
+    ):
+        raise SystemExit("invalid published VPN host fields")
+    seen_remarks.add(remark)
+    normalized_fallback_hosts.append({
+        "remark": remark,
+        "address": address,
+        "port": port,
+        "sni": sni,
+        "host": host,
+        "path": path,
+        "security": "tls",
+        "alpn": "http/1.1",
+        "fingerprint": "chrome",
+        "allowinsecure": False,
+        "is_disabled": False,
+        "mux_enable": False,
+        "fragment_setting": None,
+        "noise_setting": None,
+        "random_user_agent": False,
+        "use_sni_as_host": False,
+    })
 
 desired = {
     reality_tag: [{
@@ -178,25 +241,8 @@ desired = {
         "random_user_agent": False,
         "use_sni_as_host": False,
     }],
-    fallback_tag: [{
-        # Happ uses the first flag emoji in the remark as the server icon.
-        "remark": region_remark,
-        "address": sub_domain,
-        "port": 8443,
-        "sni": sub_domain,
-        "host": sub_domain,
-        "path": fallback_path,
-        "security": "tls",
-        "alpn": "http/1.1",
-        "fingerprint": "chrome",
-        "allowinsecure": False,
-        "is_disabled": False,
-        "mux_enable": False,
-        "fragment_setting": None,
-        "noise_setting": None,
-        "random_user_agent": False,
-        "use_sni_as_host": False,
-    }],
+    # Happ uses the first flag emoji in each remark as the server icon.
+    fallback_tag: normalized_fallback_hosts,
 }
 
 keys = tuple(next(iter(desired.values()))[0].keys())
@@ -286,12 +332,18 @@ if foreign_after != foreign_before:
 keys = tuple(desired[reality_tag][0].keys())
 for tag in target_tags:
     actual_hosts = result.get(tag)
-    if not isinstance(actual_hosts, list) or len(actual_hosts) != 1:
+    if (
+        not isinstance(actual_hosts, list)
+        or len(actual_hosts) != len(desired[tag])
+    ):
         raise SystemExit(f"invalid updated host override count: {tag}")
-    actual = {key: actual_hosts[0].get(key) for key in keys}
-    if actual != desired[tag][0]:
+    actual = [
+        {key: host.get(key) for key in keys}
+        for host in actual_hosts
+    ]
+    if actual != desired[tag]:
         raise SystemExit(f"Marzban host override verification failed: {tag}")
 PY
 
 rollback_needed=0
-echo "Marzban Netherlands WS/TLS profile configured; Reality profile hidden"
+echo "Marzban WS/TLS profiles configured; Reality profile hidden"

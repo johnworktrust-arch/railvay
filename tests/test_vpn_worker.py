@@ -440,6 +440,7 @@ class FailingHealthcheckMarzban(FakeMarzban):
 
 class VpnWorkerTest(unittest.TestCase):
     def test_parses_railway_nested_marzban_payload(self) -> None:
+        expected_uuid = "9c97ef67-c753-46d0-9529-74a33f566773"
         job = worker.ProvisioningJob.from_payload(
             {
                 "job_id": 8,
@@ -451,7 +452,12 @@ class VpnWorkerTest(unittest.TestCase):
                     "expire": 1_800_000_000,
                     "data_limit": 0,
                     "note": "CEA VPN subscription 42",
-                    "proxies": {"vless": {"flow": "xtls-rprx-vision"}},
+                    "proxies": {
+                        "vless": {
+                            "id": expected_uuid,
+                            "flow": "xtls-rprx-vision",
+                        }
+                    },
                     "inbounds": {
                         "vless": [
                             "VLESS TCP REALITY",
@@ -466,6 +472,7 @@ class VpnWorkerTest(unittest.TestCase):
         self.assertEqual(job.subscription_id, 42)
         self.assertEqual(job.provider_username, "u_abcdef123456")
         self.assertEqual(job.expire, 1_800_000_000)
+        self.assertEqual(job.vless_id, expected_uuid)
 
     def test_parses_minimal_railway_disable_payload(self) -> None:
         job = worker.ProvisioningJob.from_payload(
