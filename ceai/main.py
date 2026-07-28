@@ -111,6 +111,25 @@ async def auto_renewal_loop(services: AppServices) -> None:
         await asyncio.sleep(max(60, interval_seconds))
 
 
+async def platega_reconciliation_loop(services: AppServices, bot: Bot) -> None:
+    interval_seconds = int(os.getenv("PLATEGA_RECONCILIATION_INTERVAL_SECONDS", "60"))
+    while True:
+        if services.settings.payment_provider != "platega":
+            await asyncio.sleep(max(30, interval_seconds))
+            continue
+        try:
+            results = await asyncio.to_thread(
+                services.payments.reconcile_platega_payments
+            )
+            for result in results:
+                await notify_payment_result(bot=bot, services=services, result=result)
+            if results:
+                logging.info("Reconciled %s Platega AI payment(s)", len(results))
+        except Exception:
+            logging.exception("Platega AI reconciliation loop failed")
+        await asyncio.sleep(max(30, interval_seconds))
+
+
 async def vpn_maintenance_loop(services: AppServices) -> None:
     interval_seconds = int(os.getenv("VPN_MAINTENANCE_INTERVAL_SECONDS", "60"))
     while True:
@@ -605,6 +624,9 @@ async def run_webhook(
     site = web.TCPSite(runner, host="0.0.0.0", port=port)
     await site.start()
     auto_renewal_task = asyncio.create_task(auto_renewal_loop(services))
+    platega_reconciliation_task = asyncio.create_task(
+        platega_reconciliation_loop(services, bot)
+    )
     vpn_maintenance_task = asyncio.create_task(vpn_maintenance_loop(services))
     logging.info("Webhook endpoint listening on 0.0.0.0:%s%s", port, webhook_path)
     logging.info("Health endpoint listening on 0.0.0.0:%s/healthz", port)
@@ -612,9 +634,12 @@ async def run_webhook(
         await asyncio.Event().wait()
     finally:
         auto_renewal_task.cancel()
+        platega_reconciliation_task.cancel()
         vpn_maintenance_task.cancel()
         with suppress(asyncio.CancelledError):
             await auto_renewal_task
+        with suppress(asyncio.CancelledError):
+            await platega_reconciliation_task
         with suppress(asyncio.CancelledError):
             await vpn_maintenance_task
         await runner.cleanup()
@@ -679,6 +704,9 @@ async def main() -> None:
             health_server = await start_health_server(settings=settings, db=db)
             await bot.delete_webhook(drop_pending_updates=False)
             auto_renewal_task = asyncio.create_task(auto_renewal_loop(services))
+            platega_reconciliation_task = asyncio.create_task(
+                platega_reconciliation_loop(services, bot)
+            )
             vpn_maintenance_task = asyncio.create_task(vpn_maintenance_loop(services))
             try:
                 if vpn_bot and vpn_dispatcher:
@@ -691,9 +719,12 @@ async def main() -> None:
                     await dispatcher.start_polling(bot)
             finally:
                 auto_renewal_task.cancel()
+                platega_reconciliation_task.cancel()
                 vpn_maintenance_task.cancel()
                 with suppress(asyncio.CancelledError):
                     await auto_renewal_task
+                with suppress(asyncio.CancelledError):
+                    await platega_reconciliation_task
                 with suppress(asyncio.CancelledError):
                     await vpn_maintenance_task
     finally:

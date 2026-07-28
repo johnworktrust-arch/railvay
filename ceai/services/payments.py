@@ -746,11 +746,54 @@ class PaymentService:
         if not external_id:
             raise BusinessRuleError("Некорректный webhook Platega: нет id.")
         remote = client.get_transaction(external_id)
+        return self._process_verified_platega_transaction(
+            remote=remote,
+            source_payload={"callback": payload},
+        )
 
+    def reconcile_platega_payments(
+        self, *, limit: int = 25
+    ) -> list[PaymentWebhookResult]:
+        if self.payment_provider != PLATEGA_PROVIDER or self.platega_client is None:
+            return []
+        with self.db.transaction() as conn:
+            pending = self.payments.list_pending_by_provider(
+                conn,
+                provider=PLATEGA_PROVIDER,
+                limit=limit,
+            )
+
+        results: list[PaymentWebhookResult] = []
+        for payment in pending:
+            try:
+                remote = self.platega_client.get_transaction(
+                    str(payment["external_id"])
+                )
+                result = self._process_verified_platega_transaction(
+                    remote=remote,
+                    source_payload={"reconciliation": True},
+                )
+            except Exception as exc:
+                logging.warning(
+                    "Platega reconciliation failed for payment %s: %s",
+                    payment.get("id"),
+                    exc,
+                )
+                continue
+            if result.processed:
+                results.append(result)
+        return results
+
+    def _process_verified_platega_transaction(
+        self,
+        *,
+        remote: PlategaTransaction,
+        source_payload: Dict[str, Any],
+    ) -> PaymentWebhookResult:
         self._validate_platega_transaction(remote)
         event_type = f"transaction.{remote.status.lower()}"
         verified_payload = {
-            "callback": payload,
+            **source_payload,
             "verified_transaction": {
                 "id": remote.transaction_id,
                 "status": remote.status,

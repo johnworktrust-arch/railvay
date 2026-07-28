@@ -149,6 +149,30 @@ class AiPlategaPaymentTest(unittest.TestCase):
         self.assertEqual(stored["status"], "pending")
         self.assertEqual(credits, 0)
 
+    def test_reconciliation_recovers_confirmed_payment_without_callback(self) -> None:
+        payment = self._create()
+        current = self.client.transactions[payment["external_id"]]
+        self.client.transactions[payment["external_id"]] = PlategaTransaction(
+            transaction_id=current.transaction_id,
+            status=PLATEGA_CONFIRMED,
+            amount_rub=current.amount_rub,
+            currency="RUB",
+            payment_method=2,
+        )
+
+        results = self.payments.reconcile_platega_payments()
+
+        self.assertEqual(len(results), 1)
+        self.assertTrue(results[0].processed)
+        self.assertGreater(results[0].credited_coins, 0)
+        self.assertEqual(self.payments.reconcile_platega_payments(), [])
+        with self.db.transaction() as conn:
+            stored = conn.execute(
+                "SELECT status FROM payments WHERE id = ?",
+                (payment["id"],),
+            ).fetchone()
+        self.assertEqual(stored["status"], "paid")
+
     def test_invalid_callback_authentication_is_rejected(self) -> None:
         payment = self._create()
         with self.assertRaises(PlategaCallbackAuthenticationError):

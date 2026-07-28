@@ -65,6 +65,25 @@ class PaymentRepository:
             ).fetchone()
         )
 
+    def list_pending_by_provider(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        provider: str,
+        limit: int,
+    ) -> list[Dict[str, Any]]:
+        rows = conn.execute(
+            """
+            SELECT *
+            FROM payments
+            WHERE provider = ? AND status = 'pending'
+            ORDER BY id ASC
+            LIMIT ?
+            """,
+            (provider, max(1, int(limit))),
+        ).fetchall()
+        return [row for item in rows if (row := row_to_dict(item)) is not None]
+
     def latest_paid_with_plan_for_user(
         self, conn: sqlite3.Connection, user_id: int
     ) -> Dict[str, Any] | None:

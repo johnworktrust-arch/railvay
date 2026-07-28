@@ -200,7 +200,9 @@ class PlategaClientTest(unittest.TestCase):
             transaction_response(status="EXPIRED"),
             transaction_response(paymentDetails=None),
             transaction_response(paymentDetails={"amount": True, "currency": "RUB"}),
-            transaction_response(paymentDetails={"amount": "189", "currency": "RUB"}),
+            transaction_response(paymentDetails={"amount": "189.01", "currency": "RUB"}),
+            transaction_response(paymentDetails={"amount": " 189", "currency": "RUB"}),
+            transaction_response(paymentDetails={"amount": "1e2", "currency": "RUB"}),
             transaction_response(paymentDetails={"amount": 189.5, "currency": "RUB"}),
             transaction_response(paymentDetails={"amount": 0, "currency": "RUB"}),
             transaction_response(paymentDetails={"amount": 189, "currency": "rub"}),
@@ -222,6 +224,21 @@ class PlategaClientTest(unittest.TestCase):
             ),
         )
         self.assertEqual(client.get_transaction(TRANSACTION_ID).amount_rub, 189)
+
+    def test_integral_string_api_amount_is_accepted(self) -> None:
+        for amount in ("189", "189.0", "189.00"):
+            with self.subTest(amount=amount):
+                client = self.make_client()
+                self.set_response(
+                    client,
+                    transaction_response(
+                        paymentDetails={"amount": amount, "currency": "RUB"}
+                    ),
+                )
+                self.assertEqual(
+                    client.get_transaction(TRANSACTION_ID).amount_rub,
+                    189,
+                )
 
     def test_callback_authentication_is_case_insensitive_for_header_names(self) -> None:
         client = self.make_client()

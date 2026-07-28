@@ -4,6 +4,7 @@ import hmac
 import http.client
 import json
 import math
+import re
 import socket
 import ssl
 import urllib.error
@@ -30,6 +31,7 @@ _MAX_RESPONSE_BYTES = 1024 * 1024
 _MAX_TEXT_FIELD_LENGTH = 4096
 _MAX_HEADER_LENGTH = 4096
 _MAX_PAYMENT_AMOUNT_RUB = 10**12
+_RUBLE_AMOUNT_RE = re.compile(r"(?:0|[1-9][0-9]*)(?:\.0{1,2})?")
 
 
 class PlategaError(RuntimeError):
@@ -396,7 +398,14 @@ def _validate_input_amount(value: int) -> int:
 
 
 def _validate_response_amount(value: Any) -> int:
-    if isinstance(value, bool) or not isinstance(value, (int, float, Decimal)):
+    if isinstance(value, bool):
+        raise PlategaResponseError("Platega returned an invalid payment amount.")
+    if isinstance(value, str):
+        if value != value.strip() or not _RUBLE_AMOUNT_RE.fullmatch(value):
+            raise PlategaResponseError(
+                "Platega returned an invalid payment amount."
+            )
+    elif not isinstance(value, (int, float, Decimal)):
         raise PlategaResponseError("Platega returned an invalid payment amount.")
     try:
         amount = Decimal(str(value))
