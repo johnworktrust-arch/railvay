@@ -752,44 +752,15 @@ def _payment_method_label(payment_method: str) -> str:
     }.get(payment_method, "оплата")
 
 
-def _format_yookassa_payment_screen(
-    plan: Dict[str, Any], *, public_offer_url: str
+def _format_payment_checkout_screen(
+    *, amount: int, currency: str, payment_method: str
 ) -> str:
-    price = int(plan.get("price_rub") or 0)
-    coins = int(plan.get("coins_amount") or 0)
-    duration_days = int(plan.get("duration_days") or 30)
-    offer_url = public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
+    icon = "⭐️" if payment_method == "telegram_stars" else "💳"
     return (
-        f"💳 Стоимость выбранного тарифа — {price} ₽.\n\n"
-        f"После оплаты вы получите {format_coin_amount(coins)}. "
-        f"Доступ к тарифу действует {duration_days} дней.\n\n"
-        "Подписка продлевается автоматически "
-        f"ещё на {duration_days} дней за {price} ₽.\n\n"
-        "Проверка платежа происходит автоматически. "
-        "Коины начислятся на баланс сразу после подтверждения оплаты.\n\n"
-        "Нажимая «Оплатить», вы подтверждаете согласие с условиями "
-        "обработки данных и пользовательским соглашением.\n\n"
-        f"Пользовательское соглашение: {offer_url}\n\n"
-        "Если потребуется отключить автоматическое продление, напишите в поддержку."
-    )
-
-
-def _format_platega_payment_screen(
-    plan: Dict[str, Any], *, public_offer_url: str
-) -> str:
-    price = int(plan.get("price_rub") or 0)
-    coins = int(plan.get("coins_amount") or 0)
-    duration_days = int(plan.get("duration_days") or 30)
-    offer_url = public_offer_url.strip() or DEFAULT_PUBLIC_OFFER_URL
-    return (
-        f"💳 Стоимость выбранного тарифа — {price} ₽.\n\n"
-        f"После оплаты вы получите {format_coin_amount(coins)}. "
-        f"Доступ к тарифу действует {duration_days} дней.\n\n"
-        "Проверка платежа происходит автоматически. "
-        "Коины начислятся сразу после подтверждения оплаты.\n\n"
-        "Нажимая «Оплатить», вы подтверждаете согласие с условиями "
-        "обработки данных и пользовательским соглашением.\n\n"
-        f"Пользовательское соглашение: {offer_url}"
+        f"{icon} Сумма: {int(amount)} {currency}\n"
+        f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
+        "Платёж проверяется автоматически. "
+        "Коины начислятся после подтверждения."
     )
 
 
@@ -2976,6 +2947,7 @@ def create_router(services: AppServices) -> Router:
 
         if payment["provider"] == "telegram_stars":
             if callback.message:
+                payment_meta = loads_dict(payment.get("meta"))
                 invoice_message = await _send_telegram_stars_invoice(
                     callback.message, payment
                 )
@@ -2995,9 +2967,11 @@ def create_router(services: AppServices) -> Router:
                     callback.message,
                     services,
                     user["id"],
-                    f"Способ оплаты: {_payment_method_label(payment_method)}\n\n"
-                    "Счёт Telegram Stars отправлен отдельным сообщением. "
-                    "Откройте его и подтвердите оплату.",
+                    _format_payment_checkout_screen(
+                        amount=int(payment_meta.get("stars_amount") or 0),
+                        currency="⭐",
+                        payment_method="telegram_stars",
+                    ),
                     reply_markup=back_to_menu_keyboard(),
                 )
             await callback.answer()
@@ -3023,15 +2997,11 @@ def create_router(services: AppServices) -> Router:
                 "Платёж создан со статусом pending.\n"
                 "Нажмите кнопку ниже, чтобы подтвердить оплату."
             )
-        elif payment["provider"] == "yookassa" and selected_plan is not None:
-            payment_text = _format_yookassa_payment_screen(
-                selected_plan,
-                public_offer_url=services.settings.public_offer_url,
-            )
-        elif payment["provider"] == "platega" and selected_plan is not None:
-            payment_text = _format_platega_payment_screen(
-                selected_plan,
-                public_offer_url=services.settings.public_offer_url,
+        elif payment["provider"] in {"yookassa", "platega"} and selected_plan is not None:
+            payment_text = _format_payment_checkout_screen(
+                amount=int(selected_plan.get("price_rub") or 0),
+                currency="₽",
+                payment_method=payment_method,
             )
         else:
             payment_text = (

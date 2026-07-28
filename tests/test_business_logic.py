@@ -1804,7 +1804,7 @@ class MigrationAndUITest(unittest.TestCase):
             _format_crystal_packages,
             _format_plan_details,
             _format_plans,
-            _format_yookassa_payment_screen,
+            _format_payment_checkout_screen,
         )
         from ceai.bot.keyboards import (
             crystal_packages_keyboard,
@@ -1823,9 +1823,15 @@ class MigrationAndUITest(unittest.TestCase):
         start_details = _format_plan_details(start_plan)
         basic_details = _format_plan_details(basic_plan)
         pro_details = _format_plan_details(pro_plan)
-        yookassa_payment_screen = _format_yookassa_payment_screen(
-            basic_plan,
-            public_offer_url="https://cea.ai/public-offer",
+        card_payment_screen = _format_payment_checkout_screen(
+            amount=699,
+            currency="₽",
+            payment_method="card_sbp",
+        )
+        stars_payment_screen = _format_payment_checkout_screen(
+            amount=749,
+            currency="⭐",
+            payment_method="telegram_stars",
         )
         labels = [row[0].text for row in plans_keyboard(PLANS).inline_keyboard]
         callbacks = [
@@ -1920,20 +1926,22 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("130 коинов · 30 дней", pro_details)
         self.assertIn("Для активной работы с AI-инструментами.", pro_details)
         self.assertNotIn("➕", pro_details)
-        self.assertIn("💳 Стоимость выбранного тарифа — 699 ₽.", yookassa_payment_screen)
-        self.assertIn("После оплаты вы получите 60 коинов.", yookassa_payment_screen)
-        self.assertIn("Доступ к тарифу действует 30 дней.", yookassa_payment_screen)
-        self.assertIn("Подписка продлевается автоматически", yookassa_payment_screen)
-        self.assertIn("ещё на 30 дней за 699 ₽", yookassa_payment_screen)
-        self.assertIn("Проверка платежа происходит автоматически.", yookassa_payment_screen)
-        self.assertIn("Нажимая «Оплатить»", yookassa_payment_screen)
-        self.assertIn(
-            "Пользовательское соглашение: https://cea.ai/public-offer",
-            yookassa_payment_screen,
+        self.assertEqual(
+            card_payment_screen,
+            "💳 Сумма: 699 ₽\n"
+            "Способ оплаты: 💳 Карта / СБП\n\n"
+            "Платёж проверяется автоматически. "
+            "Коины начислятся после подтверждения.",
         )
-        self.assertIn("отключить автоматическое продление", yookassa_payment_screen)
-        self.assertIn("напишите в поддержку", yookassa_payment_screen)
-        self.assertNotIn("«Профиль» → «Отключить автопродление»", yookassa_payment_screen)
+        self.assertEqual(
+            stars_payment_screen,
+            "⭐️ Сумма: 749 ⭐\n"
+            "Способ оплаты: ⭐️ Telegram Stars\n\n"
+            "Платёж проверяется автоматически. "
+            "Коины начислятся после подтверждения.",
+        )
+        self.assertNotIn("соглашени", card_payment_screen.casefold())
+        self.assertNotIn("соглашени", stars_payment_screen.casefold())
         self.assertEqual(
             {plan["code"]: plan["coins_amount"] for plan in PLANS},
             {"start": 25, "basic": 60, "pro": 130},
@@ -1956,7 +1964,7 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertIn("has_active_subscription=subscription is not None", handlers_source)
         self.assertIn('state="waiting_payment_method"', handlers_source)
         self.assertIn('F.data.startswith("pay_method:")', handlers_source)
-        self.assertIn("_format_yookassa_payment_screen(", handlers_source)
+        self.assertIn("_format_payment_checkout_screen(", handlers_source)
         self.assertIn('F.data == "subscription:cancel_placeholder"', handlers_source)
         self.assertIn("Отмена подписки пока не подключена", handlers_source)
         self.assertNotIn('payment_method == "card_sbp"', handlers_source)
