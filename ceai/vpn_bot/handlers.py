@@ -126,6 +126,28 @@ def v2box_landing_url(subscription_url: str, subscription_base_url: str) -> str:
     )
 
 
+def connect_landing_url(subscription_url: str, subscription_base_url: str) -> str:
+    """Build the personal HTTPS setup guide URL."""
+    return _subscription_landing_url(
+        subscription_url,
+        subscription_base_url,
+        client="connect",
+    )
+
+
+def subscription_connect_button(
+    subscription_url: str, subscription_base_url: str
+) -> InlineKeyboardButton:
+    landing_url = connect_landing_url(subscription_url, subscription_base_url)
+    if not landing_url:
+        raise ValueError("invalid VPN subscription URL")
+    return InlineKeyboardButton(
+        text="Подключить VPN 🚀",
+        url=landing_url,
+        style="primary",
+    )
+
+
 def subscription_open_button(
     subscription_url: str, subscription_base_url: str
 ) -> InlineKeyboardButton:
@@ -257,7 +279,25 @@ def _format_ends_at(value: Any) -> str:
         parsed = datetime.fromisoformat(str(value))
     if parsed.tzinfo is None:
         parsed = parsed.replace(tzinfo=timezone.utc)
-    return parsed.astimezone(ZoneInfo("Europe/Moscow")).strftime("%d.%m.%Y в %H:%M")
+    local = parsed.astimezone(ZoneInfo("Europe/Moscow"))
+    months = (
+        "января",
+        "февраля",
+        "марта",
+        "апреля",
+        "мая",
+        "июня",
+        "июля",
+        "августа",
+        "сентября",
+        "октября",
+        "ноября",
+        "декабря",
+    )
+    return (
+        f"{local.day} {months[local.month - 1]} {local.year} года, "
+        f"{local:%H:%M}"
+    )
 
 
 def subscription_screen(
@@ -265,6 +305,8 @@ def subscription_screen(
     *,
     support_username: str,
     subscription_base_url: str,
+    user: Dict[str, Any] | None = None,
+    balance_kopecks: int = 0,
 ) -> tuple[str, InlineKeyboardMarkup]:
     if subscription is None or subscription.get("status") in {"expired", "disabled"}:
         return (
@@ -275,15 +317,15 @@ def subscription_screen(
                 inline_keyboard=[
                     [
                         InlineKeyboardButton(
-                            text="🎁 3 дня бесплатно",
-                            callback_data="vpn:trial",
-                            style="success",
+                            text="Подключить VPN 🚀",
+                            callback_data="vpn:plans",
+                            style="primary",
                         )
                     ],
                     [
                         InlineKeyboardButton(
-                            text="🚀 Подключить VPN",
-                            callback_data="vpn:plans",
+                            text="🆘 Поддержка",
+                            url=f"https://t.me/{support_username}",
                         )
                     ],
                     _back(),
@@ -303,12 +345,6 @@ def subscription_screen(
             inline_keyboard=[
                 [
                     InlineKeyboardButton(
-                        text="🔄 Проверить подключение",
-                        callback_data="vpn:subscription",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
                         text="🆘 Поддержка",
                         url=f"https://t.me/{support_username}",
                     )
@@ -318,26 +354,16 @@ def subscription_screen(
         )
 
     plan_name = subscription.get("plan_name") or "3 бесплатных дня"
-    region = subscription.get("server_region") or "NL"
+    max_devices = int(subscription.get("plan_max_devices") or 3)
     ends_at = _format_ends_at(subscription["ends_at"])
     rows: list[list[InlineKeyboardButton]] = []
     subscription_url = str(subscription.get("subscription_url") or "")
-    if happ_landing_url(subscription_url, subscription_base_url):
+    if connect_landing_url(subscription_url, subscription_base_url):
         rows.append(
             [
-                subscription_open_button(subscription_url, subscription_base_url)
-            ]
-        )
-        rows.append(
-            [
-                subscription_v2box_button(
+                subscription_connect_button(
                     subscription_url, subscription_base_url
                 )
-            ]
-        )
-        rows.append(
-            [
-                subscription_copy_button(subscription_url)
             ]
         )
     rows.extend(
@@ -351,14 +377,40 @@ def subscription_screen(
             _back(),
         ]
     )
+
+    profile = user or {}
+    display_name = (
+        str(profile.get("first_name") or "").strip()
+        or (
+            f"@{str(profile.get('username')).lstrip('@')}"
+            if profile.get("username")
+            else "Пользователь"
+        )
+    )
+    telegram_id = profile.get("telegram_id")
+    telegram_id_text = (
+        str(telegram_id) if telegram_id is not None else "не указан"
+    )
+    balance = format_rubles_from_kopecks(max(0, int(balance_kopecks)))
+
     return (
-        "👤 <b>Моя подписка</b>\n\n"
-        "Статус: ✅ <b>Активна</b>\n"
-        f"Тариф: <b>{escape(str(plan_name))}</b>\n"
-        f"Сервер: <b>{escape(str(region))}</b>\n"
-        f"Действует до: <b>{escape(ends_at)} МСК</b>\n\n"
-        "Персональную ссылку никому не передавайте.\n\n"
-        f"{happ_subscription_instructions()}",
+        "👤 <b>Профиль:</b>\n"
+        "<blockquote>"
+        f"📝 <b>Имя:</b> {escape(display_name)}\n"
+        f"🆔 <b>ID:</b> {escape(telegram_id_text)}\n"
+        f"💳 <b>Баланс:</b> {escape(balance)}"
+        "</blockquote>\n"
+        "🔑 <b>Ваша подписка:</b>\n"
+        f"<code>{escape(subscription_url)}</code>\n\n"
+        "📦 <b>Информация о тарифе:</b>\n"
+        "<blockquote>"
+        f"💎 <b>Тариф:</b> {escape(str(plan_name))}\n"
+        f"📱 <b>Лимит устройств:</b> до {max_devices}\n"
+        "🌍 <b>Локации:</b> Нидерланды, США, Финляндия"
+        "</blockquote>\n"
+        f"📅 <b>Срок действия:</b> {escape(ends_at)} (МСК)\n\n"
+        "💡 Нажмите «Подключить VPN» — откроется персональная "
+        "инструкция для вашего устройства.",
         InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
@@ -436,11 +488,14 @@ def create_vpn_router(services: AppServices) -> Router:
     async def subscription(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         current = services.vpn.get_current_subscription(int(user["id"]))
+        referral_stats = services.referrals.stats(int(user["id"]))
         if callback.message:
             text, kb = subscription_screen(
                 current,
                 support_username=services.settings.vpn_support_username,
                 subscription_base_url=services.settings.vpn_subscription_base_url,
+                user=user,
+                balance_kopecks=referral_stats.balance_kopecks,
             )
             await _screen(callback.message, text, kb)
         await callback.answer()
@@ -489,6 +544,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     current or outcome.subscription,
                     support_username=services.settings.vpn_support_username,
                     subscription_base_url=services.settings.vpn_subscription_base_url,
+                    user=user,
                 )
                 if outcome.trial_already_used and (current or outcome.subscription).get(
                     "status"
@@ -687,6 +743,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 outcome.subscription,
                 support_username=services.settings.vpn_support_username,
                 subscription_base_url=services.settings.vpn_subscription_base_url,
+                user=user,
             )
             await _screen(callback.message, text, kb)
         await callback.answer("Тестовая оплата подтверждена — подключаем VPN.")
@@ -747,6 +804,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     subscription_base_url=(
                         services.settings.vpn_subscription_base_url
                     ),
+                    user=user,
                 )
                 await _screen(callback.message, text, kb)
             await callback.answer(
@@ -783,6 +841,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 current,
                 support_username=services.settings.vpn_support_username,
                 subscription_base_url=services.settings.vpn_subscription_base_url,
+                user=user,
             )
             await _screen(callback.message, text, kb)
         await callback.answer("Оплата подтверждена.")

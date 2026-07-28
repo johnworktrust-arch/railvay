@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import unittest
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from ceai.vpn_bot.handlers import (
+    connect_landing_url,
     happ_landing_url,
     subscription_screen,
     v2box_landing_url,
@@ -11,48 +12,58 @@ from ceai.vpn_bot.handlers import (
 
 
 class VpnBotUiTest(unittest.TestCase):
-    def test_active_subscription_opens_happ_with_copy_fallback(self) -> None:
+    def test_active_subscription_shows_profile_and_setup_guide(self) -> None:
         subscription_url = "https://sub.example.test:8443/sub/secret-token"
         text, keyboard = subscription_screen(
             {
                 "status": "active",
-                "plan_name": "3 бесплатных дня",
+                "plan_name": "30 дней",
+                "plan_max_devices": 4,
                 "server_region": "NL",
-                "ends_at": datetime.now(timezone.utc) + timedelta(days=3),
+                "ends_at": datetime(2026, 8, 23, 19, 35, tzinfo=timezone.utc),
                 "subscription_url": subscription_url,
             },
             support_username="cea_help",
             subscription_base_url="https://sub.example.test:8443",
+            user={
+                "telegram_id": 1625313155,
+                "first_name": "bb",
+                "username": "bb_user",
+            },
+            balance_kopecks=500,
         )
 
-        open_button = keyboard.inline_keyboard[0][0]
+        connect_button = keyboard.inline_keyboard[0][0]
         self.assertEqual(
-            open_button.url,
-            "https://sub.example.test:8443/happ/secret-token",
+            connect_button.url,
+            "https://sub.example.test:8443/connect/secret-token",
         )
-        self.assertIsNone(open_button.copy_text)
+        self.assertEqual(connect_button.text, "Подключить VPN 🚀")
+        self.assertEqual(len(keyboard.inline_keyboard), 3)
+        self.assertEqual(keyboard.inline_keyboard[1][0].text, "🆘 Поддержка")
+        self.assertEqual(keyboard.inline_keyboard[2][0].text, "⬅️ Назад")
+        self.assertIn("Имя:</b> bb", text)
+        self.assertIn("ID:</b> 1625313155", text)
+        self.assertIn("Баланс:</b> 5 ₽", text)
+        self.assertIn(subscription_url, text)
+        self.assertIn("Тариф:</b> 30 дней", text)
+        self.assertIn("Лимит устройств:</b> до 4", text)
+        self.assertIn("23 августа 2026 года, 22:35 (МСК)", text)
 
-        v2box_button = keyboard.inline_keyboard[1][0]
+    def test_connect_landing_url_uses_the_same_strict_origin_check(self) -> None:
         self.assertEqual(
-            v2box_button.url,
-            "https://sub.example.test:8443/v2box/secret-token",
+            connect_landing_url(
+                "https://sub.example.test:8443/sub/token_1",
+                "https://sub.example.test:8443",
+            ),
+            "https://sub.example.test:8443/connect/token_1",
         )
-        self.assertIsNone(v2box_button.copy_text)
-
-        copy_button = keyboard.inline_keyboard[2][0]
-        self.assertIsNone(copy_button.url)
-        self.assertIsNotNone(copy_button.copy_text)
-        assert copy_button.copy_text is not None
-        self.assertEqual(copy_button.copy_text.text, subscription_url)
-        self.assertIn("Открыть в Happ", text)
-        self.assertIn("Открыть в V2Box", text)
-        self.assertIn("старый импорт без обновлений", text)
-        self.assertFalse(
-            any(
-                button.url == subscription_url
-                for row in keyboard.inline_keyboard
-                for button in row
-            )
+        self.assertEqual(
+            connect_landing_url(
+                "https://evil.example/sub/token",
+                "https://sub.example.test:8443",
+            ),
+            "",
         )
 
     def test_happ_landing_url_only_accepts_a_plain_https_subscription(self) -> None:

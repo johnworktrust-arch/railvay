@@ -28,6 +28,24 @@ class VpnNginxConfigTest(unittest.TestCase):
         ).read_text(encoding="utf-8")
 
         self.assertIn('proxy_set_header Accept "text/plain";', config)
+        connect_block = re.search(
+            r'location ~ "\^/connect/.*?\n    }', config, flags=re.DOTALL
+        )
+        self.assertIsNotNone(connect_block)
+        assert connect_block is not None
+        setup_guide = connect_block.group(0)
+        self.assertIn("[A-Za-z0-9._~-]{1,160}", setup_guide)
+        self.assertIn("Подключите VPN", setup_guide)
+        self.assertIn("https://www.happ.su/main", setup_guide)
+        self.assertIn(
+            "happ://add/https://__SUB_DOMAIN__:8443/sub/$1",
+            setup_guide,
+        )
+        self.assertIn("Добавить подписку", setup_guide)
+        self.assertIn("Копировать", setup_guide)
+        self.assertIn('add_header Cache-Control "no-store" always;', setup_guide)
+        self.assertIn('add_header X-Frame-Options "DENY" always;', setup_guide)
+
         happ_block = re.search(
             r'location ~ "\^/happ/.*?\n    }', config, flags=re.DOTALL
         )
