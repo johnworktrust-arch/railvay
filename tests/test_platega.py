@@ -235,6 +235,7 @@ class PlategaClientTest(unittest.TestCase):
             "189 RUB",
             "189.00 RUB",
             "204.07 RUB",
+            "204.070000 RUB",
         ):
             with self.subTest(amount=amount):
                 client = self.make_client()
@@ -244,7 +245,7 @@ class PlategaClientTest(unittest.TestCase):
                         paymentDetails={"amount": amount, "currency": "RUB"}
                     ),
                 )
-                expected = Decimal("204.07") if amount == "204.07 RUB" else 189
+                expected = Decimal("204.07") if amount.startswith("204.07") else 189
                 self.assertEqual(
                     client.get_transaction(TRANSACTION_ID).amount_rub,
                     expected,

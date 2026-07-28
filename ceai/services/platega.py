@@ -32,7 +32,7 @@ _MAX_TEXT_FIELD_LENGTH = 4096
 _MAX_HEADER_LENGTH = 4096
 _MAX_PAYMENT_AMOUNT_RUB = 10**12
 _RUBLE_AMOUNT_RE = re.compile(
-    r"(?P<amount>(?:0|[1-9][0-9]*)(?:[.,][0-9]{1,2})?)(?: RUB)?"
+    r"(?P<amount>(?:0|[1-9][0-9]*)(?:[.,][0-9]+)?)(?: RUB)?"
 )
 _MAX_CUSTOMER_FEE_PERCENT = Decimal("20")
 
@@ -445,7 +445,7 @@ def _validate_response_amount(value: Any) -> Decimal:
         not amount.is_finite()
         or amount <= 0
         or amount > _MAX_PAYMENT_AMOUNT_RUB
-        or amount.as_tuple().exponent < -2
+        or amount != amount.quantize(Decimal("0.01"))
     ):
         raise PlategaResponseError("Platega returned an invalid payment amount.")
     return amount
