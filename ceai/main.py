@@ -42,6 +42,11 @@ from ceai.vpn_bot.handlers import (
     trial_expiry_reminder_screen,
 )
 from ceai.vpn_worker_api import register_vpn_worker_routes
+from ceai.vpn_subscription_delivery import (
+    delivery_base_url,
+    delivery_subscription_url,
+    register_vpn_subscription_delivery_routes,
+)
 
 
 BOT_COMMANDS = [
@@ -489,9 +494,14 @@ async def run_webhook(
     async def notify_vpn_ready(completion) -> None:
         if vpn_bot is None or completion.operation == "disable":
             return
-        subscription_url = str(completion.subscription.get("subscription_url") or "")
+        subscription_url = delivery_subscription_url(
+            completion.subscription, settings
+        )
         if not subscription_url:
             return
+        subscription_base_url = (
+            delivery_base_url(settings) or settings.vpn_subscription_base_url
+        )
         try:
             await vpn_bot.send_message(
                 chat_id=completion.telegram_id,
@@ -505,13 +515,13 @@ async def run_webhook(
                         [
                             subscription_open_button(
                                 subscription_url,
-                                settings.vpn_subscription_base_url,
+                                subscription_base_url,
                             )
                         ],
                         [
                             subscription_v2box_button(
                                 subscription_url,
-                                settings.vpn_subscription_base_url,
+                                subscription_base_url,
                             )
                         ],
                         [
@@ -533,6 +543,11 @@ async def run_webhook(
                 "Could not notify Telegram user that VPN provisioning completed"
             )
 
+    register_vpn_subscription_delivery_routes(
+        app,
+        db=db,
+        settings=settings,
+    )
     register_vpn_worker_routes(
         app,
         db=db,

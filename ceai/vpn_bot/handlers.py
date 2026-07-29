@@ -24,6 +24,10 @@ from aiogram.types import (
 from ceai.services.app import AppServices
 from ceai.services.exceptions import BusinessRuleError
 from ceai.services.referrals import format_rubles_from_kopecks
+from ceai.vpn_subscription_delivery import (
+    delivery_base_url,
+    with_delivery_subscription,
+)
 
 
 TARIFFS = {
@@ -528,6 +532,23 @@ def _referral_text(user: Dict[str, Any], stats: Any, bot_username: str) -> str:
 def create_vpn_router(services: AppServices) -> Router:
     router = Router(name="vpn")
 
+    def render_subscription(
+        subscription: Dict[str, Any] | None,
+        *,
+        user: Dict[str, Any] | None = None,
+        balance_kopecks: int = 0,
+    ) -> tuple[str, InlineKeyboardMarkup]:
+        return subscription_screen(
+            with_delivery_subscription(subscription, services.settings),
+            support_username=services.settings.vpn_support_username,
+            subscription_base_url=(
+                delivery_base_url(services.settings)
+                or services.settings.vpn_subscription_base_url
+            ),
+            user=user,
+            balance_kopecks=balance_kopecks,
+        )
+
     async def show_main(message: Message, *, user_id: int) -> None:
         trial_available = not services.vpn.has_used_trial(user_id)
         await _screen(
@@ -585,10 +606,8 @@ def create_vpn_router(services: AppServices) -> Router:
         current = services.vpn.get_current_subscription(int(user["id"]))
         referral_stats = services.referrals.stats(int(user["id"]))
         if callback.message:
-            text, kb = subscription_screen(
+            text, kb = render_subscription(
                 current,
-                support_username=services.settings.vpn_support_username,
-                subscription_base_url=services.settings.vpn_subscription_base_url,
                 user=user,
                 balance_kopecks=referral_stats.balance_kopecks,
             )
@@ -635,10 +654,8 @@ def create_vpn_router(services: AppServices) -> Router:
                 return
             current = services.vpn.get_current_subscription(int(user["id"]))
             if callback.message:
-                text, kb = subscription_screen(
+                text, kb = render_subscription(
                     current or outcome.subscription,
-                    support_username=services.settings.vpn_support_username,
-                    subscription_base_url=services.settings.vpn_subscription_base_url,
                     user=user,
                 )
                 if outcome.trial_already_used and (current or outcome.subscription).get(
@@ -848,10 +865,8 @@ def create_vpn_router(services: AppServices) -> Router:
             await callback.answer("Этот тестовый заказ уже подтверждён.")
             return
         if callback.message:
-            text, kb = subscription_screen(
+            text, kb = render_subscription(
                 outcome.subscription,
-                support_username=services.settings.vpn_support_username,
-                subscription_base_url=services.settings.vpn_subscription_base_url,
                 user=user,
             )
             await _screen(callback.message, text, kb)
@@ -907,12 +922,8 @@ def create_vpn_router(services: AppServices) -> Router:
                 )
                 return
             if callback.message:
-                text, kb = subscription_screen(
+                text, kb = render_subscription(
                     outcome.subscription,
-                    support_username=services.settings.vpn_support_username,
-                    subscription_base_url=(
-                        services.settings.vpn_subscription_base_url
-                    ),
                     user=user,
                 )
                 await _screen(callback.message, text, kb)
@@ -946,10 +957,8 @@ def create_vpn_router(services: AppServices) -> Router:
             )
             return
         if callback.message:
-            text, kb = subscription_screen(
+            text, kb = render_subscription(
                 current,
-                support_username=services.settings.vpn_support_username,
-                subscription_base_url=services.settings.vpn_subscription_base_url,
                 user=user,
             )
             await _screen(callback.message, text, kb)

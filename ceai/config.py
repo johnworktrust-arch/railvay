@@ -93,6 +93,9 @@ class Settings:
     vpn_worker_secret: str = ""
     vpn_worker_secrets: Tuple[Tuple[str, str], ...] = ()
     vpn_subscription_base_url: str = ""
+    vpn_delivery_base_url: str = ""
+    vpn_delivery_signing_secret: str = ""
+    vpn_extra_profiles_json: str = "[]"
     vpn_trial_days: int = 3
     vpn_allow_admin_demo_payment: bool = False
     vpn_admin_demo_telegram_ids: Tuple[int, ...] = ()
@@ -262,6 +265,11 @@ def load_settings() -> Settings:
         vpn_subscription_base_url=_normalize_base_url(
             read("VPN_SUBSCRIPTION_BASE_URL")
         ),
+        vpn_delivery_base_url=_normalize_base_url(
+            read("VPN_DELIVERY_BASE_URL", app_base_url)
+        ),
+        vpn_delivery_signing_secret=read("VPN_DELIVERY_SIGNING_SECRET"),
+        vpn_extra_profiles_json=read("VPN_EXTRA_PROFILES_JSON", "[]"),
         vpn_trial_days=read_int("VPN_TRIAL_DAYS", 3),
         vpn_allow_admin_demo_payment=read_bool(
             "VPN_ALLOW_ADMIN_DEMO_PAYMENT", False
