@@ -26,6 +26,8 @@ class Database:
     def __init__(self, database_url: str) -> None:
         self.database_url = database_url
         self.driver = self._driver(database_url)
+        self._lock = threading.RLock()
+        self._postgres_url = ""
         if self.driver == "sqlite":
             self.path = self._sqlite_path(database_url)
             if self.path != ":memory:":
@@ -34,20 +36,45 @@ class Database:
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA foreign_keys = ON")
         else:
-            try:
-                import psycopg
-                from psycopg.rows import dict_row
-            except ImportError as exc:
-                raise RuntimeError(
-                    "Postgres DATABASE_URL requires psycopg. Run `pip install -e .`."
-                ) from exc
-
             url = database_url
             if url.startswith("postgres://"):
                 url = "postgresql://" + url.removeprefix("postgres://")
             self.path = ""
-            self._conn = psycopg.connect(url, row_factory=dict_row)
-        self._lock = threading.RLock()
+            self._postgres_url = url
+            self._conn = self._connect_postgres()
+
+    def _connect_postgres(self) -> Any:
+        try:
+            import psycopg
+            from psycopg.rows import dict_row
+        except ImportError as exc:
+            raise RuntimeError(
+                "Postgres DATABASE_URL requires psycopg. Run `pip install -e .`."
+            ) from exc
+        return psycopg.connect(self._postgres_url, row_factory=dict_row)
+
+    def _ensure_connected(self) -> None:
+        if self.driver == "postgres" and getattr(self._conn, "closed", False):
+            self._conn = self._connect_postgres()
+
+    def reconnect(self) -> None:
+        if self.driver != "postgres":
+            return
+        with self._lock:
+            try:
+                self._conn.close()
+            except Exception:
+                pass
+            self._conn = self._connect_postgres()
+
+    def is_connection_error(self, exc: BaseException) -> bool:
+        if self.driver != "postgres":
+            return False
+        try:
+            import psycopg
+        except ImportError:
+            return False
+        return isinstance(exc, (psycopg.InterfaceError, psycopg.OperationalError))
 
     @staticmethod
     def _driver(database_url: str) -> str:
@@ -74,7 +101,8 @@ class Database:
         return DatabaseConnection(self._conn, driver=self.driver)
 
     def close(self) -> None:
-        self._conn.close()
+        with self._lock:
+            self._conn.close()
 
     def migrate(self, migrations_dir: Path | None = None) -> None:
         if migrations_dir is not None:
@@ -85,10 +113,12 @@ class Database:
             directory = BASE_DIR / "migrations"
 
         with self._lock:
+            self._ensure_connected()
             self._ensure_schema_migrations()
 
         for migration in sorted(directory.glob("*.sql")):
             with self._lock:
+                self._ensure_connected()
                 version = migration.name
                 if self._migration_applied(version):
                     # psycopg starts a transaction even for this SELECT. Do
@@ -150,6 +180,7 @@ class Database:
     @contextmanager
     def transaction(self) -> Iterator[DatabaseConnection]:
         with self._lock:
+            self._ensure_connected()
             try:
                 # psycopg with autocommit disabled starts a transaction before
                 # the first statement automatically. Sending an explicit
@@ -161,5 +192,11 @@ class Database:
                 yield DatabaseConnection(self._conn, driver=self.driver)
                 self._conn.commit()
             except Exception:
-                self._conn.rollback()
+                try:
+                    self._conn.rollback()
+                except Exception:
+                    # Preserve the original database error. The caller can
+                    # reconnect and retry a read when Postgres dropped the
+                    # connection while it was idle.
+                    pass
                 raise

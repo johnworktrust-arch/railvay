@@ -2,6 +2,8 @@ from __future__ import annotations
 
 import math
 import uuid
+from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from typing import Any, Dict
 
 from ceai.config import Settings
@@ -101,6 +103,15 @@ class AdminService:
         with self.db.transaction() as conn:
             return self.admins.stats(conn)
 
+    def dashboard_stats(self) -> Dict[str, Any]:
+        period_started_at = datetime.now(ZoneInfo("Europe/Moscow")).replace(
+            hour=0, minute=0, second=0, microsecond=0
+        ).astimezone(timezone.utc).isoformat()
+        with self.db.transaction() as conn:
+            return self.admins.dashboard_stats(
+                conn, period_started_at=period_started_at
+            )
+
     def list_users(self, *, page: int, page_size: int = ADMIN_PAGE_SIZE) -> Dict[str, Any]:
         with self.db.transaction() as conn:
             total = self.admins.count_users(conn)
@@ -118,6 +129,38 @@ class AdminService:
     def find_user(self, query: str) -> Dict[str, Any] | None:
         with self.db.transaction() as conn:
             return self.admins.find_user(conn, query)
+
+    def list_web_users(
+        self,
+        *,
+        page: int,
+        page_size: int = 25,
+        query: str = "",
+        segment: str = "all",
+    ) -> Dict[str, Any]:
+        page_size = min(max(page_size, 1), 100)
+        allowed_segments = {"all", "trial", "paid", "active", "blocked"}
+        segment = segment if segment in allowed_segments else "all"
+        with self.db.transaction() as conn:
+            total = self.admins.count_web_users(
+                conn, query=query, segment=segment
+            )
+            pages = max(math.ceil(total / page_size), 1)
+            page = min(max(page, 1), pages)
+            return {
+                "users": self.admins.list_web_users(
+                    conn,
+                    page=page,
+                    page_size=page_size,
+                    query=query,
+                    segment=segment,
+                ),
+                "page": page,
+                "pages": pages,
+                "total": total,
+                "segment": segment,
+                "query": query,
+            }
 
     def user_card(self, user_id: int) -> Dict[str, Any]:
         with self.db.transaction() as conn:

@@ -3587,8 +3587,9 @@ class AdminLogicTest(unittest.TestCase):
         card = self.services.admin.user_card(target["id"])
 
         self.assertEqual(card["subscription"]["coins_balance_cache"], 24)
-        self.assertEqual(card["payments"]["paid_count"], 1)
-        self.assertEqual(card["payments"]["paid_amount_rub"], 299)
+        self.assertEqual(card["payments"]["paid_count"], 0)
+        self.assertEqual(card["payments"]["paid_amount_rub"], 0)
+        self.assertEqual(card["payments"]["mock_paid_count"], 1)
         self.assertEqual(card["generations"]["total"], 1)
         self.assertEqual(card["generations"]["spent_coins"], 1)
 

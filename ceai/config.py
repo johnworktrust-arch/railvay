@@ -76,6 +76,11 @@ class Settings:
     vpn_bot_username: str = ""
     admin_telegram_ids: Tuple[int, ...] = ()
     admin_telegram_usernames: Tuple[str, ...] = ()
+    admin_database_url: str = ""
+    admin_web_host: str = "127.0.0.1"
+    admin_web_port: int = 8090
+    admin_web_password: str = ""
+    admin_web_session_secret: str = ""
     public_offer_url: str = DEFAULT_PUBLIC_OFFER_URL
     privacy_policy_url: str = DEFAULT_PRIVACY_POLICY_URL
     info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
@@ -209,6 +214,11 @@ def load_settings() -> Settings:
         vpn_bot_username=read("VPN_BOT_USERNAME").strip().lstrip("@"),
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
+        admin_database_url=read("ADMIN_DATABASE_URL").strip(),
+        admin_web_host=read("ADMIN_WEB_HOST", "127.0.0.1").strip(),
+        admin_web_port=read_int("ADMIN_WEB_PORT", 8090),
+        admin_web_password=read("ADMIN_WEB_PASSWORD"),
+        admin_web_session_secret=read("ADMIN_WEB_SESSION_SECRET"),
         public_offer_url=read("PUBLIC_OFFER_URL", public_offer_default),
         privacy_policy_url=read("PRIVACY_POLICY_URL", privacy_policy_default),
         info_channel_url=_normalize_telegram_url(
