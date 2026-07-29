@@ -159,6 +159,7 @@ VPN_ADDITIONAL_SERVERS = (
         "provider": "marzban",
         "region": "RU",
         "api_base_url": "http://127.0.0.1:8000",
+        "is_active": False,
         "worker_id": "cea-vpn-lte-1",
         "subscription_base_url": "https://sub.111-88-158-45.sslip.io:8443",
     },

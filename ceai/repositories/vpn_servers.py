@@ -34,6 +34,7 @@ class VpnServerRepository:
                 provider = excluded.provider,
                 region = excluded.region,
                 api_base_url = excluded.api_base_url,
+                is_active = excluded.is_active,
                 last_health_at = CASE
                     WHEN COALESCE(vpn_servers.worker_id, '') <>
                          COALESCE(excluded.worker_id, '')

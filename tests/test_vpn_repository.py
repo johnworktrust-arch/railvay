@@ -140,6 +140,22 @@ class VpnRepositoryTest(unittest.TestCase):
         self.assertEqual([row["code"] for row in active_servers], ["de-1"])
         self.assertEqual([row["code"] for row in active_plans], ["vpn-1m"])
 
+    def test_server_upsert_can_deactivate_decommissioned_node(self) -> None:
+        with self.db.transaction() as conn:
+            updated_server = self.servers.upsert(
+                conn,
+                code="de-1",
+                name="Germany Primary",
+                provider="marzban",
+                region="DE",
+                api_base_url="https://vpn1.example.test",
+                is_active=False,
+            )
+            active_servers = self.servers.list_active(conn)
+
+        self.assertFalse(updated_server["is_active"])
+        self.assertEqual(active_servers, [])
+
     def test_only_one_live_subscription_per_user(self) -> None:
         subscription = self._create_subscription()
         with self.db.transaction() as conn:
