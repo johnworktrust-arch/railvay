@@ -155,7 +155,7 @@ VPN_PLANS = [
 VPN_ADDITIONAL_SERVERS = (
     {
         "code": "ru-lte-1",
-        "name": "Белые списки · Россия 1",
+        "name": "Россия · Yandex 1",
         "provider": "marzban",
         "region": "RU",
         "api_base_url": "http://127.0.0.1:8000",

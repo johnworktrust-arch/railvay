@@ -47,7 +47,7 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         encoded = base64.b64encode(existing)
         profiles = parse_extra_profiles(
             "[{"
-            '"remark":"⭐ Белые списки · Россия",'
+            '"remark":"🇷🇺 Россия · Yandex",'
             '"address":"sub.example.test","port":8443,'
             '"sni":"sub.example.test","host":"sub.example.test",'
             f'"path":"/ws-{"2" * 48}"'
@@ -62,7 +62,7 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         decoded = base64.b64decode(merged).decode()
         self.assertEqual(decoded.count("vless://"), 2)
         self.assertIn("@sub.example.test:8443", decoded)
-        self.assertIn("%E2%AD%90%20%D0%91%D0%B5%D0%BB%D1%8B%D0%B5", decoded)
+        self.assertIn("%F0%9F%87%B7%F0%9F%87%BA%20%D0%A0%D0%BE%D1%81%D1%81%D0%B8%D1%8F", decoded)
 
         duplicate = merge_subscription_profiles(
             merged,
