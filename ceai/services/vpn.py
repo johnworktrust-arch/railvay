@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import logging
 import re
 import secrets
@@ -45,7 +46,27 @@ _MARZBAN_VLESS_INBOUND_TAGS = (
     "VLESS TCP REALITY",
     "VLESS WS TLS FALLBACK",
 )
-_MARZBAN_PROFILE_VERSION = "v3"
+_MARZBAN_WHITELIST_INBOUND_TAGS = ("VLESS XHTTP REALITY",)
+_LEGACY_DIRECT_WORKER_EPOCH = "legacy"
+_MARZBAN_SUPPORTED_PROFILES = {
+    _MARZBAN_VLESS_INBOUND_TAGS: "xtls-rprx-vision",
+    _MARZBAN_WHITELIST_INBOUND_TAGS: "",
+}
+
+
+def _marzban_profile_version(tags: tuple[str, ...], flow: str) -> str:
+    encoded = ("\x00".join((*tags, flow))).encode("utf-8")
+    return f"p{hashlib.sha256(encoded).hexdigest()[:20]}"
+
+
+MARZBAN_DIRECT_PROFILE_VERSION = _marzban_profile_version(
+    _MARZBAN_VLESS_INBOUND_TAGS,
+    _MARZBAN_SUPPORTED_PROFILES[_MARZBAN_VLESS_INBOUND_TAGS],
+)
+MARZBAN_WHITELIST_PROFILE_VERSION = _marzban_profile_version(
+    _MARZBAN_WHITELIST_INBOUND_TAGS,
+    _MARZBAN_SUPPORTED_PROFILES[_MARZBAN_WHITELIST_INBOUND_TAGS],
+)
 
 
 class VpnPaymentVerificationError(BusinessRuleError):
@@ -83,6 +104,12 @@ class VpnJobCompletion:
     subscription: Dict[str, Any]
     telegram_id: int
     operation: str
+
+
+@dataclass(frozen=True)
+class VpnWorkerClaimOutcome:
+    job: Dict[str, Any] | None
+    reconciled: bool
 
 
 class VpnService:
@@ -1211,21 +1238,91 @@ class VpnService:
         lease_seconds: int,
         control_plane_ready: bool = False,
         worker_inbound_tags: Any = None,
+        worker_vless_flow: Any = None,
+        worker_epoch: Any = None,
     ) -> Dict[str, Any] | None:
+        return self.claim_worker_poll(
+            worker_id=worker_id,
+            lease_seconds=lease_seconds,
+            control_plane_ready=control_plane_ready,
+            worker_inbound_tags=worker_inbound_tags,
+            worker_vless_flow=worker_vless_flow,
+            worker_epoch=worker_epoch,
+        ).job
+
+    def claim_worker_poll(
+        self,
+        *,
+        worker_id: str,
+        lease_seconds: int,
+        control_plane_ready: bool = False,
+        worker_inbound_tags: Any = None,
+        worker_vless_flow: Any = None,
+        worker_epoch: Any = None,
+    ) -> VpnWorkerClaimOutcome:
         with self.db.transaction() as conn:
             server = self.servers.get_by_worker_id(conn, worker_id)
             if server is None or not bool(server["is_active"]):
                 raise BusinessRuleError("Unknown or inactive VPN worker")
             if control_plane_ready is not True:
                 raise BusinessRuleError("VPN worker control plane is not ready")
-            profile_ready = (
-                isinstance(worker_inbound_tags, list)
-                and tuple(worker_inbound_tags) == _MARZBAN_VLESS_INBOUND_TAGS
+            worker_profile = (
+                tuple(worker_inbound_tags)
+                if isinstance(worker_inbound_tags, list)
+                else ()
             )
+            if isinstance(worker_inbound_tags, list):
+                expected_flow = _MARZBAN_SUPPORTED_PROFILES.get(worker_profile)
+                if (
+                    expected_flow is None
+                    or not isinstance(worker_vless_flow, str)
+                    or worker_vless_flow != expected_flow
+                ):
+                    raise BusinessRuleError(
+                        "VPN worker transport profile is invalid"
+                    )
+                profile_ready = True
+                profile_version = _marzban_profile_version(
+                    worker_profile, worker_vless_flow
+                )
+                if worker_epoch is None:
+                    if worker_profile != _MARZBAN_VLESS_INBOUND_TAGS:
+                        raise BusinessRuleError(
+                            "VPN worker epoch is required"
+                        )
+                    effective_worker_epoch = _LEGACY_DIRECT_WORKER_EPOCH
+                elif (
+                    isinstance(worker_epoch, str)
+                    and re.fullmatch(r"e[0-9a-f]{32}", worker_epoch)
+                    is not None
+                ):
+                    effective_worker_epoch = worker_epoch
+                elif (
+                    worker_epoch == _LEGACY_DIRECT_WORKER_EPOCH
+                    and worker_profile == _MARZBAN_VLESS_INBOUND_TAGS
+                ):
+                    effective_worker_epoch = _LEGACY_DIRECT_WORKER_EPOCH
+                else:
+                    raise BusinessRuleError("VPN worker epoch is invalid")
+            else:
+                if worker_vless_flow is not None or worker_epoch is not None:
+                    raise BusinessRuleError(
+                        "VPN worker transport profile is invalid"
+                    )
+                profile_ready = False
+                profile_version = ""
+                effective_worker_epoch = ""
 
             # Only a signed claim made after the worker successfully queried
             # its loopback Marzban API may renew checkout readiness.
-            self.servers.mark_healthy(conn, server_id=int(server["id"]))
+            self.servers.mark_healthy(
+                conn,
+                server_id=int(server["id"]),
+                profile_version=profile_version if profile_ready else None,
+                worker_epoch=(
+                    effective_worker_epoch if profile_ready else None
+                ),
+            )
 
             current = utcnow().isoformat()
             due = self.subscriptions.list_due_for_expiration(
@@ -1274,7 +1371,8 @@ class VpnService:
                     self.subscriptions.list_active_requiring_profile_update(
                         conn,
                         server_id=int(server["id"]),
-                        profile_version=_MARZBAN_PROFILE_VERSION,
+                        profile_version=profile_version,
+                        worker_epoch=effective_worker_epoch,
                         active_at=current,
                         limit=1,
                     )
@@ -1290,7 +1388,8 @@ class VpnService:
                         server_id=int(server["id"]),
                         operation="update",
                         idempotency_key=(
-                            f"vpn:profile:{_MARZBAN_PROFILE_VERSION}:"
+                            f"vpn:profile:{profile_version}:epoch:"
+                            f"{effective_worker_epoch}:"
                             f"{subscription_id}"
                         ),
                     )
@@ -1305,7 +1404,8 @@ class VpnService:
                     self.subscriptions.list_active_requiring_server_replica(
                         conn,
                         server_id=int(server["id"]),
-                        profile_version=_MARZBAN_PROFILE_VERSION,
+                        profile_version=profile_version,
+                        worker_epoch=effective_worker_epoch,
                         active_at=current,
                         limit=1,
                     )
@@ -1318,7 +1418,8 @@ class VpnService:
                         server_id=int(server["id"]),
                         operation="update",
                         idempotency_key=(
-                            f"vpn:replica:{_MARZBAN_PROFILE_VERSION}:"
+                            f"vpn:replica:{profile_version}:epoch:"
+                            f"{effective_worker_epoch}:"
                             f"{subscription_id}:server:{int(server['id'])}"
                         ),
                     )
@@ -1329,7 +1430,16 @@ class VpnService:
                         server_id=int(server["id"]),
                     )
             if job is None:
-                return None
+                reconciled = profile_ready and not (
+                    self.jobs.has_unfinished_for_server(
+                        conn,
+                        server_id=int(server["id"]),
+                    )
+                )
+                return VpnWorkerClaimOutcome(
+                    job=None,
+                    reconciled=reconciled,
+                )
 
             subscription = self.subscriptions.get_by_id(
                 conn, int(job["subscription_id"])
@@ -1352,11 +1462,19 @@ class VpnService:
                         "proxies": {
                             "vless": {
                                 "id": provider_uuid,
-                                "flow": "xtls-rprx-vision",
+                                "flow": (
+                                    worker_vless_flow
+                                    if profile_ready
+                                    else "xtls-rprx-vision"
+                                ),
                             },
                         },
                         "inbounds": {
-                            "vless": list(_MARZBAN_VLESS_INBOUND_TAGS),
+                            "vless": list(
+                                worker_profile
+                                if profile_ready
+                                else _MARZBAN_VLESS_INBOUND_TAGS
+                            ),
                         },
                         "expire": int(self._datetime(subscription["ends_at"]).timestamp()),
                         "data_limit": 0,
@@ -1365,14 +1483,19 @@ class VpnService:
                     }
                 )
 
-            return {
-                "job_id": int(job["id"]),
-                "lease_token": job["lease_token"],
-                "operation": operation,
-                "attempt": int(job["attempts"]),
-                "marzban_user": payload,
-                "subscription_base_url": server["subscription_base_url"],
-            }
+            return VpnWorkerClaimOutcome(
+                job={
+                    "job_id": int(job["id"]),
+                    "lease_token": job["lease_token"],
+                    "operation": operation,
+                    "attempt": int(job["attempts"]),
+                    "marzban_user": payload,
+                    "subscription_base_url": server[
+                        "subscription_base_url"
+                    ],
+                },
+                reconciled=False,
+            )
 
     def complete_worker_job(
         self,
@@ -1439,7 +1562,6 @@ class VpnService:
                 job_id=job_id,
                 lease_token=lease_token,
             )
-            self.servers.mark_healthy(conn, server_id=int(server["id"]))
             user = conn.execute(
                 "SELECT telegram_id FROM users WHERE id = ?",
                 (int(subscription["user_id"]),),
@@ -1604,6 +1726,7 @@ class VpnService:
 
 __all__ = [
     "VpnJobCompletion",
+    "VpnWorkerClaimOutcome",
     "VpnPaymentOutcome",
     "VpnPaymentStatusOutcome",
     "VpnPaymentVerificationError",

@@ -1,11 +1,15 @@
 from __future__ import annotations
 
+import asyncio
 import base64
 import binascii
 import hashlib
 import hmac
+import ipaddress
 import json
 import re
+import unicodedata
+from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Any, Mapping, Sequence
 from urllib.parse import quote, urlencode, urlsplit
@@ -15,10 +19,77 @@ from aiohttp import ClientSession, ClientTimeout, web
 from ceai.config import Settings
 from ceai.database import Database
 from ceai.repositories.vpn_subscriptions import VpnSubscriptionRepository
+from ceai.services.vpn import MARZBAN_WHITELIST_PROFILE_VERSION
 
 
 TOKEN_RE = re.compile(r"(?P<id>[1-9][0-9]*)\.(?P<signature>[0-9a-f]{64})")
-PROFILE_KEYS = ("remark", "address", "port", "sni", "host", "path")
+PROFILE_BASE_KEYS = frozenset({"remark", "address", "port", "sni", "path"})
+WS_PROFILE_KEYS = PROFILE_BASE_KEYS | {"host", "transport", "security"}
+XHTTP_PROFILE_KEYS = PROFILE_BASE_KEYS | {
+    "transport",
+    "security",
+    "pbk",
+    "public_key",
+    "sid",
+    "fingerprint",
+    "qualification_url",
+    "qualification_fingerprint",
+    "server_code",
+}
+PROFILE_KEYS = WS_PROFILE_KEYS | XHTTP_PROFILE_KEYS
+DNS_LABEL_RE = re.compile(r"[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?")
+XHTTP_PATH_RE = re.compile(r"/[A-Za-z0-9._~!$&'()*+,;=:@/-]{0,1023}")
+REALITY_PUBLIC_KEY_RE = re.compile(r"[A-Za-z0-9_-]{43}")
+REALITY_SHORT_ID_RE = re.compile(r"(?:[0-9A-Fa-f]{2}){1,8}")
+QUALIFICATION_FINGERPRINT_RE = re.compile(r"[0-9a-f]{64}")
+QUALIFICATION_STATUS_PATH = "/.well-known/ceavpn-whitelist-status"
+QUALIFICATION_STATUS_SERVICE = "ceavpn-whitelist-gate-v1"
+QUALIFICATION_STATUS_KEYS = frozenset(
+    {"service", "status", "config_fingerprint", "valid_until"}
+)
+QUALIFICATION_STATUS_MAX_BYTES = 4096
+QUALIFICATION_MAX_FUTURE = timedelta(days=7)
+XHTTP_MODE = "auto"
+XHTTP_EXTRA = {
+    "scMaxEachPostBytes": 1000000,
+    "scMaxConcurrentPosts": 100,
+    "scMinPostsIntervalMs": 30,
+    "xPaddingBytes": "100-1000",
+    "noGRPCHeader": False,
+}
+QUALIFICATION_PROFILE_FIELDS = (
+    "address",
+    "port",
+    "transport",
+    "security",
+    "path",
+    "sni",
+    "pbk",
+    "sid",
+    "fingerprint",
+    "qualification_url",
+    "server_code",
+)
+QUALIFICATION_TIMEOUT = ClientTimeout(
+    total=3,
+    connect=2,
+    sock_connect=2,
+    sock_read=2,
+)
+UTLS_FINGERPRINTS = frozenset(
+    {
+        "chrome",
+        "firefox",
+        "safari",
+        "ios",
+        "android",
+        "edge",
+        "360",
+        "qq",
+        "random",
+        "randomized",
+    }
+)
 FORWARDED_HEADERS = (
     "content-disposition",
     "profile-title",
@@ -26,6 +97,108 @@ FORWARDED_HEADERS = (
     "subscription-userinfo",
     "support-url",
 )
+
+
+def _profile_string(
+    item: Mapping[str, Any],
+    key: str,
+    *,
+    maximum_length: int,
+) -> str:
+    value = item.get(key)
+    if not isinstance(value, str):
+        raise ValueError("Invalid VPN extra profile field")
+    if any(unicodedata.category(char).startswith("C") for char in value):
+        raise ValueError("Invalid VPN extra profile values")
+    value = value.strip()
+    if not value or len(value) > maximum_length:
+        raise ValueError("Invalid VPN extra profile values")
+    return value
+
+
+def _valid_dns_name(value: str) -> bool:
+    if len(value) > 253 or value.endswith("."):
+        return False
+    labels = value.split(".")
+    return all(DNS_LABEL_RE.fullmatch(label) for label in labels)
+
+
+def _valid_address(value: str) -> bool:
+    if "%" in value:
+        return False
+    try:
+        ipaddress.ip_address(value)
+    except ValueError:
+        return _valid_dns_name(value)
+    return True
+
+
+def _valid_transport_path(value: str) -> bool:
+    if (
+        not XHTTP_PATH_RE.fullmatch(value)
+        or value.startswith("//")
+        or "\\" in value
+        or "%" in value
+    ):
+        return False
+    return not any(segment in {".", ".."} for segment in value.split("/"))
+
+
+def _valid_qualification_url(value: str) -> bool:
+    try:
+        parsed = urlsplit(value)
+        port = parsed.port
+    except ValueError:
+        return False
+    hostname = parsed.hostname
+    if (
+        parsed.scheme != "https"
+        or parsed.username is not None
+        or parsed.password is not None
+        or hostname is None
+        or not _valid_dns_name(hostname)
+        or port != 8443
+        or parsed.path != QUALIFICATION_STATUS_PATH
+        or parsed.query
+        or parsed.fragment
+    ):
+        return False
+    return value == f"https://{hostname}:8443{QUALIFICATION_STATUS_PATH}"
+
+
+def _profile_transport(item: Mapping[str, Any]) -> tuple[str, str]:
+    transport_value = item.get("transport")
+    security_value = item.get("security")
+    if transport_value is None and security_value is None:
+        return "ws", "tls"
+    if not isinstance(transport_value, str) or not isinstance(
+        security_value, str
+    ):
+        raise ValueError("Invalid VPN extra profile transport")
+    if any(
+        unicodedata.category(char).startswith("C")
+        for value in (transport_value, security_value)
+        for char in value
+    ):
+        raise ValueError("Invalid VPN extra profile transport")
+    transport = transport_value.strip().lower()
+    security = security_value.strip().lower()
+    if (transport, security) not in {("ws", "tls"), ("xhttp", "reality")}:
+        raise ValueError("Invalid VPN extra profile transport")
+    return transport, security
+
+
+def qualification_profile_fingerprint(profile: Mapping[str, Any]) -> str:
+    payload = {key: profile[key] for key in QUALIFICATION_PROFILE_FIELDS}
+    payload["mode"] = XHTTP_MODE
+    payload["extra"] = XHTTP_EXTRA
+    encoded = json.dumps(
+        payload,
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=True,
+    ).encode("ascii")
+    return hashlib.sha256(encoded).hexdigest()
 
 
 def delivery_base_url(settings: Settings) -> str:
@@ -88,26 +261,284 @@ def parse_extra_profiles(raw: str) -> tuple[dict[str, Any], ...]:
     for item in payload:
         if not isinstance(item, dict):
             raise ValueError("Invalid VPN extra profile")
-        profile = {key: item.get(key) for key in PROFILE_KEYS}
-        if not isinstance(profile["port"], int):
+        if not set(item).issubset(PROFILE_KEYS):
+            raise ValueError("Invalid VPN extra profile field")
+        transport, security = _profile_transport(item)
+        allowed_keys = (
+            XHTTP_PROFILE_KEYS if transport == "xhttp" else WS_PROFILE_KEYS
+        )
+        if not set(item).issubset(allowed_keys):
+            raise ValueError("Invalid VPN extra profile field")
+        port = item.get("port")
+        if isinstance(port, bool) or not isinstance(port, int):
             raise ValueError("Invalid VPN extra profile port")
-        for key in ("remark", "address", "sni", "host", "path"):
-            if not isinstance(profile[key], str):
-                raise ValueError("Invalid VPN extra profile field")
-            profile[key] = profile[key].strip()
+        profile = {
+            "remark": _profile_string(item, "remark", maximum_length=128),
+            "address": _profile_string(item, "address", maximum_length=253),
+            "port": port,
+            "sni": _profile_string(item, "sni", maximum_length=253),
+            "path": _profile_string(item, "path", maximum_length=1024),
+            "transport": transport,
+            "security": security,
+        }
         if (
-            not profile["remark"]
-            or profile["remark"] in remarks
-            or not profile["address"]
-            or not profile["sni"]
-            or not profile["host"]
-            or not 1 <= profile["port"] <= 65535
-            or not re.fullmatch(r"/ws-[0-9a-f]{48}", profile["path"])
+            profile["remark"] in remarks
+            or not _valid_address(profile["address"])
+            or not _valid_dns_name(profile["sni"])
+            or not 1 <= port <= 65535
         ):
             raise ValueError("Invalid VPN extra profile values")
+        if transport == "ws":
+            profile["host"] = _profile_string(
+                item, "host", maximum_length=253
+            )
+            if (
+                not _valid_dns_name(profile["host"])
+                or not re.fullmatch(r"/ws-[0-9a-f]{48}", profile["path"])
+            ):
+                raise ValueError("Invalid VPN extra profile values")
+        else:
+            has_pbk = "pbk" in item
+            has_public_key = "public_key" in item
+            if has_pbk == has_public_key:
+                raise ValueError("Invalid VPN extra profile public key")
+            public_key_field = "pbk" if has_pbk else "public_key"
+            profile["pbk"] = _profile_string(
+                item, public_key_field, maximum_length=43
+            )
+            profile["sid"] = _profile_string(
+                item, "sid", maximum_length=16
+            ).lower()
+            profile["fingerprint"] = _profile_string(
+                item, "fingerprint", maximum_length=32
+            ).lower()
+            profile["qualification_url"] = _profile_string(
+                item, "qualification_url", maximum_length=320
+            )
+            profile["qualification_fingerprint"] = _profile_string(
+                item, "qualification_fingerprint", maximum_length=64
+            )
+            profile["server_code"] = _profile_string(
+                item, "server_code", maximum_length=32
+            ).lower()
+            expected_qualification_fingerprint = (
+                qualification_profile_fingerprint(profile)
+            )
+            if (
+                not _valid_transport_path(profile["path"])
+                or not REALITY_PUBLIC_KEY_RE.fullmatch(profile["pbk"])
+                or not REALITY_SHORT_ID_RE.fullmatch(profile["sid"])
+                or profile["fingerprint"] not in UTLS_FINGERPRINTS
+                or not _valid_qualification_url(
+                    profile["qualification_url"]
+                )
+                or not QUALIFICATION_FINGERPRINT_RE.fullmatch(
+                    profile["qualification_fingerprint"]
+                )
+                or not re.fullmatch(
+                    r"[a-z0-9][a-z0-9_-]{1,31}",
+                    profile["server_code"],
+                )
+                or not hmac.compare_digest(
+                    profile["qualification_fingerprint"],
+                    expected_qualification_fingerprint,
+                )
+            ):
+                raise ValueError("Invalid VPN extra profile values")
         remarks.add(profile["remark"])
         profiles.append(profile)
     return tuple(profiles)
+
+
+def _qualification_status_is_current(
+    payload: Any,
+    *,
+    expected_fingerprint: str,
+    now: datetime,
+) -> bool:
+    if now.tzinfo is None:
+        return False
+    if (
+        not isinstance(payload, dict)
+        or set(payload) != QUALIFICATION_STATUS_KEYS
+        or not all(isinstance(value, str) for value in payload.values())
+        or payload["service"] != QUALIFICATION_STATUS_SERVICE
+        or payload["status"] != "passed"
+        or not QUALIFICATION_FINGERPRINT_RE.fullmatch(
+            payload["config_fingerprint"]
+        )
+        or not hmac.compare_digest(
+            payload["config_fingerprint"], expected_fingerprint
+        )
+        or not re.fullmatch(
+            r"[0-9]{4}-[0-9]{2}-[0-9]{2}T"
+            r"[0-9]{2}:[0-9]{2}:[0-9]{2}Z",
+            payload["valid_until"],
+        )
+    ):
+        return False
+    try:
+        valid_until = datetime.strptime(
+            payload["valid_until"], "%Y-%m-%dT%H:%M:%SZ"
+        ).replace(tzinfo=timezone.utc)
+    except ValueError:
+        return False
+    current = now.astimezone(timezone.utc)
+    return current < valid_until <= current + QUALIFICATION_MAX_FUTURE
+
+
+def _reject_duplicate_json_keys(
+    pairs: list[tuple[str, Any]],
+) -> dict[str, Any]:
+    result: dict[str, Any] = {}
+    for key, value in pairs:
+        if key in result:
+            raise ValueError("Duplicate JSON key")
+        result[key] = value
+    return result
+
+
+async def _qualification_profile_is_current(
+    session: ClientSession,
+    profile: Mapping[str, Any],
+    *,
+    now: datetime,
+) -> bool:
+    try:
+        async with session.get(
+            str(profile["qualification_url"]),
+            headers={
+                "Accept": "application/json",
+                "Accept-Encoding": "identity",
+            },
+            allow_redirects=False,
+            timeout=QUALIFICATION_TIMEOUT,
+        ) as response:
+            if response.status != 200:
+                return False
+            media_type = response.headers.get("Content-Type", "")
+            if (
+                media_type.partition(";")[0].strip().lower()
+                != "application/json"
+            ):
+                return False
+            if response.headers.get("Content-Encoding", "").strip().lower() not in {
+                "",
+                "identity",
+            }:
+                return False
+            if (
+                response.content_length is not None
+                and response.content_length > QUALIFICATION_STATUS_MAX_BYTES
+            ):
+                return False
+            body = bytearray()
+            async for chunk in response.content.iter_chunked(1024):
+                body.extend(chunk)
+                if len(body) > QUALIFICATION_STATUS_MAX_BYTES:
+                    return False
+        payload = json.loads(
+            body.decode("utf-8"),
+            object_pairs_hook=_reject_duplicate_json_keys,
+        )
+    except Exception:
+        return False
+    return _qualification_status_is_current(
+        payload,
+        expected_fingerprint=str(profile["qualification_fingerprint"]),
+        now=now,
+    )
+
+
+async def qualified_extra_profiles(
+    session: ClientSession,
+    profiles: Sequence[Mapping[str, Any]],
+    *,
+    now: datetime | None = None,
+) -> tuple[Mapping[str, Any], ...]:
+    current = now or datetime.now(timezone.utc)
+    xhttp_profiles = [
+        profile
+        for profile in profiles
+        if (
+            str(profile.get("transport") or "ws"),
+            str(profile.get("security") or "tls"),
+        )
+        == ("xhttp", "reality")
+    ]
+    results = iter(
+        await asyncio.gather(
+            *(
+                _qualification_profile_is_current(
+                    session,
+                    profile,
+                    now=current,
+                )
+                for profile in xhttp_profiles
+            )
+        )
+    )
+    eligible: list[Mapping[str, Any]] = []
+    for profile in profiles:
+        transport = str(profile.get("transport") or "ws")
+        security = str(profile.get("security") or "tls")
+        if (transport, security) != ("xhttp", "reality") or next(results):
+            eligible.append(profile)
+    return tuple(eligible)
+
+
+def replica_ready_extra_profiles(
+    db: Database,
+    repository: VpnSubscriptionRepository,
+    profiles: Sequence[Mapping[str, Any]],
+    *,
+    subscription_id: int,
+    worker_health_max_age_seconds: int,
+    now: datetime | None = None,
+) -> tuple[Mapping[str, Any], ...]:
+    non_xhttp = tuple(
+        profile
+        for profile in profiles
+        if (
+            str(profile.get("transport") or "ws"),
+            str(profile.get("security") or "tls"),
+        )
+        != ("xhttp", "reality")
+    )
+    if (
+        subscription_id <= 0
+        or worker_health_max_age_seconds <= 0
+    ):
+        return non_xhttp
+    current = now or datetime.now(timezone.utc)
+    if current.tzinfo is None:
+        return non_xhttp
+    current = current.astimezone(timezone.utc)
+    healthy_after = (
+        current - timedelta(seconds=worker_health_max_age_seconds)
+    ).isoformat()
+    active_at = current.isoformat()
+    eligible: list[Mapping[str, Any]] = []
+    try:
+        with db.transaction() as conn:
+            for profile in profiles:
+                transport = str(profile.get("transport") or "ws")
+                security = str(profile.get("security") or "tls")
+                if (transport, security) != ("xhttp", "reality"):
+                    eligible.append(profile)
+                    continue
+                if repository.has_completed_server_replica(
+                    conn,
+                    subscription_id=subscription_id,
+                    server_code=str(profile["server_code"]),
+                    profile_version=MARZBAN_WHITELIST_PROFILE_VERSION,
+                    healthy_after=healthy_after,
+                    active_at=active_at,
+                ):
+                    eligible.append(profile)
+    except Exception:
+        return non_xhttp
+    return tuple(eligible)
 
 
 def _decode_subscription(body: bytes) -> tuple[list[str], bool]:
@@ -128,19 +559,51 @@ def _decode_subscription(body: bytes) -> tuple[list[str], bool]:
 
 
 def _profile_uri(provider_uuid: str, profile: Mapping[str, Any]) -> str:
-    query = urlencode(
-        {
-            "encryption": "none",
-            "security": "tls",
-            "sni": profile["sni"],
-            "fp": "chrome",
-            "type": "ws",
-            "host": profile["host"],
-            "path": profile["path"],
-        }
-    )
+    transport = str(profile.get("transport") or "ws")
+    security = str(profile.get("security") or "tls")
+    if transport == "xhttp" and security == "reality":
+        query_parameters = (
+            ("encryption", "none"),
+            ("type", "xhttp"),
+            ("security", "reality"),
+            ("path", profile["path"]),
+            ("sni", profile["sni"]),
+            ("fp", profile["fingerprint"]),
+            ("pbk", profile["pbk"]),
+            ("sid", profile["sid"]),
+            ("mode", XHTTP_MODE),
+            (
+                "extra",
+                json.dumps(
+                    XHTTP_EXTRA,
+                    sort_keys=True,
+                    separators=(",", ":"),
+                    ensure_ascii=True,
+                ),
+            ),
+            ("headerType", ""),
+        )
+    elif transport == "ws" and security == "tls":
+        query_parameters = (
+            ("encryption", "none"),
+            ("security", "tls"),
+            ("sni", profile["sni"]),
+            ("fp", "chrome"),
+            ("type", "ws"),
+            ("host", profile["host"]),
+            ("path", profile["path"]),
+        )
+    else:
+        raise ValueError("Invalid VPN extra profile transport")
+    query = urlencode(query_parameters)
+    address = str(profile["address"])
+    try:
+        is_ipv6 = ipaddress.ip_address(address).version == 6
+    except ValueError:
+        is_ipv6 = False
+    rendered_address = f"[{address}]" if is_ipv6 else address
     return (
-        f"vless://{provider_uuid}@{profile['address']}:{profile['port']}"
+        f"vless://{provider_uuid}@{rendered_address}:{profile['port']}"
         f"?{query}#{quote(str(profile['remark']), safe='')}"
     )
 
@@ -159,9 +622,23 @@ def merge_subscription_profiles(
     lines, was_base64 = _decode_subscription(body)
     for profile in profiles:
         uri = _profile_uri(provider_uuid, profile)
-        marker = f"@{profile['address']}:{profile['port']}?"
+        address = str(profile["address"])
+        try:
+            is_ipv6 = ipaddress.ip_address(address).version == 6
+        except ValueError:
+            is_ipv6 = False
+        rendered_address = f"[{address}]" if is_ipv6 else address
+        marker = f"@{rendered_address}:{profile['port']}?"
         path_marker = quote(str(profile["path"]), safe="")
-        if not any(marker in line and path_marker in line for line in lines):
+        transport_marker = f"type={profile.get('transport') or 'ws'}"
+        security_marker = f"security={profile.get('security') or 'tls'}"
+        if not any(
+            marker in line
+            and path_marker in line
+            and transport_marker in line
+            and security_marker in line
+            for line in lines
+        ):
             lines.append(uri)
     rendered = ("\n".join(lines) + "\n").encode("utf-8")
     return base64.b64encode(rendered) if was_base64 else rendered
@@ -254,11 +731,24 @@ def register_vpn_subscription_delivery_routes(
                     for name in FORWARDED_HEADERS
                     if name in upstream.headers
                 }
+            replica_profiles = replica_ready_extra_profiles(
+                db,
+                repository,
+                profiles,
+                subscription_id=int(subscription["id"]),
+                worker_health_max_age_seconds=(
+                    settings.vpn_worker_health_max_age_seconds
+                ),
+            )
+            eligible_profiles = await qualified_extra_profiles(
+                session,
+                replica_profiles,
+            )
         try:
             merged = merge_subscription_profiles(
                 body,
                 provider_uuid=str(subscription.get("provider_uuid") or ""),
-                profiles=profiles,
+                profiles=eligible_profiles,
             )
         except ValueError as exc:
             raise web.HTTPBadGateway(
@@ -305,6 +795,9 @@ __all__ = [
     "delivery_subscription_url",
     "merge_subscription_profiles",
     "parse_extra_profiles",
+    "qualification_profile_fingerprint",
+    "qualified_extra_profiles",
+    "replica_ready_extra_profiles",
     "register_vpn_subscription_delivery_routes",
     "with_delivery_subscription",
 ]

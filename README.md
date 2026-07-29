@@ -206,6 +206,122 @@ Reality остаётся на `443` с `is_disabled=true`, а публичный
 разрешает менять Host Settings только sudo-admin. Эти credentials нельзя
 копировать в `/root/ceavpn-admin.env` или в environment worker-сервиса.
 
+### Кандидат для режима ограниченного мобильного доступа
+
+`CEAVPN_NODE_MODE=whitelist` — отдельный, по умолчанию не опубликованный
+двухузловой режим:
+
+```text
+Happ -> VLESS + XHTTP + Reality :443 на проверенном ingress
+     -> отдельный VLESS WS/TLS relay :8443 на существующем зарубежном узле
+     -> интернет
+```
+
+Конфигурация XHTTP следует официальному примеру
+[XTLS/Xray-examples](https://github.com/XTLS/Xray-examples/tree/main/VLESS-XHTTP-Reality/minimal-steal_others):
+путь XHTTP генерируется один раз, хранится только в
+`/root/ceavpn-xhttp.env` с правами `0600`, а Vision flow для этого inbound
+отключён. Внешний WS/TLS hop использует отдельный служебный UUID, а не UUID
+покупателя.
+
+Для закреплённого Xray server-side Reality target — проверенный удалённый
+`COVER_DOMAIN:443` с TLS 1.3/HTTP2 и без redirect. Локальный Nginx target
+`127.0.0.1:9443` с XHTTP несовместим. Probe и qualification status живут
+отдельно на собственном `SUB_DOMAIN:8443`; сертификат cover на ingress не
+выпускается.
+
+Этот режим сам по себе не делает IP доступным у мобильного оператора. HTTPS
+probe проверяет только доступность адреса и не доказывает работу VPN. Для
+репликации canary-кандидат регистрируется как активный staging worker, но его
+нельзя делать canonical server или добавлять в `VPN_EXTRA_PROFILES_JSON`, пока
+через
+временный XHTTP/Reality canary с нужной SIM при действующих ограничениях не
+прошли DNS, Telegram, внешний HTTPS и больше 1 MiB трафика.
+В `/root/ceavpn-node.env` такого кандидата обязательно задаётся
+`CEAVPN_SERVER_CODE` (например, `ru-wl-1`), в точности совпадающий с
+`vpn_servers.code` его worker. Код входит в public profile fingerprint, поэтому
+подменить целевой сервер после квалификации нельзя.
+
+Staging worker регистрируется без raw SQL через строгий
+`VPN_ADDITIONAL_SERVERS_JSON`; для каждой активной записи обязателен отдельный
+secret в `VPN_WORKER_SECRETS_JSON`. Production canonical остаётся
+`VPN_SERVER_CODE=nl-1`, а `VPN_EXTRA_PROFILES_JSON=[]` сохраняется до успешного
+restricted-SIM canary и статуса `passed`.
+
+Whitelist bundle использует только официальный Xray-core `v26.3.27`.
+`deploy/vpn/xray-pins.env` содержит SHA-256 извлечённых Linux executables для
+`amd64` и `arm64`. `provision-node.sh` проверяет архитектуру, digest и вывод
+`xray version`, затем заменяет executable атомарным `mv`. Старый бинарник
+никогда молча не принимается для whitelist-узла. Bundle собирается по
+существующему контракту: файлы из `deploy/vpn/` находятся в корне bundle,
+Marzban wrapper — в `bundle/marzban`, а содержимое официального release zip —
+в `bundle/xray-core/`.
+
+Worker хранит постоянный `VPN_WORKER_EPOCH=e<32 lowercase hex>` в root-only
+`/etc/ceavpn/worker.env`. Обычный upgrade сохраняет epoch; явный rebuild
+запускает `install-worker.sh ... --rotate-epoch`, после чего Railway заново
+реплицирует все активные аккаунты. Whitelist worker без epoch остаётся
+fail-closed.
+
+На выбранном существующем зарубежном exit сначала установите
+`provision-whitelist-relay.sh` в `/opt/ceavpn/` и создайте отдельный relay:
+
+```bash
+sudo /opt/ceavpn/provision-whitelist-relay.sh create \
+  --gateway-id ru-candidate-1 \
+  --candidate root@candidate.example
+```
+
+Скрипт идемпотентно создаёт account только на
+`VLESS WS TLS FALLBACK`, не печатает UUID/path и атомарно устанавливает на
+candidate `/root/ceavpn-lte-exit.env` с правами `0600`. При ошибке создание или
+изменение Marzban откатывается. Для отключения:
+
+```bash
+sudo /opt/ceavpn/provision-whitelist-relay.sh revoke \
+  --gateway-id ru-candidate-1 \
+  --candidate root@candidate.example
+```
+
+После provision candidate профиль остаётся `is_disabled=true`. Получите
+несекретный probe URL:
+
+```bash
+sudo /opt/ceavpn/qualify-whitelist-ingress.sh probe
+```
+
+Откройте его с VPN off на реально ограниченной мобильной сети. Это лишь
+предварительная проверка. Затем создайте ограниченный canary:
+
+```bash
+sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-create
+sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-status
+```
+
+Canary действует 45 минут, ограничен 100 MiB, назначен только на
+`VLESS XHTTP REALITY`, а URI записан в root-only
+`/root/ceavpn-whitelist-canary.txt` и не печатается. Передайте файл на
+доверенное устройство через уже проверенный SSH-канал, импортируйте URI в Happ
+и на ограниченной SIM с выключенным Wi-Fi проверьте DNS, Telegram, внешний
+HTTPS и передачу больше 1 MiB. Не отправляйте URI в Telegram, чат или облако.
+Только после успешного полного tunnel-теста откройте publication gate:
+
+```bash
+sudo /opt/ceavpn/qualify-whitelist-ingress.sh pass \
+  --operator TELE2 \
+  --region Moscow \
+  --confirm restricted-sim-xhttp-tunnel-worked
+```
+
+`pass` дополнительно требует, чтобы canary был активен недавно и Marzban
+зафиксировал строго больше 1 MiB, после чего удаляет canary и его URI. Gate-файл
+`/root/ceavpn-whitelist-qualified.json` содержит только статус, время,
+оператор, регион, публичный probe URL и названия выполненных проверок — ни XHTTP
+path, ни Reality key, ни UUID. `revoke` закрывает gate без удаления
+audit-записи. Даже после pass профиль не добавляется в Railway автоматически:
+включение сервера и добавление профиля в общую подписку остаются отдельным
+production-действием после полного теста приложений, DNS, IPv6 и внешнего IP.
+
 1. Создайте проект Railway из GitHub-репозитория.
 2. В сервисе откройте `Settings -> Networking` и нажмите `Generate Domain`.
 3. Добавьте Postgres в Railway и подключите `DATABASE_URL` к сервису. В продакшене SQLite запрещён по умолчанию: файл внутри контейнера может быть пересоздан при деплое, и тогда пропадут пользователи, подписки, платежи и балансы.

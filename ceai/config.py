@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Dict, Tuple
+from urllib.parse import urlsplit
 
 
 BASE_DIR = Path(__file__).resolve().parent.parent
@@ -27,6 +29,7 @@ KLING_API_KEY_NAMES = (
     "KLING_SECRET_KEY",
     "API_KEY_KLING",
 )
+VPN_WORKER_ID_RE = re.compile(r"[A-Za-z0-9_-]{2,64}")
 
 
 def _load_dotenv(path: Path) -> Dict[str, str]:
@@ -62,6 +65,16 @@ def _normalize_base_url(value: str) -> str:
 
 
 @dataclass(frozen=True)
+class VpnAdditionalServer:
+    code: str
+    name: str
+    region: str
+    worker_id: str
+    subscription_base_url: str
+    is_active: bool
+
+
+@dataclass(frozen=True)
 class Settings:
     telegram_bot_token: str
     database_url: str
@@ -92,6 +105,7 @@ class Settings:
     vpn_worker_id: str = "cea-vpn-nl1"
     vpn_worker_secret: str = ""
     vpn_worker_secrets: Tuple[Tuple[str, str], ...] = ()
+    vpn_additional_servers: Tuple[VpnAdditionalServer, ...] = ()
     vpn_subscription_base_url: str = ""
     vpn_delivery_base_url: str = ""
     vpn_delivery_signing_secret: str = ""
@@ -192,23 +206,136 @@ def load_settings() -> Settings:
         raw = read("VPN_WORKER_SECRETS_JSON").strip()
         if not raw:
             return ()
+        duplicate_key = False
+
+        def reject_duplicate_keys(
+            pairs: list[tuple[str, object]],
+        ) -> dict[str, object]:
+            nonlocal duplicate_key
+            result: dict[str, object] = {}
+            for key, value in pairs:
+                if key in result:
+                    duplicate_key = True
+                result[key] = value
+            return result
+
         try:
-            payload = json.loads(raw)
+            payload = json.loads(raw, object_pairs_hook=reject_duplicate_keys)
         except json.JSONDecodeError as exc:
             raise ValueError("VPN_WORKER_SECRETS_JSON must be valid JSON") from exc
-        if not isinstance(payload, dict):
+        if duplicate_key or not isinstance(payload, dict):
             raise ValueError("VPN_WORKER_SECRETS_JSON must be a JSON object")
         values: list[Tuple[str, str]] = []
+        seen_worker_ids: set[str] = set()
         for worker_id, secret in payload.items():
             if not isinstance(worker_id, str) or not isinstance(secret, str):
                 raise ValueError(
                     "VPN_WORKER_SECRETS_JSON keys and values must be strings"
                 )
             normalized_worker_id = worker_id.strip()
-            if not normalized_worker_id or len(secret.encode("utf-8")) < 32:
+            if (
+                VPN_WORKER_ID_RE.fullmatch(normalized_worker_id) is None
+                or normalized_worker_id in seen_worker_ids
+                or len(secret.encode("utf-8")) < 32
+            ):
                 raise ValueError("Invalid per-worker VPN secret")
+            seen_worker_ids.add(normalized_worker_id)
             values.append((normalized_worker_id, secret))
         return tuple(sorted(values))
+
+    def read_additional_vpn_servers() -> Tuple[VpnAdditionalServer, ...]:
+        raw = read("VPN_ADDITIONAL_SERVERS_JSON", "[]").strip()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError(
+                "VPN_ADDITIONAL_SERVERS_JSON must be valid JSON"
+            ) from exc
+        if not isinstance(payload, list) or len(payload) > 8:
+            raise ValueError(
+                "VPN_ADDITIONAL_SERVERS_JSON must be a short JSON array"
+            )
+
+        allowed_keys = {
+            "code",
+            "name",
+            "region",
+            "worker_id",
+            "subscription_base_url",
+            "is_active",
+        }
+        servers: list[VpnAdditionalServer] = []
+        seen_codes: set[str] = set()
+        seen_workers: set[str] = set()
+        for item in payload:
+            if not isinstance(item, dict) or set(item) != allowed_keys:
+                raise ValueError(
+                    "VPN_ADDITIONAL_SERVERS_JSON contains invalid fields"
+                )
+            code = item["code"]
+            name = item["name"]
+            region = item["region"]
+            worker_id = item["worker_id"]
+            subscription_base_url = item["subscription_base_url"]
+            is_active = item["is_active"]
+            if (
+                not isinstance(code, str)
+                or re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,31}", code) is None
+                or not isinstance(name, str)
+                or not name.strip()
+                or len(name.strip()) > 80
+                or not isinstance(region, str)
+                or re.fullmatch(r"[A-Z]{2}", region.strip()) is None
+                or not isinstance(worker_id, str)
+                or VPN_WORKER_ID_RE.fullmatch(worker_id.strip()) is None
+                or not isinstance(subscription_base_url, str)
+                or not isinstance(is_active, bool)
+            ):
+                raise ValueError(
+                    "VPN_ADDITIONAL_SERVERS_JSON contains invalid values"
+                )
+
+            normalized_url = subscription_base_url.strip().rstrip("/")
+            url = urlsplit(normalized_url)
+            try:
+                url_port = url.port
+            except ValueError as exc:
+                raise ValueError(
+                    "VPN additional subscription URL is invalid"
+                ) from exc
+            if (
+                url.scheme != "https"
+                or not url.hostname
+                or url_port != 8443
+                or url.username is not None
+                or url.password is not None
+                or url.path not in {"", "/"}
+                or url.query
+                or url.fragment
+            ):
+                raise ValueError(
+                    "VPN additional subscription URL must be HTTPS on port 8443"
+                )
+
+            normalized_code = code.strip()
+            normalized_worker = worker_id.strip()
+            if normalized_code in seen_codes or normalized_worker in seen_workers:
+                raise ValueError(
+                    "VPN_ADDITIONAL_SERVERS_JSON contains duplicate identity"
+                )
+            seen_codes.add(normalized_code)
+            seen_workers.add(normalized_worker)
+            servers.append(
+                VpnAdditionalServer(
+                    code=normalized_code,
+                    name=name.strip(),
+                    region=region.strip(),
+                    worker_id=normalized_worker,
+                    subscription_base_url=normalized_url,
+                    is_active=is_active,
+                )
+            )
+        return tuple(servers)
 
     app_base_url = _normalize_base_url(
         read("APP_BASE_URL") or read("RAILWAY_PUBLIC_DOMAIN")
@@ -262,6 +389,7 @@ def load_settings() -> Settings:
         vpn_worker_id=read("VPN_WORKER_ID", "cea-vpn-nl1").strip(),
         vpn_worker_secret=read("VPN_WORKER_SECRET"),
         vpn_worker_secrets=read_worker_secrets(),
+        vpn_additional_servers=read_additional_vpn_servers(),
         vpn_subscription_base_url=_normalize_base_url(
             read("VPN_SUBSCRIPTION_BASE_URL")
         ),

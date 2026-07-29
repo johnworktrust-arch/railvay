@@ -19,6 +19,17 @@ if [[ $EUID -ne 0 ]]; then
   exit 1
 fi
 
+if [[ -s "$node_file" ]]; then
+  node_mode="$(
+    # shellcheck disable=SC1090
+    source "$node_file"
+    printf '%s' "${CEAVPN_NODE_MODE:-direct}"
+  )"
+  if [[ "$node_mode" == "whitelist" ]]; then
+    exec /opt/ceavpn/configure-whitelist-host.sh
+  fi
+fi
+
 umask 077
 
 rollback_hosts() {

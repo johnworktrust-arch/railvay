@@ -114,6 +114,26 @@ class VpnProvisioningJobRepository:
             ).fetchall()
         )
 
+    def has_unfinished_for_server(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        server_id: int,
+    ) -> bool:
+        if server_id <= 0:
+            return True
+        row = conn.execute(
+            """
+            SELECT 1 AS unfinished
+            FROM vpn_provisioning_jobs
+            WHERE server_id = ?
+              AND status IN ('pending', 'running', 'failed')
+            LIMIT 1
+            """,
+            (server_id,),
+        ).fetchone()
+        return row is not None
+
     def claim_due(
         self,
         conn: sqlite3.Connection,

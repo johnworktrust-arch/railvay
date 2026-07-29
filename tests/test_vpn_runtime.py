@@ -13,7 +13,7 @@ from ceai.database import Database
 from ceai.repositories.vpn_servers import VpnServerRepository
 from ceai.services.exceptions import BusinessRuleError
 from ceai.services.users import UserService
-from ceai.services.vpn import VpnService
+from ceai.services.vpn import VpnService, _marzban_profile_version
 from ceai.time_utils import utcnow
 from ceai.vpn_worker_api import (
     NONCE_HEADER,
@@ -21,8 +21,15 @@ from ceai.vpn_worker_api import (
     TIMESTAMP_HEADER,
     WORKER_ID_HEADER,
     VpnWorkerAuthenticator,
+    _worker_transport_profile,
     canonical_worker_request,
 )
+
+DIRECT_PROFILE_VERSION = _marzban_profile_version(
+    ("VLESS TCP REALITY", "VLESS WS TLS FALLBACK"),
+    "xtls-rprx-vision",
+)
+WORKER_EPOCH = "e" + "2" * 32
 
 
 class VpnRuntimeTest(unittest.TestCase):
@@ -54,6 +61,114 @@ class VpnRuntimeTest(unittest.TestCase):
                 checked_at=utcnow().isoformat(),
             )
         self.vpn = VpnService(self.db, server_code="nl-1", trial_days=3)
+
+    def test_signed_legacy_direct_profile_defaults_only_to_vision(self) -> None:
+        tags, flow, worker_epoch = _worker_transport_profile(
+            {
+                "inbound_tags": [
+                    "VLESS TCP REALITY",
+                    "VLESS WS TLS FALLBACK",
+                ]
+            }
+        )
+        self.assertEqual(
+            tags,
+            ["VLESS TCP REALITY", "VLESS WS TLS FALLBACK"],
+        )
+        self.assertEqual(flow, "xtls-rprx-vision")
+        self.assertEqual(worker_epoch, "legacy")
+
+        with self.assertRaises(web.HTTPForbidden):
+            _worker_transport_profile(
+                {"inbound_tags": ["VLESS XHTTP REALITY"]}
+            )
+        with self.assertRaises(web.HTTPForbidden):
+            _worker_transport_profile(
+                {
+                    "inbound_tags": [
+                        "VLESS WS TLS FALLBACK",
+                        "VLESS TCP REALITY",
+                    ]
+                }
+            )
+
+    def test_xhttp_profile_must_explicitly_sign_empty_flow(self) -> None:
+        with self.assertRaises(web.HTTPForbidden):
+            _worker_transport_profile(
+                {
+                    "inbound_tags": ["VLESS XHTTP REALITY"],
+                    "vless_flow": "",
+                }
+            )
+        tags, flow, worker_epoch = _worker_transport_profile(
+            {
+                "inbound_tags": ["VLESS XHTTP REALITY"],
+                "vless_flow": "",
+                "worker_epoch": WORKER_EPOCH,
+            }
+        )
+        self.assertEqual(tags, ["VLESS XHTTP REALITY"])
+        self.assertEqual(flow, "")
+        self.assertEqual(worker_epoch, WORKER_EPOCH)
+
+    def test_reconciled_requires_idle_epoch_migration_and_no_future_work(
+        self,
+    ) -> None:
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        poll_arguments = {
+            "worker_id": "worker-nl1",
+            "lease_seconds": 60,
+            "control_plane_ready": True,
+            "worker_inbound_tags": [
+                "VLESS TCP REALITY",
+                "VLESS WS TLS FALLBACK",
+            ],
+            "worker_vless_flow": "xtls-rprx-vision",
+            "worker_epoch": WORKER_EPOCH,
+        }
+
+        create = self.vpn.claim_worker_poll(**poll_arguments)
+        self.assertFalse(create.reconciled)
+        self.assertIsNotNone(create.job)
+        assert create.job is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(create.job["job_id"]),
+            lease_token=str(create.job["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/create",
+        )
+
+        migration = self.vpn.claim_worker_poll(**poll_arguments)
+        self.assertFalse(migration.reconciled)
+        self.assertIsNotNone(migration.job)
+        assert migration.job is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(migration.job["job_id"]),
+            lease_token=str(migration.job["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/migrate",
+        )
+
+        reconciled = self.vpn.claim_worker_poll(**poll_arguments)
+        self.assertIsNone(reconciled.job)
+        self.assertTrue(reconciled.reconciled)
+
+        with self.db.transaction() as conn:
+            self.vpn.jobs.enqueue(
+                conn,
+                subscription_id=int(trial.subscription["id"]),
+                server_id=int(trial.subscription["server_id"]),
+                operation="update",
+                idempotency_key="vpn:test:future-reconciliation-work",
+                next_attempt_at=(utcnow() + timedelta(hours=1)).isoformat(),
+            )
+
+        blocked = self.vpn.claim_worker_poll(**poll_arguments)
+        self.assertIsNone(blocked.job)
+        self.assertFalse(blocked.reconciled)
 
     def tearDown(self) -> None:
         self.db.close()
@@ -194,6 +309,7 @@ class VpnRuntimeTest(unittest.TestCase):
                 "VLESS TCP REALITY",
                 "VLESS WS TLS FALLBACK",
             ],
+            worker_vless_flow="xtls-rprx-vision",
         )
         self.assertIsNotNone(migration)
         assert migration is not None
@@ -231,6 +347,7 @@ class VpnRuntimeTest(unittest.TestCase):
                     "VLESS TCP REALITY",
                     "VLESS WS TLS FALLBACK",
                 ],
+                worker_vless_flow="xtls-rprx-vision",
             )
         )
         with self.db.transaction() as conn:
@@ -252,12 +369,37 @@ class VpnRuntimeTest(unittest.TestCase):
                 (
                     "update",
                     "completed",
-                    f"vpn:profile:v3:{trial.subscription['id']}",
+                    f"vpn:profile:{DIRECT_PROFILE_VERSION}:epoch:legacy:"
+                    f"{trial.subscription['id']}",
                 )
             ],
         )
 
-    def test_legacy_worker_neither_creates_nor_claims_profile_v3_job(self) -> None:
+    def test_whitelist_worker_gets_xhttp_profile_without_vision_flow(self) -> None:
+        self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        job = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+            worker_inbound_tags=["VLESS XHTTP REALITY"],
+            worker_vless_flow="",
+            worker_epoch=WORKER_EPOCH,
+        )
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.assertEqual(
+            job["marzban_user"]["inbounds"],
+            {"vless": ["VLESS XHTTP REALITY"]},
+        )
+        self.assertEqual(
+            job["marzban_user"]["proxies"]["vless"]["flow"],
+            "",
+        )
+
+    def test_invalid_worker_pair_neither_creates_nor_claims_profile_job(self) -> None:
         trial = self.vpn.claim_trial(
             user_id=int(self.user["id"]),
             channel="@ceafamily",
@@ -283,7 +425,10 @@ class VpnRuntimeTest(unittest.TestCase):
             )
         )
         with self.db.transaction() as conn:
-            profile_key = f"vpn:profile:v3:{trial.subscription['id']}"
+            profile_key = (
+                f"vpn:profile:{DIRECT_PROFILE_VERSION}:epoch:legacy:"
+                f"{trial.subscription['id']}"
+            )
             self.assertIsNone(
                 conn.execute(
                     """
@@ -300,14 +445,16 @@ class VpnRuntimeTest(unittest.TestCase):
                 idempotency_key=profile_key,
             )
 
-        self.assertIsNone(
+        with self.assertRaisesRegex(
+            BusinessRuleError, "transport profile"
+        ):
             self.vpn.claim_worker_job(
                 worker_id="worker-nl1",
                 lease_seconds=60,
                 control_plane_ready=True,
                 worker_inbound_tags=["VLESS TCP REALITY"],
+                worker_vless_flow="xtls-rprx-vision",
             )
-        )
         with self.db.transaction() as conn:
             profile_job = conn.execute(
                 """
@@ -344,6 +491,7 @@ class VpnRuntimeTest(unittest.TestCase):
                 "VLESS TCP REALITY",
                 "VLESS WS TLS FALLBACK",
             ],
+            worker_vless_flow="xtls-rprx-vision",
         )
         assert migration is not None
 
@@ -376,6 +524,7 @@ class VpnRuntimeTest(unittest.TestCase):
                     "VLESS TCP REALITY",
                     "VLESS WS TLS FALLBACK",
                 ],
+                worker_vless_flow="xtls-rprx-vision",
             )
             assert migration is not None
 
@@ -494,6 +643,55 @@ class VpnRuntimeTest(unittest.TestCase):
                 ("nl-1",),
             ).fetchone()
         self.assertIsNotNone(server["last_health_at"])
+
+    def test_worker_completion_does_not_refresh_transport_health(self) -> None:
+        self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        job = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+            worker_inbound_tags=[
+                "VLESS TCP REALITY",
+                "VLESS WS TLS FALLBACK",
+            ],
+            worker_vless_flow="xtls-rprx-vision",
+        )
+        assert job is not None
+        recorded_health = "2000-01-01T00:00:00+00:00"
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE vpn_servers
+                SET last_health_at = ?, current_profile_version = ?
+                WHERE code = ?
+                """,
+                (recorded_health, DIRECT_PROFILE_VERSION, "nl-1"),
+            )
+
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(job["job_id"]),
+            lease_token=str(job["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/main-token",
+        )
+
+        with self.db.transaction() as conn:
+            server = conn.execute(
+                """
+                SELECT last_health_at, current_profile_version
+                FROM vpn_servers
+                WHERE code = ?
+                """,
+                ("nl-1",),
+            ).fetchone()
+        self.assertEqual(server["last_health_at"], recorded_health)
+        self.assertEqual(
+            server["current_profile_version"],
+            DIRECT_PROFILE_VERSION,
+        )
 
     def test_trial_does_not_issue_when_worker_health_is_stale(self) -> None:
         with self.db.transaction() as conn:
@@ -781,6 +979,102 @@ class VpnRuntimeTest(unittest.TestCase):
                 (int(us_server["id"]), "completed"),
             ],
         )
+
+    def test_replica_converges_independently_to_whitelist_profile(self) -> None:
+        with self.db.transaction() as conn:
+            us_server = VpnServerRepository().upsert(
+                conn,
+                code="us-whitelist",
+                name="USA whitelist",
+                provider="marzban",
+                region="US",
+                api_base_url="http://127.0.0.1:8000",
+                worker_id="worker-us-whitelist",
+                subscription_base_url="https://sub-us.example.test:8443",
+            )
+            VpnServerRepository().mark_healthy(
+                conn, server_id=int(us_server["id"])
+            )
+
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        canonical = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        replica = self.vpn.claim_worker_job(
+            worker_id="worker-us-whitelist",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        assert canonical is not None
+        assert replica is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-us-whitelist",
+            job_id=int(replica["job_id"]),
+            lease_token=str(replica["lease_token"]),
+            subscription_url="https://sub-us.example.test:8443/sub/us-token",
+        )
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(canonical["job_id"]),
+            lease_token=str(canonical["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/main-token",
+        )
+
+        whitelist_replica = self.vpn.claim_worker_job(
+            worker_id="worker-us-whitelist",
+            lease_seconds=60,
+            control_plane_ready=True,
+            worker_inbound_tags=["VLESS XHTTP REALITY"],
+            worker_vless_flow="",
+            worker_epoch=WORKER_EPOCH,
+        )
+        self.assertIsNotNone(whitelist_replica)
+        assert whitelist_replica is not None
+        self.assertEqual(whitelist_replica["operation"], "update")
+        self.assertEqual(
+            whitelist_replica["marzban_user"]["inbounds"],
+            {"vless": ["VLESS XHTTP REALITY"]},
+        )
+        self.assertEqual(
+            whitelist_replica["marzban_user"]["proxies"]["vless"]["flow"],
+            "",
+        )
+
+        whitelist_version = _marzban_profile_version(
+            ("VLESS XHTTP REALITY",), ""
+        )
+        with self.db.transaction() as conn:
+            job = conn.execute(
+                """
+                SELECT idempotency_key
+                FROM vpn_provisioning_jobs
+                WHERE id = ?
+                """,
+                (int(whitelist_replica["job_id"]),),
+            ).fetchone()
+            worker_server = conn.execute(
+                """
+                SELECT current_profile_version, current_worker_epoch
+                FROM vpn_servers
+                WHERE id = ?
+                """,
+                (int(us_server["id"]),),
+            ).fetchone()
+        self.assertEqual(
+            job["idempotency_key"],
+            f"vpn:replica:{whitelist_version}:epoch:{WORKER_EPOCH}:"
+            f"{trial.subscription['id']}:server:{us_server['id']}",
+        )
+        self.assertEqual(
+            worker_server["current_profile_version"],
+            whitelist_version,
+        )
+        self.assertEqual(worker_server["current_worker_epoch"], WORKER_EPOCH)
 
 
 if __name__ == "__main__":

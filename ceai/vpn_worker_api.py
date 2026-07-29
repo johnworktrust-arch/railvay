@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import re
 import time
 from typing import Any, Awaitable, Callable, Dict
 
@@ -23,6 +24,12 @@ TIMESTAMP_HEADER = "X-CEA-VPN-Timestamp"
 NONCE_HEADER = "X-CEA-VPN-Nonce"
 SIGNATURE_HEADER = "X-CEA-VPN-Signature"
 MAX_BODY_BYTES = 32 * 1024
+_LEGACY_DIRECT_INBOUND_TAGS = (
+    "VLESS TCP REALITY",
+    "VLESS WS TLS FALLBACK",
+)
+_LEGACY_DIRECT_VLESS_FLOW = "xtls-rprx-vision"
+_LEGACY_DIRECT_WORKER_EPOCH = "legacy"
 
 
 def canonical_worker_request(
@@ -37,6 +44,42 @@ def canonical_worker_request(
     return (
         f"{method.upper()}\n{path_query}\n{timestamp}\n{nonce}\n{body_hash}"
     ).encode("utf-8")
+
+
+def _worker_transport_profile(
+    payload: Dict[str, Any],
+) -> tuple[list[str], str, str]:
+    inbound_tags = payload.get("inbound_tags")
+    if not isinstance(inbound_tags, list) or not inbound_tags or not all(
+        isinstance(tag, str) for tag in inbound_tags
+    ):
+        raise web.HTTPForbidden(text="Worker transport profile is required")
+    if "vless_flow" not in payload:
+        if tuple(inbound_tags) != _LEGACY_DIRECT_INBOUND_TAGS:
+            raise web.HTTPForbidden(
+                text="Worker transport profile is required"
+            )
+        # Temporary compatibility for already deployed, signed direct workers.
+        # XHTTP/Reality never takes this path and must explicitly sign flow="".
+        vless_flow = _LEGACY_DIRECT_VLESS_FLOW
+    else:
+        vless_flow = payload.get("vless_flow")
+        if not isinstance(vless_flow, str):
+            raise web.HTTPForbidden(
+                text="Worker transport profile is required"
+            )
+    if "worker_epoch" not in payload:
+        if tuple(inbound_tags) != _LEGACY_DIRECT_INBOUND_TAGS:
+            raise web.HTTPForbidden(text="Worker epoch is required")
+        worker_epoch = _LEGACY_DIRECT_WORKER_EPOCH
+    else:
+        worker_epoch = payload.get("worker_epoch")
+        if (
+            not isinstance(worker_epoch, str)
+            or re.fullmatch(r"e[0-9a-f]{32}", worker_epoch) is None
+        ):
+            raise web.HTTPForbidden(text="Worker epoch is required")
+    return inbound_tags, vless_flow, worker_epoch
 
 
 class VpnWorkerAuthenticator:
@@ -156,16 +199,27 @@ def register_vpn_worker_routes(
 
     async def claim(request: web.Request) -> web.Response:
         worker_id, payload = await read_request(request)
+        inbound_tags, vless_flow, worker_epoch = _worker_transport_profile(
+            payload
+        )
         try:
-            job = services.vpn.claim_worker_job(
+            outcome = services.vpn.claim_worker_poll(
                 worker_id=worker_id,
                 lease_seconds=max(30, min(settings.vpn_worker_lease_seconds, 600)),
                 control_plane_ready=payload.get("control_plane_ready") is True,
-                worker_inbound_tags=payload.get("inbound_tags"),
+                worker_inbound_tags=inbound_tags,
+                worker_vless_flow=vless_flow,
+                worker_epoch=worker_epoch,
             )
         except BusinessRuleError as exc:
             raise web.HTTPForbidden(text=str(exc)) from exc
-        return web.json_response({"ok": True, "job": job})
+        return web.json_response(
+            {
+                "ok": True,
+                "job": outcome.job,
+                "reconciled": outcome.reconciled,
+            }
+        )
 
     async def result(request: web.Request) -> web.Response:
         worker_id, payload = await read_request(request)

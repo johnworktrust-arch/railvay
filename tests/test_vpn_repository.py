@@ -11,8 +11,14 @@ from ceai.repositories.vpn_provisioning_jobs import VpnProvisioningJobRepository
 from ceai.repositories.vpn_servers import VpnServerRepository
 from ceai.repositories.vpn_subscriptions import VpnSubscriptionRepository
 from ceai.repositories.vpn_trial_claims import VpnTrialClaimRepository
+from ceai.services.vpn import (
+    MARZBAN_DIRECT_PROFILE_VERSION,
+    MARZBAN_WHITELIST_PROFILE_VERSION,
+)
 from ceai.services.users import UserService
 from ceai.time_utils import utcnow
+
+WORKER_EPOCH = "e" + "1" * 32
 
 
 class VpnRepositoryTest(unittest.TestCase):
@@ -90,7 +96,18 @@ class VpnRepositoryTest(unittest.TestCase):
                 WHERE type = 'table' AND name LIKE 'vpn_%'
                 """
             ).fetchall()
+            server_columns = conn.execute(
+                "PRAGMA table_info(vpn_servers)"
+            ).fetchall()
         self.assertTrue(table_names.issubset({row["name"] for row in rows}))
+        self.assertIn(
+            "current_profile_version",
+            {row["name"] for row in server_columns},
+        )
+        self.assertIn(
+            "current_worker_epoch",
+            {row["name"] for row in server_columns},
+        )
 
         vpn_core_tables = table_names - {"vpn_payments"}
         for migration_path in (
@@ -107,6 +124,14 @@ class VpnRepositoryTest(unittest.TestCase):
         ):
             source = migration_path.read_text(encoding="utf-8")
             self.assertIn("CREATE TABLE IF NOT EXISTS vpn_payments", source)
+
+        for migration_path in (
+            Path("migrations/016_vpn_server_profile_version.sql"),
+            Path("migrations/postgres/016_vpn_server_profile_version.sql"),
+        ):
+            source = migration_path.read_text(encoding="utf-8")
+            self.assertIn("current_profile_version", source)
+            self.assertIn("current_worker_epoch", source)
 
     def test_server_and_plan_upserts_are_stable(self) -> None:
         self.assertEqual(self.server["api_base_url"], "https://vpn1.example.test")
@@ -154,6 +179,31 @@ class VpnRepositoryTest(unittest.TestCase):
             active_servers = self.servers.list_active(conn)
 
         self.assertFalse(updated_server["is_active"])
+        self.assertEqual(active_servers, [])
+
+    def test_server_upsert_does_not_reactivate_decommissioned_node(self) -> None:
+        with self.db.transaction() as conn:
+            self.servers.upsert(
+                conn,
+                code="de-1",
+                name="Germany Primary",
+                provider="marzban",
+                region="DE",
+                api_base_url="https://vpn1.example.test",
+                is_active=False,
+            )
+            updated_server = self.servers.upsert(
+                conn,
+                code="de-1",
+                name="Germany Primary Renamed",
+                provider="marzban",
+                region="DE",
+                api_base_url="https://vpn1.example.test",
+            )
+            active_servers = self.servers.list_active(conn)
+
+        self.assertFalse(updated_server["is_active"])
+        self.assertEqual(updated_server["name"], "Germany Primary Renamed")
         self.assertEqual(active_servers, [])
 
     def test_only_one_live_subscription_per_user(self) -> None:
@@ -303,23 +353,224 @@ class VpnRepositoryTest(unittest.TestCase):
                 conn,
                 server_id=subscription["server_id"],
                 profile_version="v2",
+                worker_epoch="legacy",
             )
             self.jobs.enqueue(
                 conn,
                 subscription_id=subscription["id"],
                 operation="update",
-                idempotency_key=f"vpn:profile:v2:{subscription['id']}",
+                idempotency_key=(
+                    f"vpn:profile:v2:epoch:legacy:{subscription['id']}"
+                ),
             )
             already_queued = (
                 self.subscriptions.list_active_requiring_profile_update(
                     conn,
                     server_id=subscription["server_id"],
                     profile_version="v2",
+                    worker_epoch="legacy",
                 )
             )
 
         self.assertEqual([row["id"] for row in candidates], [subscription["id"]])
         self.assertEqual(already_queued, [])
+
+    def test_delivery_requires_current_completed_whitelist_replica(self) -> None:
+        subscription = self._create_subscription()
+        current = utcnow()
+        with self.db.transaction() as conn:
+            self.subscriptions.mark_active(
+                conn,
+                subscription_id=int(subscription["id"]),
+                subscription_url="https://vpn1.example.test/sub/token",
+            )
+            self.subscriptions.ensure_provider_uuid(
+                conn,
+                subscription_id=int(subscription["id"]),
+            )
+            target = self.servers.upsert(
+                conn,
+                code="ru-wl-1",
+                name="Whitelist 1",
+                provider="marzban",
+                region="RU",
+                api_base_url="http://127.0.0.1:8000",
+                worker_id="worker-ru-wl-1",
+                subscription_base_url="https://cover.example.test:8443",
+            )
+            self.servers.mark_healthy(
+                conn,
+                server_id=int(target["id"]),
+                checked_at=current.isoformat(),
+                profile_version=MARZBAN_WHITELIST_PROFILE_VERSION,
+                worker_epoch=WORKER_EPOCH,
+            )
+            ready_arguments = {
+                "subscription_id": int(subscription["id"]),
+                "server_code": "ru-wl-1",
+                "profile_version": MARZBAN_WHITELIST_PROFILE_VERSION,
+                "healthy_after": (
+                    current - timedelta(minutes=2)
+                ).isoformat(),
+                "active_at": current.isoformat(),
+            }
+            self.assertFalse(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+            profile_job, _ = self.jobs.enqueue(
+                conn,
+                subscription_id=int(subscription["id"]),
+                server_id=int(target["id"]),
+                operation="update",
+                idempotency_key=(
+                    f"vpn:replica:{MARZBAN_WHITELIST_PROFILE_VERSION}:"
+                    f"epoch:{WORKER_EPOCH}:{subscription['id']}:"
+                    f"server:{target['id']}"
+                ),
+            )
+            running_profile = self.jobs.claim_due(
+                conn,
+                server_id=int(target["id"]),
+                lease_token="profile-lease",
+            )
+            assert running_profile is not None
+            self.assertEqual(running_profile["id"], profile_job["id"])
+            self.jobs.mark_completed(
+                conn,
+                job_id=int(profile_job["id"]),
+                lease_token="profile-lease",
+            )
+            self.assertTrue(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+
+            replacement_epoch = "e" + "2" * 32
+            self.servers.mark_healthy(
+                conn,
+                server_id=int(target["id"]),
+                checked_at=current.isoformat(),
+                profile_version=MARZBAN_WHITELIST_PROFILE_VERSION,
+                worker_epoch=replacement_epoch,
+            )
+            self.assertFalse(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+            replacement_job, _ = self.jobs.enqueue(
+                conn,
+                subscription_id=int(subscription["id"]),
+                server_id=int(target["id"]),
+                operation="update",
+                idempotency_key=(
+                    f"vpn:replica:{MARZBAN_WHITELIST_PROFILE_VERSION}:"
+                    f"epoch:{replacement_epoch}:{subscription['id']}:"
+                    f"server:{target['id']}"
+                ),
+            )
+            replacement_running = self.jobs.claim_due(
+                conn,
+                server_id=int(target["id"]),
+                lease_token="replacement-lease",
+            )
+            assert replacement_running is not None
+            self.assertEqual(replacement_running["id"], replacement_job["id"])
+            self.jobs.mark_completed(
+                conn,
+                job_id=int(replacement_job["id"]),
+                lease_token="replacement-lease",
+            )
+            self.assertTrue(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+
+            self.servers.mark_healthy(
+                conn,
+                server_id=int(target["id"]),
+                checked_at=current.isoformat(),
+                profile_version=MARZBAN_DIRECT_PROFILE_VERSION,
+                worker_epoch=replacement_epoch,
+            )
+            self.assertFalse(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+            self.servers.mark_healthy(
+                conn,
+                server_id=int(target["id"]),
+                checked_at=current.isoformat(),
+                profile_version=MARZBAN_WHITELIST_PROFILE_VERSION,
+                worker_epoch=replacement_epoch,
+            )
+            self.assertTrue(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+
+            renewal_job, _ = self.jobs.enqueue(
+                conn,
+                subscription_id=int(subscription["id"]),
+                server_id=int(target["id"]),
+                operation="update",
+                idempotency_key="vpn:payment:123:update:server:"
+                f"{target['id']}",
+            )
+            self.assertFalse(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+            running_renewal = self.jobs.claim_due(
+                conn,
+                server_id=int(target["id"]),
+                lease_token="renewal-lease",
+            )
+            assert running_renewal is not None
+            self.assertEqual(running_renewal["id"], renewal_job["id"])
+            self.assertFalse(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+            self.jobs.mark_completed(
+                conn,
+                job_id=int(renewal_job["id"]),
+                lease_token="renewal-lease",
+            )
+            self.assertTrue(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
+
+            self.servers.set_active(
+                conn,
+                server_id=int(target["id"]),
+                is_active=False,
+            )
+            self.assertFalse(
+                self.subscriptions.has_completed_server_replica(
+                    conn,
+                    **ready_arguments,
+                )
+            )
 
     def test_provisioning_jobs_are_idempotent_and_retryable(self) -> None:
         subscription = self._create_subscription()

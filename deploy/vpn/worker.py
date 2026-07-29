@@ -39,6 +39,39 @@ DEFAULT_MARZBAN_INBOUND_TAGS = (
     PRIMARY_MARZBAN_INBOUND_TAG,
     FALLBACK_MARZBAN_INBOUND_TAG,
 )
+DEFAULT_MARZBAN_VLESS_FLOW = "xtls-rprx-vision"
+WHITELIST_MARZBAN_INBOUND_TAGS = ("VLESS XHTTP REALITY",)
+SUPPORTED_MARZBAN_PROFILES = {
+    DEFAULT_MARZBAN_INBOUND_TAGS: DEFAULT_MARZBAN_VLESS_FLOW,
+    WHITELIST_MARZBAN_INBOUND_TAGS: "",
+}
+RECONCILED_MARKER = "/run/ceavpn-worker/reconciled"
+
+
+def _clear_reconciled() -> None:
+    try:
+        os.unlink(RECONCILED_MARKER)
+    except FileNotFoundError:
+        pass
+    except OSError:
+        LOGGER.warning("Could not clear worker reconciliation readiness")
+
+
+def _mark_reconciled() -> None:
+    temporary = f"{RECONCILED_MARKER}.new.{os.getpid()}"
+    try:
+        with open(temporary, "w", encoding="ascii") as handle:
+            handle.write(f"{int(time.time())}\n")
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.chmod(temporary, 0o600)
+        os.replace(temporary, RECONCILED_MARKER)
+    except OSError:
+        try:
+            os.unlink(temporary)
+        except OSError:
+            pass
+        LOGGER.warning("Could not publish worker reconciliation readiness")
 
 
 class WorkerError(Exception):
@@ -208,6 +241,15 @@ def _validated_marzban_inbound_tags(env: Mapping[str, str]) -> tuple[str, ...]:
     return tags
 
 
+def _validated_marzban_vless_flow(env: Mapping[str, str]) -> str:
+    if "MARZBAN_VLESS_FLOW" not in env:
+        return DEFAULT_MARZBAN_VLESS_FLOW
+    flow = str(env.get("MARZBAN_VLESS_FLOW") or "").strip()
+    if flow not in {"", DEFAULT_MARZBAN_VLESS_FLOW}:
+        raise ConfigurationError("invalid_marzban_vless_flow")
+    return flow
+
+
 @dataclass(frozen=True)
 class WorkerConfig:
     worker_id: str
@@ -218,12 +260,28 @@ class WorkerConfig:
     marzban_username: str
     marzban_password: str
     inbound_tags: tuple[str, ...] = DEFAULT_MARZBAN_INBOUND_TAGS
+    vless_flow: str = DEFAULT_MARZBAN_VLESS_FLOW
+    worker_epoch: Optional[str] = None
     claim_path: str = "/internal/vpn/worker/claim"
     result_path: str = "/internal/vpn/worker/result"
     fail_path: str = "/internal/vpn/worker/fail"
     poll_interval_seconds: float = 3.0
     http_timeout_seconds: float = 15.0
     lease_seconds: int = 60
+
+    def __post_init__(self) -> None:
+        if SUPPORTED_MARZBAN_PROFILES.get(self.inbound_tags) != self.vless_flow:
+            raise ConfigurationError("invalid_marzban_profile_pair")
+        if (
+            self.worker_epoch is not None
+            and re.fullmatch(r"e[0-9a-f]{32}", self.worker_epoch) is None
+        ):
+            raise ConfigurationError("invalid_vpn_worker_epoch")
+        if (
+            self.inbound_tags == WHITELIST_MARZBAN_INBOUND_TAGS
+            and self.worker_epoch is None
+        ):
+            raise ConfigurationError("missing_vpn_worker_epoch")
 
     @classmethod
     def from_env(cls, env: Optional[Mapping[str, str]] = None) -> "WorkerConfig":
@@ -252,6 +310,24 @@ class WorkerConfig:
             if not path.startswith("/") or path.startswith("//") or "#" in path:
                 raise ConfigurationError("invalid_worker_api_path")
 
+        inbound_tags = _validated_marzban_inbound_tags(source)
+        vless_flow = _validated_marzban_vless_flow(source)
+        if SUPPORTED_MARZBAN_PROFILES.get(inbound_tags) != vless_flow:
+            raise ConfigurationError("invalid_marzban_profile_pair")
+        raw_worker_epoch = source.get("VPN_WORKER_EPOCH")
+        worker_epoch: Optional[str]
+        if raw_worker_epoch is None or not str(raw_worker_epoch).strip():
+            worker_epoch = None
+        else:
+            worker_epoch = str(raw_worker_epoch).strip()
+            if re.fullmatch(r"e[0-9a-f]{32}", worker_epoch) is None:
+                raise ConfigurationError("invalid_vpn_worker_epoch")
+        if (
+            inbound_tags == WHITELIST_MARZBAN_INBOUND_TAGS
+            and worker_epoch is None
+        ):
+            raise ConfigurationError("missing_vpn_worker_epoch")
+
         return cls(
             worker_id=worker_id,
             worker_secret=secret,
@@ -271,7 +347,9 @@ class WorkerConfig:
                 _required_env(source, "MARZBAN_BOT_PASSWORD"),
                 "MARZBAN_BOT_PASSWORD",
             ),
-            inbound_tags=_validated_marzban_inbound_tags(source),
+            inbound_tags=inbound_tags,
+            vless_flow=vless_flow,
+            worker_epoch=worker_epoch,
             claim_path=claim_path,
             result_path=result_path,
             fail_path=fail_path,
@@ -330,6 +408,7 @@ class SignedRailwayClient:
         self.transport = transport
         self.clock = clock
         self.nonce_factory = nonce_factory
+        self.claim_reconciled = False
 
     def claim(
         self,
@@ -337,24 +416,27 @@ class SignedRailwayClient:
         control_plane_ready: bool,
         verified_inbound_tags: tuple[str, ...],
     ) -> Optional[Dict[str, Any]]:
+        self.claim_reconciled = False
         if control_plane_ready is not True:
             raise WorkerError("marzban_not_ready", retryable=False)
         if verified_inbound_tags != self.config.inbound_tags:
             raise WorkerError("marzban_inbounds_not_verified", retryable=False)
-        response = self._post(
-            self.config.claim_path,
-            {
-                "worker_id": self.config.worker_id,
-                "lease_seconds": self.config.lease_seconds,
-                "control_plane_ready": True,
-                "inbound_tags": list(verified_inbound_tags),
-            },
-        )
+        claim_payload: Dict[str, Any] = {
+            "worker_id": self.config.worker_id,
+            "lease_seconds": self.config.lease_seconds,
+            "control_plane_ready": True,
+            "inbound_tags": list(verified_inbound_tags),
+            "vless_flow": self.config.vless_flow,
+        }
+        if self.config.worker_epoch is not None:
+            claim_payload["worker_epoch"] = self.config.worker_epoch
+        response = self._post(self.config.claim_path, claim_payload)
         if response.status == 204 or not response.body:
             return None
         if not 200 <= response.status < 300:
             raise ApiError("railway_claim", response.status)
         payload = _decode_json_object(response.body, "invalid_claim_response")
+        self.claim_reconciled = payload.get("reconciled") is True
         job = payload.get("job", payload)
         if job is None:
             return None
@@ -510,7 +592,7 @@ class LocalMarzbanClient:
             desired["proxies"] = {
                 "vless": {
                     "id": normalized_vless_id,
-                    "flow": "xtls-rprx-vision",
+                    "flow": self.config.vless_flow,
                 }
             }
         existing = self.get_user(username)
@@ -522,7 +604,7 @@ class LocalMarzbanClient:
                     or {
                         "vless": {
                             "id": str(uuid.uuid4()),
-                            "flow": "xtls-rprx-vision",
+                            "flow": self.config.vless_flow,
                         }
                     },
                 },
@@ -762,6 +844,8 @@ class ProvisioningJob:
         payload: Mapping[str, Any],
         *,
         subscription_base_url: Optional[str] = None,
+        expected_inbound_tags: Optional[tuple[str, ...]] = None,
+        expected_vless_flow: Optional[str] = None,
     ) -> "ProvisioningJob":
         marzban_user = payload.get("marzban_user")
         if marzban_user is None:
@@ -786,6 +870,23 @@ class ProvisioningJob:
         desired_status = str(desired.get("status") or expected_status).lower()
         if desired_status != expected_status:
             raise WorkerError("invalid_job_status", retryable=False)
+        if (expected_inbound_tags is None) != (expected_vless_flow is None):
+            raise WorkerError("invalid_expected_profile", retryable=False)
+        if operation in {"create", "update"} and expected_inbound_tags is not None:
+            raw_inbounds = desired.get("inbounds")
+            raw_proxies_for_profile = desired.get("proxies")
+            raw_vless_for_profile = (
+                raw_proxies_for_profile.get("vless")
+                if isinstance(raw_proxies_for_profile, Mapping)
+                else None
+            )
+            if (
+                not isinstance(raw_inbounds, Mapping)
+                or raw_inbounds.get("vless") != list(expected_inbound_tags)
+                or not isinstance(raw_vless_for_profile, Mapping)
+                or raw_vless_for_profile.get("flow") != expected_vless_flow
+            ):
+                raise WorkerError("job_profile_mismatch", retryable=False)
         username = _validated_username(
             str(desired.get("username") or payload.get("provider_username") or "")
         )
@@ -870,6 +971,8 @@ class VpnWorker:
             job = ProvisioningJob.from_payload(
                 raw_job,
                 subscription_base_url=self.config.subscription_base_url,
+                expected_inbound_tags=self.config.inbound_tags,
+                expected_vless_flow=self.config.vless_flow,
             )
         except WorkerError as exc:
             identity = _safe_failure_identity(raw_job)
@@ -930,12 +1033,21 @@ class VpnWorker:
         while not stop_event.is_set():
             try:
                 worked = self.run_once()
+                if (
+                    not worked
+                    and getattr(self.railway, "claim_reconciled", False) is True
+                ):
+                    _mark_reconciled()
+                else:
+                    _clear_reconciled()
                 backoff = self.config.poll_interval_seconds
             except WorkerError as exc:
+                _clear_reconciled()
                 LOGGER.warning("Worker poll/report failed: %s", exc.code)
                 worked = False
                 backoff = min(max(backoff * 2, 5.0), 60.0)
             except Exception:
+                _clear_reconciled()
                 LOGGER.error("Worker poll/report failed: unexpected_worker_error")
                 worked = False
                 backoff = min(max(backoff * 2, 5.0), 60.0)

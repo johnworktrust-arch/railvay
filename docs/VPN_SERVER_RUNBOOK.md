@@ -1,7 +1,8 @@
 # CEA VPN: runbook первого сервера
 
-Статус документа: подготовлен 15 июля 2026 года. Это инструкция для отдельного
-окна изменений; её команды **не выполнялись** при создании файла.
+Статус документа: обновлён 29 июля 2026 года. Это инструкция для отдельного
+окна изменений; команды нового whitelist-режима требуют отдельного кандидата
+ingress и ручной проверки на реально ограниченной мобильной сети.
 
 ## 1. Назначение и границы
 
@@ -33,6 +34,10 @@ VPN-таблицы и базовый клиент Marzban, но они ещё н
 - [Marzban REST API](https://gozargah.github.io/marzban/en/docs/api);
 - [VLESS/REALITY в Marzban](https://gozargah.github.io/marzban/en/docs/core-settings);
 - [актуальная спецификация REALITY](https://xtls.github.io/en/config/transports/reality.html);
+- [минимальный официальный пример VLESS + XHTTP + REALITY](https://github.com/XTLS/Xray-examples/tree/main/VLESS-XHTTP-Reality/minimal-steal_others);
+- [XHTTP: design, режимы и совместимость](https://github.com/XTLS/Xray-core/discussions/4113);
+- [зафиксированный Xray-core v26.3.27](https://github.com/XTLS/Xray-core/releases/tag/v26.3.27);
+- [обсуждение russia-whitelist #21](https://github.com/kort0881/russia-whitelist/discussions/21);
 - [резервное копирование Marzban](https://github.com/Gozargah/Marzban#backup);
 - [статический исходящий IP Railway](https://docs.railway.com/networking/static-outbound-ips);
 - [sealed variables Railway](https://docs.railway.com/variables#sealed-variables).
@@ -535,7 +540,519 @@ tag. Provisioning worker должен назначать пользовател�
 «до 3 устройств» — это нельзя рекламировать как технически enforced до отдельной
 реализации device/session control.
 
-## 9. Railway: существующие и будущие переменные
+### 8.2. Whitelist mode: квалифицированный RU ingress
+
+Whitelist mode — это не «обычный VPN на российском VPS» и не свойство протокола.
+XHTTP + REALITY маскируют первый участок, но сами по себе не делают случайный IP
+доступным во время ограничений мобильного интернета. Кандидат разрешено показать
+пользователю только после полного XHTTP canary-теста именно в момент ограничений
+на затронутой SIM с выключенным Wi-Fi:
+
+```mermaid
+flowchart LR
+    H["Happ на телефоне"] -->|"VLESS + XHTTP + REALITY"| I["Квалифицированный RU ingress"]
+    I -->|"отдельный VLESS + WS + TLS relay account"| E["Существующий foreign exit"]
+    E -->|"freedom"| W["Интернет"]
+```
+
+Метод со случайными адресами VK/Yandex из
+[обсуждения #21](https://github.com/kort0881/russia-whitelist/discussions/21)
+не является текущей гарантией: в самой инструкции отмечено, что рабочие VK IP
+почти не находятся, а шанс с Yandex низкий. Yandex Cloud, случайный RU VPS,
+маленький ping или успешное обычное подключение не доказывают доступность при
+ограничениях. Нельзя продавать такой узел как «все операторы», если он проверен
+только у одного оператора и в одном регионе.
+
+Реализация в репозитории использует:
+
+- `CEAVPN_NODE_MODE=whitelist`;
+- `CEAVPN_SERVER_CODE`, в точности совпадающий с `vpn_servers.code` этого
+  ingress;
+- inbound `VLESS XHTTP REALITY` на `443`;
+- удалённый `COVER_DOMAIN:443` как Reality target с тем же `serverNames`;
+- probe/status на собственном `SUB_DOMAIN:8443`, а не на cover;
+- XHTTP path и REALITY keys только в root-only файлах;
+- outbound `WHITELIST EXIT` к уже работающему иностранному WS/TLS-узлу;
+- Xray-core строго `v26.3.27`, зафиксированный в
+  `deploy/vpn/xray-pins.env`;
+- fail-closed публикацию Host Settings: до ручной квалификации профиль выключен.
+
+Локальный TLS target `127.0.0.1:9443`, используемый обычным TCP/Reality,
+нельзя применять для XHTTP на закреплённом Xray: такой handshake завершается
+ошибкой. В server JSON whitelist-профиля хранятся только Reality `privateKey`
+и `shortIds`; public key остаётся root-only производным для клиентского URI и
+fingerprint. Provisioning проверяет удалённый cover по DNS, TLS 1.3, ALPN h2 и
+bounded HTTP-ответу без redirect. Сертификат ingress выпускается только для
+`SUB_DOMAIN`.
+
+Whitelist-кандидат не должен иметь прямой `freedom` для пользовательского
+трафика. Маршрут из inbound `VLESS XHTTP REALITY` обязан уходить через
+`WHITELIST EXIT`; отдельный relay account на foreign exit нельзя переиспользовать
+как клиентскую учётную запись.
+
+#### Сборка deployment bundle
+
+`provision-node.sh` использует существующий внешний staging contract: содержимое
+`deploy/vpn/` лежит в корне bundle, проверенный Marzban wrapper добавлен как
+`bundle/marzban`, а официальный архив Xray распакован в `bundle/xray-core/`.
+Ни wrapper, ни Xray binary не хранятся в git.
+
+Сначала один раз получить уже проверенный Marzban wrapper с действующего
+иностранного узла и сохранить его как контролируемый артефакт. В командах ниже
+нет IP или credentials; `DIRECT_NODE_SSH` задаётся оператором:
+
+```bash
+cd "/Users/gleb/Работа/Cea AI"
+umask 077
+install -d -m 0700 /tmp/ceavpn-reviewed
+export DIRECT_NODE_SSH="ceaops@EXISTING_FOREIGN_NODE"
+scp "${DIRECT_NODE_SSH}:/usr/local/bin/marzban" \
+  /tmp/ceavpn-reviewed/marzban
+chmod 0755 /tmp/ceavpn-reviewed/marzban
+shasum -a 256 /tmp/ceavpn-reviewed/marzban
+```
+
+Checksum wrapper записать в change log и сравнить с артефактом, которым
+развёрнут действующий узел. Не скачивать другой wrapper из случайного URL.
+Затем собрать bundle для архитектуры целевого ingress (`amd64` или `arm64`):
+
+```bash
+cd "/Users/gleb/Работа/Cea AI"
+set -euo pipefail
+export TARGET_ARCH="amd64"
+export BUNDLE_DIR="/tmp/ceavpn-bundle"
+export MARZBAN_WRAPPER="/tmp/ceavpn-reviewed/marzban"
+
+rm -rf "$BUNDLE_DIR"
+install -d -m 0755 "$BUNDLE_DIR" "$BUNDLE_DIR/xray-core"
+cp -a deploy/vpn/. "$BUNDLE_DIR/"
+install -m 0755 "$MARZBAN_WRAPPER" "$BUNDLE_DIR/marzban"
+
+# shellcheck disable=SC1090
+source "$BUNDLE_DIR/xray-pins.env"
+case "$TARGET_ARCH" in
+  amd64)
+    xray_asset="Xray-linux-64.zip"
+    expected_xray_sha256="$CEAVPN_XRAY_SHA256_AMD64"
+    ;;
+  arm64)
+    xray_asset="Xray-linux-arm64-v8a.zip"
+    expected_xray_sha256="$CEAVPN_XRAY_SHA256_ARM64"
+    ;;
+  *)
+    echo "TARGET_ARCH must be amd64 or arm64" >&2
+    exit 1
+    ;;
+esac
+
+xray_tmp_dir="$(mktemp -d /tmp/ceavpn-xray.XXXXXX)"
+xray_zip="$xray_tmp_dir/xray.zip"
+trap 'rm -rf "$xray_tmp_dir"' EXIT
+curl --fail --location --proto '=https' --tlsv1.2 \
+  "https://github.com/XTLS/Xray-core/releases/download/v${CEAVPN_XRAY_REQUIRED_VERSION}/${xray_asset}" \
+  -o "$xray_zip"
+unzip -q "$xray_zip" -d "$BUNDLE_DIR/xray-core"
+chmod 0755 "$BUNDLE_DIR/xray-core/xray"
+
+actual_xray_sha256="$(
+  shasum -a 256 "$BUNDLE_DIR/xray-core/xray" | awk '{print $1}'
+)"
+test "$actual_xray_sha256" = "$expected_xray_sha256"
+test -s "$BUNDLE_DIR/xray-core/geoip.dat"
+test -s "$BUNDLE_DIR/xray-core/geosite.dat"
+
+tar -C /tmp -czf /tmp/ceavpn-whitelist-bundle.tgz ceavpn-bundle
+shasum -a 256 /tmp/ceavpn-whitelist-bundle.tgz
+trap - EXIT
+rm -rf "$xray_tmp_dir"
+```
+
+Linux executable не запускается на macOS во время сборки; локально проверяется
+его pinned SHA-256. Не заменять `v26.3.27` на `latest`. Provisioning повторно
+проверит версию и SHA-256 извлечённого executable уже на Linux-сервере и
+завершится ошибкой при несовпадении.
+Обновление pin выполняется отдельным reviewed change после проверки нового
+стабильного релиза и Happ-клиентов.
+
+#### Подготовка и provision кандидата
+
+До запуска должна существовать DNS-only A-запись только subscription-домена на
+IP кандидата; открыты `80/tcp`, `443/tcp`, `8443/tcp`; а также созданы два
+локальных root-only файла. `COVER_DOMAIN` не принадлежит ingress: это заранее
+проверенный удалённый публичный endpoint с валидным сертификатом, TLS 1.3,
+HTTP/2 и без redirect. Provisioning сверяет DNS, TLS, ALPN и bounded HTTP-ответ
+и завершится ошибкой, если cover указывает на ingress, private IP или ведёт на
+redirect.
+
+```text
+/root/ceavpn-node.env
+/root/ceavpn-lte-exit.env
+```
+
+Первый файл не содержит ключей и имеет такой контракт:
+
+```env
+CEAVPN_NODE_MODE=whitelist
+CEAVPN_SERVER_CODE=ru-wl-1
+CEAVPN_PUBLIC_IP=INGRESS_PUBLIC_IP
+CEAVPN_SUB_DOMAIN=sub.ingress.example.com
+CEAVPN_COVER_DOMAIN=REMOTE_REVIEWED_TLS13_H2_DOMAIN
+CEAVPN_REGION_REMARK='✨ Белые списки'
+```
+
+До запуска worker зарегистрировать кандидата в Railway как дополнительный
+staging-сервер. Это не меняет canonical server: в production обязательно
+оставить `VPN_SERVER_CODE=nl-1`, а до успешного restricted-SIM теста —
+`VPN_EXTRA_PROFILES_JSON=[]`.
+
+Сгенерировать отдельный секрет длиной 32+ bytes и сохранить его только в
+защищённый локальный файл. Ни один из следующих файлов не коммитить:
+
+```bash
+umask 077
+worker_secret="$(openssl rand -hex 32)"
+{
+  printf '%s\n' 'VPN_WORKER_ID=cea-vpn-ru-wl-1'
+  printf 'VPN_WORKER_SECRET=%s\n' "$worker_secret"
+  printf '%s\n' \
+    'VPN_RAILWAY_BASE_URL=https://railvay-production-8ba7.up.railway.app'
+  printf '%s\n' \
+    'VPN_SUBSCRIPTION_BASE_URL=https://SUB_DOMAIN:8443'
+} > /secure/path/ceavpn-worker-secrets.env
+chmod 0600 /secure/path/ceavpn-worker-secrets.env
+printf '%s' "$worker_secret" | pbcopy
+unset worker_secret
+```
+
+В Railway через sealed Variables одним deploy установить обе переменные.
+Существующие записи в `VPN_WORKER_SECRETS_JSON` нельзя потерять: новую пару
+нужно **добавить** в текущий JSON, а не заменить весь объект:
+
+```env
+VPN_ADDITIONAL_SERVERS_JSON=[{"code":"ru-wl-1","name":"Whitelist staging","region":"RU","worker_id":"cea-vpn-ru-wl-1","subscription_base_url":"https://SUB_DOMAIN:8443","is_active":true}]
+VPN_WORKER_SECRETS_JSON={"<existing-worker>":"<keep-existing-secret>","cea-vpn-ru-wl-1":"<paste-new-secret>"}
+```
+
+`VPN_ADDITIONAL_SERVERS_JSON` имеет строгую схему, максимум восемь записей,
+требует HTTPS subscription endpoint на `8443` и отдельный secret mapping для
+каждого `is_active=true` worker. Код/worker ID не могут совпадать с canonical
+или встроенным сервером. Секрет не входит в server JSON и не должен попадать в
+логи. Поле `is_active` — источник истины при каждом Railway restart: для
+планового вывода узла сначала выполнить `revoke`, затем, не удаляя entry,
+поменять его на `false` и успешно задеплоить Railway. Проверить, что worker
+больше не проходит authentication и профиль скрыт, затем удалить его secret и
+XHTTP-профиль. Простое удаление entry из JSON оставит последнюю строку БД как
+есть, а ручное изменение строки БД при сохранённом entry будет перезаписано
+следующим seed. После вставки очистить clipboard:
+
+```bash
+pbcopy </dev/null
+```
+
+Дождаться успешного Railway deploy. На этом этапе staging row уже активен
+только для signed worker authentication и репликации, но пользовательский
+XHTTP-профиль всё ещё не публикуется. Если registration deploy не прошёл,
+worker не запускать.
+
+Второй не заполняется вручную. Его атомарно передаёт
+`provision-whitelist-relay.sh` после создания отдельного relay account на
+существующем foreign WS/TLS exit. Скрипт не печатает UUID или секретный WS path.
+На foreign exit уже должны существовать root-only
+`/root/ceavpn-admin.env`, `/root/ceavpn-fallback.env` и
+`/root/ceavpn-node.env`.
+
+Передача bundle и заранее подготовленного node env:
+
+```bash
+export INGRESS_SSH="ceaops@WHITELIST_CANDIDATE"
+scp /tmp/ceavpn-whitelist-bundle.tgz \
+  /secure/path/ceavpn-whitelist-node.env \
+  /secure/path/ceavpn-worker-secrets.env \
+  "${INGRESS_SSH}:/tmp/"
+
+ssh "$INGRESS_SSH"
+sudo rm -rf /tmp/ceavpn-bundle
+sudo tar -xzf /tmp/ceavpn-whitelist-bundle.tgz -C /tmp
+sudo chown -R root:root /tmp/ceavpn-bundle
+sudo install -o root -g root -m 0600 \
+  /tmp/ceavpn-whitelist-node.env /root/ceavpn-node.env
+rm -f /tmp/ceavpn-whitelist-node.env
+exit
+```
+
+Установить reviewed helper на действующий foreign exit:
+
+```bash
+cd "/Users/gleb/Работа/Cea AI"
+export DIRECT_NODE_SSH="ceaops@EXISTING_FOREIGN_NODE"
+scp deploy/vpn/provision-whitelist-relay.sh \
+  "${DIRECT_NODE_SSH}:/tmp/provision-whitelist-relay.sh"
+ssh "$DIRECT_NODE_SSH"
+sudo install -o root -g root -m 0755 \
+  /tmp/provision-whitelist-relay.sh \
+  /opt/ceavpn/provision-whitelist-relay.sh
+rm -f /tmp/provision-whitelist-relay.sh
+```
+
+Foreign exit должен заранее доверять проверенному SSH host key кандидата.
+Helper принимает `SSH_USER@HOST`; для non-root пользователя ему нужен
+неинтерактивный privilege route. Нельзя выдавать ради этого общий
+`NOPASSWD` на shell. Пока отдельный фиксированный candidate-side helper не
+установлен, использовать отдельный root-ключ только на время операции,
+ограничить его этим кандидатом и удалить после передачи. Не принимать новый
+host key вслепую: fingerprint сверить через консоль провайдера или другой
+независимый канал.
+
+На foreign exit создать relay и убедиться, что состояние записано. UUID/path
+при этом не появляются в выводе:
+
+```bash
+sudo /opt/ceavpn/provision-whitelist-relay.sh create \
+  --gateway-id ru-candidate-1 \
+  --candidate root@WHITELIST_CANDIDATE
+sudo /opt/ceavpn/provision-whitelist-relay.sh status \
+  --gateway-id ru-candidate-1
+exit
+```
+
+Ожидаемый локальный relay status — `local_state=active`; команда `status`
+проверяет защищённую state-запись helper, а не выполняет live-проверку
+Marzban. На кандидате появился
+`/root/ceavpn-lte-exit.env` с owner `root:root` и mode `0600`. Теперь выполнить
+provision на кандидате:
+
+```bash
+ssh "$INGRESS_SSH"
+sudo bash /tmp/ceavpn-bundle/provision-node.sh \
+  /tmp/ceavpn-bundle /root/ceavpn-node.env
+sudo install -o root -g root -m 0600 \
+  /tmp/ceavpn-worker-secrets.env \
+  /root/ceavpn-worker-secrets.env
+rm -f /tmp/ceavpn-worker-secrets.env
+sudo /opt/ceavpn/install-worker.sh \
+  /tmp/ceavpn-bundle /root/ceavpn-worker-secrets.env
+sudo systemctl is-active --quiet ceavpn-worker.service
+sudo timeout 600 bash -c \
+  'until test -s /run/ceavpn-worker/reconciled; do sleep 3; done'
+sudo /opt/ceavpn/qualify-whitelist-ingress.sh status
+exit
+```
+
+Первый ожидаемый status — `pending`. Это штатно: Xray уже настроен, но Host
+Settings для `VLESS XHTTP REALITY` остаётся `is_disabled=true`, поэтому
+непроверенный профиль не появляется в подписках Happ. `install-worker.sh`
+удаляет переданный root-only secrets file после успешной установки; marker
+`reconciled` означает, что подписки на staging worker сведены к текущему
+profile/epoch. Без свежего marker команду `canary-create` выполнять нельзя.
+После этой проверки удалить локальный transport-файл:
+
+```bash
+rm -f /secure/path/ceavpn-worker-secrets.env
+```
+
+#### Обязательный restricted-SIM XHTTP gate
+
+На кандидате получить probe URL:
+
+```bash
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh probe'
+```
+
+HTTPS probe — только предварительная проверка доступности IP. Он никогда не
+квалифицирует туннель сам по себе. Предварительная проверка выполняется
+человеком, не с сервера:
+
+1. дождаться реального ограничения у целевого оператора;
+2. на телефоне выключить VPN и Wi-Fi, оставить мобильные данные;
+3. открыть напечатанный HTTPS probe URL;
+4. убедиться, что ответ равен
+   `{"service":"ceavpn","status":"candidate"}`;
+5. записать оператора, регион, UTC-время и результат probe в change log.
+
+Ping, панель хостера, тест через Wi-Fi, тест с уже включённым VPN или проверка вне
+окна ограничений не являются подтверждением. Успешный probe тоже не доказывает,
+что XHTTP-туннель передаёт пользовательский трафик. Если probe не открылся,
+дальнейший canary-тест и команду `pass` выполнять запрещено: кандидат остаётся
+`pending` и не публикуется.
+
+После успешного probe создать реальный неопубликованный canary-профиль
+`VLESS XHTTP REALITY`:
+
+```bash
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-create &&
+   sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-status'
+```
+
+Команда создаёт отдельного пользователя только на XHTTP inbound, на 45 минут и
+с лимитом 100 MiB. URI не печатается: он записан в root-only
+`/root/ceavpn-whitelist-canary.txt` с mode `0600`. Production-сервер в Railway
+к этому моменту уже `active` только как staging worker для reconciliation и
+репликации. При этом canonical остаётся `nl-1`,
+`VPN_EXTRA_PROFILES_JSON=[]`, Host Setting выключен и обычная подписка не
+публикует кандидат клиентам.
+
+На доверенной рабочей станции получить URI сразу в локальный файл с mode `0600`,
+не выводя его на экран. Команда предполагает уже одобренный точечный
+`sudo -n` для чтения только этого файла; не добавлять ради неё blanket
+`NOPASSWD`:
+
+```bash
+umask 077
+ssh "$INGRESS_SSH" \
+  'sudo -n cat /root/ceavpn-whitelist-canary.txt' \
+  > /tmp/ceavpn-whitelist-canary.txt
+chmod 0600 /tmp/ceavpn-whitelist-canary.txt
+test -s /tmp/ceavpn-whitelist-canary.txt
+```
+
+Если точечного privilege route нет, остановиться и согласовать безопасную
+передачу; не ослаблять SSH/sudo и не печатать URI через VNC/логи. Импортировать
+локальный файл в Happ без Telegram, чата, облачного диска или публичного QR.
+
+На той же затронутой SIM, с Wi-Fi выключенным и во время действующего
+ограничения, обязательны все проверки:
+
+1. Happ подключился именно к XHTTP + REALITY ingress;
+2. DNS-запросы проходят через туннель;
+3. Telegram отправляет и получает сообщения;
+4. внешний HTTPS-сайт полностью загружается;
+5. через туннель передано больше `1 MiB`.
+
+В change log записать результат каждого пункта, версию Happ, оператора, регион и
+UTC-время. На кандидате убедиться, что canary активен, `online_at` заполнен и
+`used_traffic` строго больше `1048576` байт:
+
+```bash
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-status'
+```
+
+Только после выполнения всех пяти ручных проверок и серверного порога открыть
+gate:
+
+```bash
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh pass \
+   --operator MTS \
+   --region Moscow \
+   --confirm restricted-sim-xhttp-tunnel-worked &&
+   sudo /opt/ceavpn/qualify-whitelist-ingress.sh status'
+```
+
+`pass` повторно проверяет локальный HTTPS/Xray probe и через Marzban требует
+активный, неистёкший, недавно online canary с правильным UUID/tag и
+`used_traffic > 1048576`. Root-only qualification record содержит evidence
+`restricted-sim-xhttp-tunnel-worked` и полный список пяти checks, но не UUID,
+XHTTP path или Reality keys. Затем включается ровно один Host Setting
+`VLESS XHTTP REALITY`, canary-пользователь удаляется, его remote URI стирается,
+а canary status становится `consumed`. Если удаление canary не удалось, скрипт
+снова закрывает gate.
+
+#### Fail-closed публикация через Railway
+
+До успешного `pass` оставить `VPN_EXTRA_PROFILES_JSON=[]`. После `pass` кандидат
+публикует санитизированный документ по точному адресу
+`https://SUB_DOMAIN:8443/.well-known/ceavpn-whitelist-status`. `COVER_DOMAIN`
+остаётся удалённым camouflage target Reality и не должен указывать на ingress.
+В документе ровно
+четыре поля: `service`, `status`, `config_fingerprint`, `valid_until`; UUID,
+XHTTP path, Reality keys и operator/evidence в него не попадают.
+
+Публичный `config_fingerprint` — это SHA-256 canonical JSON именно того
+клиентского профиля, который будет выдан: `address`, `port`, `transport`,
+`security`, `path`, `sni`, `pbk`, `sid`, `fingerprint`, `qualification_url`,
+`server_code`, фиксированный `mode=auto` и reviewed XHTTP `extra`.
+Он отличается от полного root-only fingerprint внутреннего relay/config.
+Railway самостоятельно пересчитывает public digest и требует, чтобы он
+совпадал и с endpoint, и с `qualification_fingerprint` в env. Поэтому нельзя
+подменить IP, path или ключ уже квалифицированного профиля.
+
+Только после сверки endpoint добавить в Railway профиль с его public
+fingerprint. Ниже — целиком parseable, но заведомо нерабочий пример на
+зарезервированном TEST-NET IP и dummy public key:
+
+```env
+VPN_EXTRA_PROFILES_JSON=[{"remark":"Пример · не использовать","server_code":"ru-wl-1","address":"192.0.2.10","port":443,"transport":"xhttp","security":"reality","path":"/xhttp-000000000000000000000000000000000000000000000000","sni":"cover.example.test","pbk":"AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA","sid":"0011","fingerprint":"chrome","qualification_url":"https://sub.example.test:8443/.well-known/ceavpn-whitelist-status","qualification_fingerprint":"9aa382182f1108c0d22edb47c6161d01c35870e97c6afbe7e5d45fbd8c86aa7c"}]
+```
+
+`mode`, `extra` и пустой `headerType` в env не добавлять: приложение само
+вставляет reviewed значения в URI, а `mode` и `extra` уже входят в canonical
+fingerprint.
+
+`address` должен быть тем же нормализованным literal IP, который использовал
+кандидат при расчёте digest, а `server_code` — совпадать с
+`CEAVPN_SERVER_CODE` и `vpn_servers.code` нужного whitelist worker.
+`qualification_url` обязан в точности состоять из HTTPS, отдельного
+`SUB_DOMAIN`, порта `8443` и указанного well-known path; он намеренно не
+совпадает с `sni`. Redirect, другой path, query или fragment запрещены. При
+каждом запросе подписки Railway заново
+получает endpoint с коротким timeout, без redirect и с лимитом ответа `4096`
+байт. XHTTP-профиль добавляется только при exact schema, `status=passed`,
+совпадающем fingerprint и неистёкшем `valid_until` (не дальше семи суток).
+Ошибка DNS/TLS/HTTP, лишнее поле, неверный content type, mismatch или expiry
+удаляют только XHTTP-профиль; обычные WS/TLS-профили продолжают выдаваться.
+
+Проверка выполняется и для конкретной подписки: target `server_code` должен
+быть активен, его worker — отмечен healthy не старше
+`VPN_WORKER_HEALTH_MAX_AGE_SECONDS`, а exact
+`vpn:replica:<whitelist-profile-version>:epoch:<worker-epoch>:<subscription>:server:<target>`
+должен быть завершён. Самая новая create/update-задача этой подписки на target
+тоже должна иметь статус `completed`; пока продление pending/running/failed,
+XHTTP скрыт. Whitelist worker остаётся только replica, а checkout/canonical
+сервером остаётся `VPN_SERVER_CODE=nl-1`.
+
+Не обходить gate статической VLESS-ссылкой. При `revoke`/expiry кандидат удаляет
+public status и закрывает `443`; это также обрывает ранее импортированный
+кешированный URI, а не только скрывает его при следующем обновлении подписки.
+
+Удалить локальную копию URI и проверить consumed status:
+
+```bash
+rm -f /tmp/ceavpn-whitelist-canary.txt
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-status'
+```
+
+После этого обновить production-подписку в Happ и повторить end-to-end тест,
+включая внешний IP foreign exit и отсутствие прямого выхода через RU ingress.
+Если тест прерван до `pass`, не оставлять временного пользователя:
+
+```bash
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-revoke'
+rm -f /tmp/ceavpn-whitelist-canary.txt
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh canary-status'
+```
+
+Ожидаемый canary status после этой команды — `revoked`.
+
+При отрицательном повторном тесте, смене поведения оператора или инциденте
+немедленно закрыть публикацию:
+
+```bash
+ssh -t "$INGRESS_SSH" \
+  'sudo /opt/ceavpn/qualify-whitelist-ingress.sh revoke &&
+   sudo /opt/ceavpn/qualify-whitelist-ingress.sh status'
+```
+
+Ожидаемый status — `revoked`; существующие записи пользователей не удаляются,
+но профиль снова отключается в Host Settings. Если кандидат выводится из
+эксплуатации, затем отозвать и отдельный relay account на foreign exit:
+
+```bash
+ssh -t "$DIRECT_NODE_SSH" \
+  'sudo /opt/ceavpn/provision-whitelist-relay.sh revoke \
+   --gateway-id ru-candidate-1 \
+   --candidate root@WHITELIST_CANDIDATE'
+```
+
+Повторно открыть профиль можно только после восстановления relay, нового
+restricted-SIM теста и новой команды `pass`.
+
+## 9. Railway: production-переменные
 
 Уже поддерживаются текущим кодом:
 
@@ -548,35 +1065,31 @@ VPN_SUPPORT_USERNAME=cea_help
 VPN_CHANNEL_URL=https://t.me/ceafamily
 ```
 
-Предлагаемый контракт будущей интеграции; эти переменные потребуют изменений в
-`ceai/config.py`, сервисе provisioning, миграциях и тестах:
+Provisioning уже работает через подписанный outbound worker. Canonical и
+дополнительные серверы конфигурируются раздельно:
 
 ```env
-VPN_PROVISIONING_ENABLED=0
-VPN_BACKEND=marzban
-VPN_SERVER_CODE=ams-1
-VPN_MARZBAN_BASE_URL=https://panel-vpn1.example.com:8443
-VPN_MARZBAN_ADMIN_USERNAME=cea-railway-bot
-VPN_MARZBAN_ADMIN_PASSWORD=<sealed secret>
-VPN_MARZBAN_REQUEST_TIMEOUT_SECONDS=10
-VPN_MARZBAN_INBOUND_TAG=VLESS_REALITY_443
-VPN_SUBSCRIPTION_BASE_URL=https://sub-vpn1.example.com:8443
+VPN_SERVER_CODE=nl-1
+VPN_WORKER_ID=cea-vpn-nl1
+VPN_WORKER_SECRET=<sealed canonical-worker secret>
+VPN_WORKER_SECRETS_JSON={}
+VPN_ADDITIONAL_SERVERS_JSON=[]
+VPN_SUBSCRIPTION_BASE_URL=https://sub.canonical.example:8443
+VPN_DELIVERY_BASE_URL=https://railway-service.example
+VPN_DELIVERY_SIGNING_SECRET=<sealed delivery secret>
+VPN_EXTRA_PROFILES_JSON=[]
+VPN_WORKER_CLOCK_SKEW_SECONDS=300
+VPN_WORKER_LEASE_SECONDS=120
+VPN_WORKER_HEALTH_MAX_AGE_SECONDS=120
 ```
 
 Пароли и токены пометить Sealed. Не добавлять их в `.env.example`, git, Docker
-image, логи или сообщения Telegram. Код должен повторно получать короткий JWT при
-старте/401, проверять TLS, иметь timeout и не логировать credentials или
-subscription URL.
-
-До `VPN_PROVISIONING_ENABLED=1` должны появиться:
-
-1. отдельные таблицы VPN orders/subscriptions/servers/provisioning events;
-2. идемпотентный ключ заказа и защита от двойной выдачи webhook-ретраями;
-3. opaque Marzban username без Telegram ID/телефона;
-4. create, extend, disable, re-enable и revoke flows;
-5. retry queue и ручное восстановление после частичного сбоя;
-6. тестовый платёж end-to-end и тест истечения подписки;
-7. kill switch, который запрещает новые выдачи, не ломая действующих клиентов.
+image, логи или сообщения Telegram. `VPN_ADDITIONAL_SERVERS_JSON` не содержит
+секретов; для каждого активного дополнительного worker обязана существовать
+отдельная запись в `VPN_WORKER_SECRETS_JSON`. При изменении JSON сначала
+сохранить все действующие entries, проверить deploy/health, и только затем
+запускать новый worker. Whitelist ingress остаётся replica: запрещено менять
+canonical `VPN_SERVER_CODE` ради его теста.
 
 ## 10. Резервное копирование
 
@@ -627,6 +1140,7 @@ sudo certbot renew --dry-run
 Мониторинг должен уведомлять о:
 
 - недоступности 443 и subscription endpoint;
+- потере доступности whitelist probe на ранее квалифицированной сети;
 - остановке контейнера или Xray;
 - заполнении диска более 75%/90%;
 - RAM/swap pressure и OOM;
@@ -692,6 +1206,8 @@ Rollback версии без изменения схемы БД: вернуть 
 - [ ] `8000/9443` недоступны извне; `/api/` ограничен Railway IP и JWT.
 - [ ] Marzban и Docker image зафиксированы конкретной версией/digest.
 - [ ] REALITY key/shortId уникальны, config проходит `xray run -test`.
+- [ ] Каждый whitelist ingress имеет restricted-SIM evidence и status `passed`;
+      непроверенные/сломавшиеся кандидаты имеют `pending` или `revoked`.
 - [ ] Домены, сертификаты и `certbot renew --dry-run` работают.
 - [ ] Off-site encrypted backup и restore drill успешны.
 - [ ] В коде реализованы VPN-таблицы, idempotency, retries и kill switch.

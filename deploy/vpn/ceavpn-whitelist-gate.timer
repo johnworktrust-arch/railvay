@@ -1,0 +1,12 @@
+[Unit]
+Description=Periodically enforce CEA VPN whitelist qualification TTL
+
+[Timer]
+OnBootSec=5s
+OnUnitActiveSec=5min
+RandomizedDelaySec=30s
+Persistent=true
+Unit=ceavpn-whitelist-gate.service
+
+[Install]
+WantedBy=timers.target

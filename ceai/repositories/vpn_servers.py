@@ -1,7 +1,8 @@
 from __future__ import annotations
 
+import re
 import sqlite3
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from ceai.repositories.base import row_to_dict, rows_to_dicts
 from ceai.time_utils import iso_now
@@ -17,7 +18,7 @@ class VpnServerRepository:
         provider: str,
         region: str,
         api_base_url: str,
-        is_active: bool = True,
+        is_active: Optional[bool] = None,
         worker_id: str = "",
         subscription_base_url: str = "",
     ) -> Dict[str, Any]:
@@ -34,7 +35,10 @@ class VpnServerRepository:
                 provider = excluded.provider,
                 region = excluded.region,
                 api_base_url = excluded.api_base_url,
-                is_active = excluded.is_active,
+                is_active = CASE
+                    WHEN ? THEN excluded.is_active
+                    ELSE vpn_servers.is_active
+                END,
                 last_health_at = CASE
                     WHEN COALESCE(vpn_servers.worker_id, '') <>
                          COALESCE(excluded.worker_id, '')
@@ -42,6 +46,22 @@ class VpnServerRepository:
                          COALESCE(excluded.subscription_base_url, '')
                     THEN NULL
                     ELSE vpn_servers.last_health_at
+                END,
+                current_profile_version = CASE
+                    WHEN COALESCE(vpn_servers.worker_id, '') <>
+                         COALESCE(excluded.worker_id, '')
+                      OR COALESCE(vpn_servers.subscription_base_url, '') <>
+                         COALESCE(excluded.subscription_base_url, '')
+                    THEN NULL
+                    ELSE vpn_servers.current_profile_version
+                END,
+                current_worker_epoch = CASE
+                    WHEN COALESCE(vpn_servers.worker_id, '') <>
+                         COALESCE(excluded.worker_id, '')
+                      OR COALESCE(vpn_servers.subscription_base_url, '') <>
+                         COALESCE(excluded.subscription_base_url, '')
+                    THEN NULL
+                    ELSE vpn_servers.current_worker_epoch
                 END,
                 worker_id = excluded.worker_id,
                 subscription_base_url = excluded.subscription_base_url,
@@ -53,11 +73,12 @@ class VpnServerRepository:
                 provider,
                 region,
                 api_base_url.rstrip("/"),
-                bool(is_active),
+                True if is_active is None else bool(is_active),
                 worker_id.strip() or None,
                 subscription_base_url.strip().rstrip("/"),
                 now,
                 now,
+                is_active is not None,
             ),
         )
         server = self.get_by_code(conn, code)
@@ -152,15 +173,49 @@ class VpnServerRepository:
         *,
         server_id: int,
         checked_at: str | None = None,
+        profile_version: str | None = None,
+        worker_epoch: str | None = None,
     ) -> Dict[str, Any]:
+        if (profile_version is None) != (worker_epoch is None):
+            raise ValueError(
+                "VPN server profile version and worker epoch must be paired"
+            )
+        if (
+            profile_version is not None
+            and re.fullmatch(r"p[0-9a-f]{20}", profile_version) is None
+        ):
+            raise ValueError("invalid VPN server profile version")
+        if (
+            worker_epoch is not None
+            and worker_epoch != "legacy"
+            and re.fullmatch(r"e[0-9a-f]{32}", worker_epoch) is None
+        ):
+            raise ValueError("invalid VPN worker epoch")
         now = checked_at or iso_now()
         conn.execute(
             """
             UPDATE vpn_servers
-            SET last_health_at = ?, updated_at = ?
+            SET last_health_at = ?,
+                current_profile_version = CASE
+                    WHEN ? THEN ?
+                    ELSE current_profile_version
+                END,
+                current_worker_epoch = CASE
+                    WHEN ? THEN ?
+                    ELSE current_worker_epoch
+                END,
+                updated_at = ?
             WHERE id = ?
             """,
-            (now, now, server_id),
+            (
+                now,
+                profile_version is not None,
+                profile_version,
+                worker_epoch is not None,
+                worker_epoch,
+                now,
+                server_id,
+            ),
         )
         server = self.get_by_id(conn, server_id)
         if server is None:

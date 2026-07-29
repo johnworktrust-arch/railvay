@@ -305,14 +305,22 @@ class VpnSubscriptionRepository:
         *,
         server_id: int,
         profile_version: str,
+        worker_epoch: str,
         active_at: str | None = None,
         limit: int = 1,
     ) -> List[Dict[str, Any]]:
         if not re.fullmatch(r"[a-z0-9_-]{1,32}", profile_version):
             raise ValueError("invalid VPN profile version")
+        if (
+            worker_epoch != "legacy"
+            and re.fullmatch(r"e[0-9a-f]{32}", worker_epoch) is None
+        ):
+            raise ValueError("invalid VPN worker epoch")
         if limit <= 0:
             raise ValueError("limit must be greater than zero")
-        idempotency_prefix = f"vpn:profile:{profile_version}:"
+        idempotency_prefix = (
+            f"vpn:profile:{profile_version}:epoch:{worker_epoch}:"
+        )
         return rows_to_dicts(
             conn.execute(
                 """
@@ -346,15 +354,22 @@ class VpnSubscriptionRepository:
         *,
         server_id: int,
         profile_version: str,
+        worker_epoch: str,
         active_at: str | None = None,
         limit: int = 1,
     ) -> List[Dict[str, Any]]:
         if not re.fullmatch(r"[a-z0-9_-]{1,32}", profile_version):
             raise ValueError("invalid VPN profile version")
+        if (
+            worker_epoch != "legacy"
+            and re.fullmatch(r"e[0-9a-f]{32}", worker_epoch) is None
+        ):
+            raise ValueError("invalid VPN worker epoch")
         if limit <= 0:
             raise ValueError("limit must be greater than zero")
-        canonical_key = f"vpn:profile:{profile_version}:"
-        replica_key = f"vpn:replica:{profile_version}:"
+        replica_key = (
+            f"vpn:replica:{profile_version}:epoch:{worker_epoch}:"
+        )
         return rows_to_dicts(
             conn.execute(
                 """
@@ -365,14 +380,15 @@ class VpnSubscriptionRepository:
                   AND s.ends_at > ?
                   AND s.provider_uuid IS NOT NULL
                   AND s.provider_uuid <> ''
+                  AND s.subscription_url IS NOT NULL
+                  AND s.subscription_url <> ''
                   AND EXISTS (
                       SELECT 1
                       FROM vpn_provisioning_jobs canonical_job
                       WHERE canonical_job.subscription_id = s.id
                         AND canonical_job.server_id = s.server_id
                         AND canonical_job.status = 'completed'
-                        AND canonical_job.idempotency_key =
-                            ? || CAST(s.id AS TEXT)
+                        AND canonical_job.operation IN ('create', 'update')
                   )
                   AND NOT EXISTS (
                       SELECT 1
@@ -389,7 +405,6 @@ class VpnSubscriptionRepository:
                 (
                     server_id,
                     active_at or iso_now(),
-                    canonical_key,
                     server_id,
                     replica_key,
                     server_id,
@@ -397,6 +412,77 @@ class VpnSubscriptionRepository:
                 ),
             ).fetchall()
         )
+
+    def has_completed_server_replica(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        subscription_id: int,
+        server_code: str,
+        profile_version: str,
+        healthy_after: str,
+        active_at: str,
+    ) -> bool:
+        if subscription_id <= 0:
+            return False
+        if re.fullmatch(r"[a-z0-9][a-z0-9_-]{1,31}", server_code) is None:
+            return False
+        if re.fullmatch(r"p[0-9a-f]{20}", profile_version) is None:
+            return False
+        replica_prefix = f"vpn:replica:{profile_version}:epoch:"
+        row = conn.execute(
+            """
+            SELECT 1 AS ready
+            FROM vpn_servers server
+            JOIN vpn_provisioning_jobs job
+              ON job.server_id = server.id
+             AND job.subscription_id = ?
+            JOIN vpn_subscriptions subscription
+              ON subscription.id = job.subscription_id
+            WHERE server.code = ?
+              AND server.is_active = TRUE
+              AND server.worker_id IS NOT NULL
+              AND server.worker_id <> ''
+              AND server.last_health_at IS NOT NULL
+              AND server.last_health_at >= ?
+              AND server.current_profile_version = ?
+              AND server.current_worker_epoch IS NOT NULL
+              AND server.current_worker_epoch <> 'legacy'
+              AND LENGTH(server.current_worker_epoch) = 33
+              AND server.current_worker_epoch LIKE 'e%'
+              AND subscription.server_id <> server.id
+              AND subscription.status = 'active'
+              AND subscription.ends_at > ?
+              AND subscription.provider_uuid IS NOT NULL
+              AND subscription.provider_uuid <> ''
+              AND job.operation = 'update'
+              AND job.status = 'completed'
+              AND job.completed_at IS NOT NULL
+              AND job.idempotency_key =
+                  ? || server.current_worker_epoch || ':' ||
+                  CAST(subscription.id AS TEXT) || ':server:' ||
+                  CAST(server.id AS TEXT)
+              AND (
+                  SELECT latest.status
+                  FROM vpn_provisioning_jobs latest
+                  WHERE latest.subscription_id = subscription.id
+                    AND latest.server_id = server.id
+                    AND latest.operation IN ('create', 'update')
+                  ORDER BY latest.id DESC
+                  LIMIT 1
+              ) = 'completed'
+            LIMIT 1
+            """,
+            (
+                subscription_id,
+                server_code,
+                healthy_after,
+                profile_version,
+                active_at,
+                replica_prefix,
+            ),
+        ).fetchone()
+        return row is not None
 
     def _require_by_id(
         self, conn: sqlite3.Connection, subscription_id: int, action: str

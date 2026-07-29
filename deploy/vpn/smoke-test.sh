@@ -18,6 +18,47 @@ api="http://127.0.0.1:8000"
 xray="/var/lib/marzban/xray-core/xray"
 server_config="/var/lib/marzban/xray_config.json"
 subscription_base_url="${VPN_SMOKE_SUBSCRIPTION_BASE_URL:-https://sub.79-137-197-51.sslip.io:8443}"
+node_mode="direct"
+if [[ -s /root/ceavpn-node.env ]]; then
+  # shellcheck disable=SC1091
+  source /root/ceavpn-node.env
+  node_mode="${CEAVPN_NODE_MODE:-direct}"
+fi
+case "$node_mode" in
+  direct | lte)
+    expected_inbound_tags='["VLESS TCP REALITY","VLESS WS TLS FALLBACK"]'
+    expected_vless_flow="xtls-rprx-vision"
+    expected_profile_kind="ws-tls"
+    ;;
+  whitelist)
+    expected_inbound_tags='["VLESS XHTTP REALITY"]'
+    expected_vless_flow=""
+    expected_profile_kind="xhttp-reality"
+    qualification_file="${CEAVPN_WHITELIST_QUALIFICATION_FILE:-/root/ceavpn-whitelist-qualified.json}"
+    qualification_helper="/opt/ceavpn/qualify-whitelist-ingress.sh"
+    if [[ ! -x "$qualification_helper" ]] ||
+      [[ "$("$qualification_helper" status | sed -n '1p')" != "passed" ]] ||
+      [[ ! -s "$qualification_file" ]] ||
+      ! jq -e '
+        .status == "passed" and
+        .evidence == "restricted-sim-xhttp-tunnel-worked" and
+        (.checks | sort) == ([
+          "dns_through_tunnel",
+          "https_through_tunnel",
+          "telegram_through_tunnel",
+          "transfer_over_1mib",
+          "xhttp_profile_connected"
+        ] | sort)
+      ' "$qualification_file" >/dev/null 2>&1; then
+      echo "VPN smoke test failed: whitelist publication is not fully qualified" >&2
+      exit 1
+    fi
+    ;;
+  *)
+    echo "VPN smoke test failed: unsupported CEAVPN_NODE_MODE" >&2
+    exit 1
+    ;;
+esac
 
 for command in curl flock jq python3; do
   if ! command -v "$command" >/dev/null 2>&1; then
@@ -229,16 +270,16 @@ if ! inbound_tags="$(jq -cer '
   echo "VPN smoke test failed: no active VLESS inbound tags" >&2
   exit 1
 fi
-if ! jq -e '
-  . == ["VLESS TCP REALITY", "VLESS WS TLS FALLBACK"]
-' <<<"$inbound_tags" >/dev/null; then
+if ! jq -e --argjson expected "$expected_inbound_tags" \
+  '. == $expected' <<<"$inbound_tags" >/dev/null; then
   echo "VPN smoke test failed: unexpected active VLESS inbound tags" >&2
   exit 1
 fi
-# Both transports remain configured on the one VPS for rollback safety, but
-# only the Happ-compatible WS/TLS host is published to client subscriptions.
+# Direct/LTE nodes keep both transports for rollback safety and publish WS/TLS.
+# A qualified whitelist node has only its XHTTP/Reality inbound and publishes
+# only that profile.
 expected_vless_profiles="${VPN_SMOKE_EXPECTED_PROFILE_COUNT:-1}"
-expected_profile_remark="${VPN_SMOKE_EXPECTED_REMARK:-🇳🇱 Нидерланды · Амстердам}"
+expected_profile_remark="${VPN_SMOKE_EXPECTED_REMARK:-${CEAVPN_REGION_REMARK:-🇳🇱 Нидерланды · Амстердам}}"
 if [[ ! "$expected_vless_profiles" =~ ^[1-8]$ ]]; then
   echo "VPN smoke test failed: expected profile count must be between 1 and 8" >&2
   exit 1
@@ -247,11 +288,12 @@ fi
 jq -n \
   --arg username "$username" \
   --arg uuid "$uuid" \
+  --arg flow "$expected_vless_flow" \
   --argjson expire "$expire" \
   --argjson inbound_tags "$inbound_tags" \
   '{
     username: $username,
-    proxies: {vless: {id: $uuid, flow: "xtls-rprx-vision"}},
+    proxies: {vless: {id: $uuid, flow: $flow}},
     inbounds: {vless: $inbound_tags},
     expire: $expire,
     data_limit: 104857600,
@@ -277,10 +319,14 @@ if [[ "$create_code" != "200" && "$create_code" != "201" ]]; then
   echo "VPN smoke test failed: Marzban rejected test user creation" >&2
   exit 1
 fi
-if ! jq -e --arg username "$username" --arg uuid "$uuid" '
+if ! jq -e \
+  --arg username "$username" \
+  --arg uuid "$uuid" \
+  --arg flow "$expected_vless_flow" '
   .username == $username and
   .status == "active" and
   .proxies.vless.id == $uuid and
+  .proxies.vless.flow == $flow and
   (.links | type == "array") and
   (.links | length > 0) and
   (.subscription_url | type == "string" and length > 0)
@@ -350,7 +396,7 @@ fi
 if ! python3 - \
   "$subscription_headers" "$subscription_body" "$response" \
   "$uuid" "$workdir" "$manifest" "$expected_vless_profiles" \
-  "$expected_profile_remark" \
+  "$expected_profile_remark" "$expected_profile_kind" \
   2>"$parser_error" <<'PY'
 import base64
 import binascii
@@ -372,6 +418,7 @@ from urllib.parse import parse_qsl, unquote, urlsplit
     manifest_path,
     expected_profile_count_text,
     expected_profile_remark,
+    expected_profile_kind,
 ) = sys.argv[1:]
 expected_profile_count = int(expected_profile_count_text)
 
@@ -494,6 +541,65 @@ def parse_vless(value):
             "spiderX": parameters.get("spx") or "/",
         }
         kind = "reality"
+    elif security == "reality" and network == "xhttp":
+        allowed = {
+            "security", "type", "flow", "sni", "fp", "pbk", "sid",
+            "spx", "path", "mode", "host", "headerType", "extra",
+            "encryption",
+        }
+        require(not (set(parameters) - allowed), "unsupported_xhttp_reality_parameter")
+        require(parameters.get("flow", "") == "", "invalid_xhttp_reality_flow")
+        require(parameters.get("host", "") == "", "unsupported_xhttp_reality_host")
+        require(
+            parameters.get("headerType", "none") in ("", "none"),
+            "unsupported_xhttp_reality_header",
+        )
+        for key in ("sni", "fp", "pbk", "sid", "path"):
+            require(bool(parameters.get(key)), f"missing_xhttp_reality_{key}")
+        require(
+            re.fullmatch(r"/xhttp-[0-9a-f]{48}", parameters["path"]) is not None,
+            "invalid_xhttp_reality_path",
+        )
+        require(
+            re.fullmatch(r"[A-Za-z0-9_-]{32,64}", parameters["pbk"]) is not None,
+            "invalid_xhttp_reality_pbk",
+        )
+        require(
+            re.fullmatch(r"(?:[0-9A-Fa-f]{2}){1,8}", parameters["sid"]) is not None,
+            "invalid_xhttp_reality_sid",
+        )
+        mode = parameters.get("mode", "")
+        require(
+            mode in ("", "auto", "packet-up", "stream-up", "stream-one"),
+            "invalid_xhttp_mode",
+        )
+        xhttp_settings = {"path": parameters["path"]}
+        if mode:
+            xhttp_settings["mode"] = mode
+        extra_raw = parameters.get("extra", "")
+        if extra_raw:
+            try:
+                extra = json.loads(extra_raw)
+            except json.JSONDecodeError as exc:
+                raise ValidationError("invalid_xhttp_extra") from exc
+            expected_extra = {
+                "scMaxEachPostBytes": 1000000,
+                "scMaxConcurrentPosts": 100,
+                "scMinPostsIntervalMs": 30,
+                "xPaddingBytes": "100-1000",
+                "noGRPCHeader": False,
+            }
+            require(extra == expected_extra, "unsupported_xhttp_extra")
+            xhttp_settings.update(extra)
+        stream["xhttpSettings"] = xhttp_settings
+        stream["realitySettings"] = {
+            "serverName": parameters["sni"],
+            "fingerprint": parameters["fp"],
+            "password": parameters["pbk"],
+            "shortId": parameters["sid"],
+            "spiderX": parameters.get("spx") or "/",
+        }
+        kind = "xhttp-reality"
     elif security == "tls" and network == "ws":
         allowed = {
             "security", "type", "headerType", "path", "host", "sni",
@@ -616,7 +722,10 @@ try:
     require(profiles, "no_supported_vless_profiles")
     require(len(profiles) == expected_profile_count, "missing_vless_profile")
     kinds = sorted(profile["kind"] for profile in profiles)
-    require(kinds == ["ws-tls"] * expected_profile_count, "invalid_public_vless_profile")
+    require(
+        kinds == [expected_profile_kind] * expected_profile_count,
+        "invalid_public_vless_profile",
+    )
     require(
         expected_profile_remark in {profile["remark"] for profile in profiles},
         "invalid_public_profile_name",
@@ -639,8 +748,16 @@ then
   exit 1
 fi
 
-if ! expected_egress_ipv4="${VPN_SMOKE_EXPECTED_EGRESS_IPV4:-$(fetch_direct_ipv4)}" ||
-  ! is_ipv4 "$expected_egress_ipv4"; then
+if [[ "$node_mode" == "direct" ]]; then
+  expected_egress_ipv4="${VPN_SMOKE_EXPECTED_EGRESS_IPV4:-$(fetch_direct_ipv4)}"
+else
+  expected_egress_ipv4="${VPN_SMOKE_EXPECTED_EGRESS_IPV4:-}"
+  if [[ -z "$expected_egress_ipv4" ]]; then
+    echo "VPN smoke test failed: chained nodes require VPN_SMOKE_EXPECTED_EGRESS_IPV4" >&2
+    exit 1
+  fi
+fi
+if ! is_ipv4 "$expected_egress_ipv4"; then
   echo "VPN smoke test failed: could not determine expected IPv4 egress" >&2
   exit 1
 fi
@@ -650,7 +767,8 @@ for ((profile_index = 0; profile_index < profile_count; profile_index++)); do
   profile_file="$(jq -er --argjson index "$profile_index" '.profiles[$index].file' "$manifest")"
   profile_kind="$(jq -er --argjson index "$profile_index" '.profiles[$index].kind' "$manifest")"
   if [[ ! "$profile_file" =~ ^client-[0-9]+\.json$ ]] ||
-    [[ "$profile_kind" != "reality" && "$profile_kind" != "ws-tls" ]]; then
+    [[ "$profile_kind" != "reality" && "$profile_kind" != "ws-tls" &&
+      "$profile_kind" != "xhttp-reality" ]]; then
     echo "VPN smoke test failed: unsafe profile manifest" >&2
     exit 1
   fi

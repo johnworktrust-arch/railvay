@@ -9,6 +9,7 @@ import sys
 import unittest
 from pathlib import Path
 from typing import Any
+from unittest import mock
 
 
 WORKER_PATH = Path(__file__).resolve().parents[1] / "deploy" / "vpn" / "worker.py"
@@ -17,6 +18,7 @@ assert SPEC is not None and SPEC.loader is not None
 worker = importlib.util.module_from_spec(SPEC)
 sys.modules[SPEC.name] = worker
 SPEC.loader.exec_module(worker)
+WORKER_EPOCH = "e0123456789abcdef0123456789abcdef"
 
 
 def config(**overrides: Any):
@@ -29,6 +31,7 @@ def config(**overrides: Any):
         "marzban_username": "worker_admin",
         "marzban_password": "secret-password",
         "inbound_tags": worker.DEFAULT_MARZBAN_INBOUND_TAGS,
+        "worker_epoch": WORKER_EPOCH,
     }
     values.update(overrides)
     return worker.WorkerConfig(**values)
@@ -71,6 +74,14 @@ class SignedRailwayClientTest(unittest.TestCase):
             json.loads(body.decode("utf-8"))["inbound_tags"],
             ["VLESS TCP REALITY", "VLESS WS TLS FALLBACK"],
         )
+        self.assertEqual(
+            json.loads(body.decode("utf-8"))["vless_flow"],
+            "xtls-rprx-vision",
+        )
+        self.assertEqual(
+            json.loads(body.decode("utf-8"))["worker_epoch"],
+            WORKER_EPOCH,
+        )
         headers = {key.lower(): value for key, value in request.header_items()}
         canonical = (
             "POST\n/internal/vpn/worker/claim\n1700000000\nfixed-nonce\n"
@@ -80,6 +91,58 @@ class SignedRailwayClientTest(unittest.TestCase):
         self.assertEqual(headers["x-cea-vpn-signature"], expected)
         self.assertEqual(headers["x-cea-vpn-worker-id"], "cea-vpn-nl1")
         self.assertEqual(captured["timeout"], 15.0)
+
+    def test_reconciliation_requires_explicit_authoritative_claim_flag(self) -> None:
+        payloads = [
+            {"ok": True, "job": None, "reconciled": True},
+            {"ok": True, "job": None},
+            {"ok": True, "job": None, "reconciled": False},
+        ]
+
+        def transport(request, timeout):
+            return response(200, payloads.pop(0))
+
+        client = worker.SignedRailwayClient(config(), transport=transport)
+        self.assertIsNone(
+            client.claim(
+                control_plane_ready=True,
+                verified_inbound_tags=worker.DEFAULT_MARZBAN_INBOUND_TAGS,
+            )
+        )
+        self.assertIs(client.claim_reconciled, True)
+        self.assertIsNone(
+            client.claim(
+                control_plane_ready=True,
+                verified_inbound_tags=worker.DEFAULT_MARZBAN_INBOUND_TAGS,
+            )
+        )
+        self.assertIs(client.claim_reconciled, False)
+        self.assertIsNone(
+            client.claim(
+                control_plane_ready=True,
+                verified_inbound_tags=worker.DEFAULT_MARZBAN_INBOUND_TAGS,
+            )
+        )
+        self.assertIs(client.claim_reconciled, False)
+
+    def test_legacy_direct_claim_omits_worker_epoch(self) -> None:
+        captured = {}
+
+        def transport(request, timeout):
+            captured["payload"] = json.loads(request.data.decode("utf-8"))
+            return response(200, {"ok": True, "job": None, "reconciled": False})
+
+        client = worker.SignedRailwayClient(
+            config(worker_epoch=None),
+            transport=transport,
+        )
+        self.assertIsNone(
+            client.claim(
+                control_plane_ready=True,
+                verified_inbound_tags=worker.DEFAULT_MARZBAN_INBOUND_TAGS,
+            )
+        )
+        self.assertNotIn("worker_epoch", captured["payload"])
 
     def test_configuration_rejects_remote_marzban_and_placeholders(self) -> None:
         base_env = {
@@ -99,7 +162,7 @@ class SignedRailwayClientTest(unittest.TestCase):
                 {**base_env, "VPN_WORKER_SECRET": "replace-with-a-long-random-secret"}
             )
 
-    def test_configuration_prefers_dual_tags_and_accepts_legacy_single_tag(self) -> None:
+    def test_configuration_requires_an_exact_supported_tag_flow_pair(self) -> None:
         base_env = {
             "VPN_WORKER_ID": "nl1",
             "VPN_WORKER_SECRET": "x" * 48,
@@ -122,10 +185,72 @@ class SignedRailwayClientTest(unittest.TestCase):
             ("VLESS TCP REALITY", "VLESS WS TLS FALLBACK"),
         )
 
-        legacy = worker.WorkerConfig.from_env(
-            {**base_env, "MARZBAN_INBOUND_TAG": "VLESS TCP REALITY"}
+        with self.assertRaisesRegex(
+            worker.ConfigurationError, "invalid_marzban_profile_pair"
+        ):
+            worker.WorkerConfig.from_env(
+                {**base_env, "MARZBAN_INBOUND_TAG": "VLESS TCP REALITY"}
+            )
+
+        whitelist = worker.WorkerConfig.from_env(
+            {
+                **base_env,
+                "MARZBAN_INBOUND_TAGS": "VLESS XHTTP REALITY",
+                "MARZBAN_VLESS_FLOW": "",
+                "VPN_WORKER_EPOCH": WORKER_EPOCH,
+            }
         )
-        self.assertEqual(legacy.inbound_tags, ("VLESS TCP REALITY",))
+        self.assertEqual(whitelist.inbound_tags, ("VLESS XHTTP REALITY",))
+        self.assertEqual(whitelist.vless_flow, "")
+
+        for invalid_profile in (
+            {
+                "MARZBAN_INBOUND_TAGS": "VLESS XHTTP REALITY",
+                "MARZBAN_VLESS_FLOW": "xtls-rprx-vision",
+            },
+            {
+                "MARZBAN_INBOUND_TAGS": (
+                    "VLESS TCP REALITY,VLESS WS TLS FALLBACK"
+                ),
+                "MARZBAN_VLESS_FLOW": "",
+            },
+        ):
+            with self.assertRaisesRegex(
+                worker.ConfigurationError, "invalid_marzban_profile_pair"
+            ):
+                worker.WorkerConfig.from_env({**base_env, **invalid_profile})
+
+        with self.assertRaisesRegex(
+            worker.ConfigurationError, "missing_vpn_worker_epoch"
+        ):
+            worker.WorkerConfig.from_env(
+                {
+                    **base_env,
+                    "MARZBAN_INBOUND_TAGS": "VLESS XHTTP REALITY",
+                    "MARZBAN_VLESS_FLOW": "",
+                }
+            )
+        with self.assertRaisesRegex(
+            worker.ConfigurationError, "invalid_vpn_worker_epoch"
+        ):
+            worker.WorkerConfig.from_env(
+                {
+                    **base_env,
+                    "MARZBAN_INBOUND_TAGS": "VLESS XHTTP REALITY",
+                    "MARZBAN_VLESS_FLOW": "",
+                    "VPN_WORKER_EPOCH": "E0123456789abcdef0123456789abcdef",
+                }
+            )
+
+        legacy_direct = worker.WorkerConfig.from_env(
+            {
+                **base_env,
+                "MARZBAN_INBOUND_TAGS": (
+                    "VLESS TCP REALITY,VLESS WS TLS FALLBACK"
+                ),
+            }
+        )
+        self.assertIsNone(legacy_direct.worker_epoch)
 
         with self.assertRaisesRegex(
             worker.ConfigurationError, "invalid_marzban_inbound_tags"
@@ -137,6 +262,12 @@ class SignedRailwayClientTest(unittest.TestCase):
                         "VLESS TCP REALITY,VLESS TCP REALITY"
                     ),
                 }
+            )
+        with self.assertRaisesRegex(
+            worker.ConfigurationError, "invalid_marzban_vless_flow"
+        ):
+            worker.WorkerConfig.from_env(
+                {**base_env, "MARZBAN_VLESS_FLOW": "unsupported-flow"}
             )
 
 
@@ -250,6 +381,45 @@ class LocalMarzbanClientTest(unittest.TestCase):
         self.assertEqual(
             user["subscription_url"],
             "https://sub.example:8443/sub/token-secret",
+        )
+
+    def test_whitelist_create_uses_xhttp_inbound_without_vision_flow(self) -> None:
+        def transport(request, timeout):
+            method = request.get_method()
+            path = request.full_url.removeprefix("http://127.0.0.1:8000")
+            if path == "/api/admin/token":
+                return response(200, {"access_token": "admin-token"})
+            if method == "GET" and path == "/api/user/cea_user_1":
+                return response(404, {"detail": "not found"})
+            if method == "POST" and path == "/api/user":
+                created = json.loads(request.data.decode("utf-8"))
+                self.assertEqual(
+                    created["inbounds"],
+                    {"vless": ["VLESS XHTTP REALITY"]},
+                )
+                self.assertEqual(created["proxies"]["vless"]["flow"], "")
+                return response(
+                    200,
+                    {
+                        **created,
+                        "subscription_url": (
+                            "https://sub.example:8443/sub/token-secret"
+                        ),
+                    },
+                )
+            self.fail(f"unexpected request {method} {path}")
+
+        client = worker.LocalMarzbanClient(
+            config(
+                inbound_tags=("VLESS XHTTP REALITY",),
+                vless_flow="",
+            ),
+            transport=transport,
+        )
+        client.ensure_active(
+            username="cea_user_1",
+            expire=1_800_000_000,
+            subscription_id=42,
         )
 
     def test_create_conflict_preserves_proxy_and_converges_inbounds(self) -> None:
@@ -388,8 +558,9 @@ class LocalMarzbanClientTest(unittest.TestCase):
 
 
 class FakeRailway:
-    def __init__(self, job):
+    def __init__(self, job, *, reconciled=False):
         self.job = job
+        self.claim_reconciled = reconciled
         self.results = []
         self.failures = []
         self.claim_readiness = []
@@ -500,6 +671,17 @@ class VpnWorkerTest(unittest.TestCase):
                 "subscription_id": 42,
                 "provider_username": "cea_user_1",
                 "expire": 1_800_000_000,
+                "proxies": {
+                    "vless": {
+                        "flow": "xtls-rprx-vision",
+                    }
+                },
+                "inbounds": {
+                    "vless": [
+                        "VLESS TCP REALITY",
+                        "VLESS WS TLS FALLBACK",
+                    ]
+                },
             }
         )
         instance = worker.VpnWorker(
@@ -540,6 +722,17 @@ class VpnWorkerTest(unittest.TestCase):
                     "status": "active",
                     "expire": 1_800_000_000,
                     "note": "CEA VPN subscription 42",
+                    "proxies": {
+                        "vless": {
+                            "flow": "xtls-rprx-vision",
+                        }
+                    },
+                    "inbounds": {
+                        "vless": [
+                            "VLESS TCP REALITY",
+                            "VLESS WS TLS FALLBACK",
+                        ]
+                    },
                 },
                 "subscription_base_url": "https://sub.example:8443",
             }
@@ -552,6 +745,39 @@ class VpnWorkerTest(unittest.TestCase):
         self.assertEqual(len(railway.failures), 1)
         self.assertEqual(railway.failures[0]["error"], "marzban_http_503")
         self.assertNotIn("subscription_url", railway.failures[0])
+
+    def test_reconciliation_marker_requires_authoritative_idle_poll(self) -> None:
+        class StopAfterWait:
+            def __init__(self):
+                self.stopped = False
+
+            def is_set(self):
+                return self.stopped
+
+            def wait(self, delay):
+                self.stopped = True
+
+        with mock.patch.object(worker, "_mark_reconciled") as mark, \
+            mock.patch.object(worker, "_clear_reconciled") as clear:
+            instance = worker.VpnWorker(
+                config(),
+                railway=FakeRailway(None, reconciled=True),
+                marzban=FakeMarzban(),
+            )
+            instance.run_forever(StopAfterWait())
+            mark.assert_called_once_with()
+            clear.assert_not_called()
+
+        with mock.patch.object(worker, "_mark_reconciled") as mark, \
+            mock.patch.object(worker, "_clear_reconciled") as clear:
+            instance = worker.VpnWorker(
+                config(),
+                railway=FakeRailway(None, reconciled=False),
+                marzban=FakeMarzban(),
+            )
+            instance.run_forever(StopAfterWait())
+            mark.assert_not_called()
+            clear.assert_called_once_with()
 
 
 if __name__ == "__main__":

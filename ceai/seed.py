@@ -186,6 +186,7 @@ VPN_ADDITIONAL_SERVERS = (
 
 def seed_reference_data(db: Database) -> None:
     settings = load_settings()
+    per_worker_secrets = dict(settings.vpn_worker_secrets)
     plan_repo = PlanRepository()
     model_repo = ModelPriceRepository()
     vpn_plan_repo = VpnPlanRepository()
@@ -215,8 +216,44 @@ def seed_reference_data(db: Database) -> None:
             worker_id=settings.vpn_worker_id,
             subscription_base_url=settings.vpn_subscription_base_url,
         )
+        reserved_codes = {settings.vpn_server_code}
+        reserved_workers = {settings.vpn_worker_id}
         for server in VPN_ADDITIONAL_SERVERS:
+            if (
+                server["code"] in reserved_codes
+                or server["worker_id"] in reserved_workers
+            ):
+                raise ValueError(
+                    "Built-in VPN server identity collides with the canonical server"
+                )
             vpn_server_repo.upsert(conn, **server)
+            reserved_codes.add(server["code"])
+            reserved_workers.add(server["worker_id"])
+        for server in settings.vpn_additional_servers:
+            if (
+                server.code in reserved_codes
+                or server.worker_id in reserved_workers
+            ):
+                raise ValueError(
+                    "VPN_ADDITIONAL_SERVERS_JSON collides with a configured server"
+                )
+            if server.is_active and server.worker_id not in per_worker_secrets:
+                raise ValueError(
+                    "Active additional VPN server requires a per-worker secret"
+                )
+            vpn_server_repo.upsert(
+                conn,
+                code=server.code,
+                name=server.name,
+                provider="marzban",
+                region=server.region,
+                api_base_url="http://127.0.0.1:8000",
+                is_active=server.is_active,
+                worker_id=server.worker_id,
+                subscription_base_url=server.subscription_base_url,
+            )
+            reserved_codes.add(server.code)
+            reserved_workers.add(server.worker_id)
         conn.execute(
             """
             UPDATE model_prices
