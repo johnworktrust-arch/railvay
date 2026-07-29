@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import re
 import unittest
+import uuid
 from pathlib import Path
 
 
@@ -162,6 +163,70 @@ class VpnNginxConfigTest(unittest.TestCase):
             'require(kinds == ["ws-tls"] * expected_profile_count',
             smoke_script,
         )
+
+    def test_lte_gateway_forces_both_public_inbounds_through_foreign_exit(
+        self,
+    ) -> None:
+        root = Path(__file__).resolve().parents[1]
+        template = (
+            root / "deploy" / "vpn" / "xray_config_lte.json"
+        ).read_text(encoding="utf-8")
+        relay_uuid = str(uuid.uuid4())
+        rendered = template
+        replacements = {
+            "__FALLBACK_WS_PATH__": f"/ws-{'1' * 48}",
+            "__COVER_DOMAIN__": "cover.example.test",
+            "__REALITY_PRIVATE_KEY__": "private-key",
+            "__REALITY_PUBLIC_KEY__": "public-key",
+            "__REALITY_SHORT_ID__": "0123456789abcdef",
+            "__LTE_EXIT_ADDRESS__": "sub-exit.example.test",
+            "__LTE_EXIT_PORT__": "8443",
+            "__LTE_EXIT_UUID__": relay_uuid,
+            "__LTE_EXIT_SNI__": "sub-exit.example.test",
+            "__LTE_EXIT_HOST__": "sub-exit.example.test",
+            "__LTE_EXIT_PATH__": f"/ws-{'2' * 48}",
+        }
+        for placeholder, value in replacements.items():
+            self.assertEqual(rendered.count(placeholder), 1)
+            rendered = rendered.replace(placeholder, value)
+        self.assertIsNone(re.search(r"__[A-Z0-9_]+__", rendered))
+
+        config = json.loads(rendered)
+        exit_outbound = next(
+            outbound
+            for outbound in config["outbounds"]
+            if outbound["tag"] == "LTE EXIT"
+        )
+        self.assertEqual(exit_outbound["protocol"], "vless")
+        self.assertEqual(
+            exit_outbound["settings"]["vnext"][0]["users"][0]["id"],
+            relay_uuid,
+        )
+        self.assertEqual(
+            exit_outbound["streamSettings"]["security"],
+            "tls",
+        )
+
+        exit_rules = [
+            rule
+            for rule in config["routing"]["rules"]
+            if rule.get("outboundTag") == "LTE EXIT"
+        ]
+        self.assertEqual(len(exit_rules), 1)
+        self.assertEqual(
+            set(exit_rules[0]["inboundTag"]),
+            {"VLESS WS TLS FALLBACK", "VLESS TCP REALITY"},
+        )
+
+        provision_script = (
+            root / "deploy" / "vpn" / "provision-node.sh"
+        ).read_text(encoding="utf-8")
+        self.assertIn('CEAVPN_NODE_MODE:-direct', provision_script)
+        self.assertIn(
+            'xray_template_source="$bundle_dir/xray_config_lte.json"',
+            provision_script,
+        )
+        self.assertIn("/root/ceavpn-lte-exit.env", provision_script)
 
 
 if __name__ == "__main__":

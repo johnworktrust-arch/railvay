@@ -11,7 +11,6 @@ fi
 
 for path in \
   "$bundle_dir/docker-compose.yml" \
-  "$bundle_dir/xray_config.json" \
   "$bundle_dir/nginx.conf" \
   "$bundle_dir/connect.html" \
   "$bundle_dir/apply-reality-config.sh" \
@@ -39,6 +38,29 @@ source "$node_file"
 : "${CEAVPN_COVER_DOMAIN:?CEAVPN_COVER_DOMAIN is required}"
 : "${CEAVPN_REGION_REMARK:?CEAVPN_REGION_REMARK is required}"
 
+node_mode="${CEAVPN_NODE_MODE:-direct}"
+case "$node_mode" in
+  direct)
+    xray_template_source="$bundle_dir/xray_config.json"
+    ;;
+  lte)
+    xray_template_source="$bundle_dir/xray_config_lte.json"
+    if [[ ! -s /root/ceavpn-lte-exit.env ]]; then
+      echo "missing required file: /root/ceavpn-lte-exit.env" >&2
+      exit 1
+    fi
+    chmod 0600 /root/ceavpn-lte-exit.env
+    ;;
+  *)
+    echo "CEAVPN_NODE_MODE must be direct or lte" >&2
+    exit 1
+    ;;
+esac
+if [[ ! -s "$xray_template_source" ]]; then
+  echo "missing required file: $xray_template_source" >&2
+  exit 1
+fi
+
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -qq
 apt-get install -y \
@@ -61,7 +83,7 @@ fi
 install -o root -g root -m 0644 \
   "$bundle_dir/docker-compose.yml" /opt/marzban/docker-compose.yml
 install -o root -g root -m 0644 \
-  "$bundle_dir/xray_config.json" /opt/marzban/xray_config.template.json
+  "$xray_template_source" /opt/marzban/xray_config.template.json
 install -o root -g root -m 0644 \
   "$bundle_dir/nginx.conf" /opt/marzban/nginx.template.conf
 install -o root -g root -m 0644 \

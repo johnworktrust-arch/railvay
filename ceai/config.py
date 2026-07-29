@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass
 from pathlib import Path
@@ -90,6 +91,7 @@ class Settings:
     vpn_server_code: str = "nl-1"
     vpn_worker_id: str = "cea-vpn-nl1"
     vpn_worker_secret: str = ""
+    vpn_worker_secrets: Tuple[Tuple[str, str], ...] = ()
     vpn_subscription_base_url: str = ""
     vpn_trial_days: int = 3
     vpn_allow_admin_demo_payment: bool = False
@@ -183,6 +185,28 @@ def load_settings() -> Settings:
         raw = read(name, "1" if default else "0").strip().lower()
         return raw in {"1", "true", "yes", "on"}
 
+    def read_worker_secrets() -> Tuple[Tuple[str, str], ...]:
+        raw = read("VPN_WORKER_SECRETS_JSON").strip()
+        if not raw:
+            return ()
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError as exc:
+            raise ValueError("VPN_WORKER_SECRETS_JSON must be valid JSON") from exc
+        if not isinstance(payload, dict):
+            raise ValueError("VPN_WORKER_SECRETS_JSON must be a JSON object")
+        values: list[Tuple[str, str]] = []
+        for worker_id, secret in payload.items():
+            if not isinstance(worker_id, str) or not isinstance(secret, str):
+                raise ValueError(
+                    "VPN_WORKER_SECRETS_JSON keys and values must be strings"
+                )
+            normalized_worker_id = worker_id.strip()
+            if not normalized_worker_id or len(secret.encode("utf-8")) < 32:
+                raise ValueError("Invalid per-worker VPN secret")
+            values.append((normalized_worker_id, secret))
+        return tuple(sorted(values))
+
     app_base_url = _normalize_base_url(
         read("APP_BASE_URL") or read("RAILWAY_PUBLIC_DOMAIN")
     )
@@ -234,6 +258,7 @@ def load_settings() -> Settings:
         vpn_server_code=read("VPN_SERVER_CODE", "nl-1").strip(),
         vpn_worker_id=read("VPN_WORKER_ID", "cea-vpn-nl1").strip(),
         vpn_worker_secret=read("VPN_WORKER_SECRET"),
+        vpn_worker_secrets=read_worker_secrets(),
         vpn_subscription_base_url=_normalize_base_url(
             read("VPN_SUBSCRIPTION_BASE_URL")
         ),

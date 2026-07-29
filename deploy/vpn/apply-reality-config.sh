@@ -17,6 +17,7 @@ nginx_test_config=""
 reality_new=""
 fallback_new=""
 node_file="/root/ceavpn-node.env"
+lte_exit_file="/root/ceavpn-lte-exit.env"
 
 if [[ $EUID -ne 0 ]]; then
   echo "run as root" >&2
@@ -33,6 +34,9 @@ cleanup() {
   unset CEAVPN_XRAY_TEMPLATE CEAVPN_XRAY_OUTPUT
   unset CEAVPN_NGINX_TEMPLATE CEAVPN_NGINX_OUTPUT
   unset CEAVPN_SUB_DOMAIN CEAVPN_COVER_DOMAIN
+  unset CEAVPN_NODE_MODE CEAVPN_LTE_EXIT_ADDRESS CEAVPN_LTE_EXIT_PORT
+  unset CEAVPN_LTE_EXIT_UUID CEAVPN_LTE_EXIT_SNI CEAVPN_LTE_EXIT_HOST
+  unset CEAVPN_LTE_EXIT_PATH
   rm -f -- "$xray_new" "$nginx_new"
   if [[ -n "$nginx_test_config" ]]; then
     rm -f -- "$nginx_test_config"
@@ -129,6 +133,26 @@ source "$node_file"
 : "${CEAVPN_SUB_DOMAIN:?CEAVPN_SUB_DOMAIN is required}"
 : "${CEAVPN_COVER_DOMAIN:?CEAVPN_COVER_DOMAIN is required}"
 
+node_mode="${CEAVPN_NODE_MODE:-direct}"
+if [[ "$node_mode" == "lte" ]]; then
+  if [[ ! -s "$lte_exit_file" ]]; then
+    echo "missing required file: $lte_exit_file" >&2
+    exit 1
+  fi
+  chmod 0600 "$lte_exit_file"
+  # shellcheck disable=SC1090
+  source "$lte_exit_file"
+  : "${CEAVPN_LTE_EXIT_ADDRESS:?CEAVPN_LTE_EXIT_ADDRESS is required}"
+  : "${CEAVPN_LTE_EXIT_PORT:?CEAVPN_LTE_EXIT_PORT is required}"
+  : "${CEAVPN_LTE_EXIT_UUID:?CEAVPN_LTE_EXIT_UUID is required}"
+  : "${CEAVPN_LTE_EXIT_SNI:?CEAVPN_LTE_EXIT_SNI is required}"
+  : "${CEAVPN_LTE_EXIT_HOST:?CEAVPN_LTE_EXIT_HOST is required}"
+  : "${CEAVPN_LTE_EXIT_PATH:?CEAVPN_LTE_EXIT_PATH is required}"
+elif [[ "$node_mode" != "direct" ]]; then
+  echo "CEAVPN_NODE_MODE must be direct or lte" >&2
+  exit 1
+fi
+
 if [[ "$REALITY_PUBLIC_KEY" != "$public_key" ]]; then
   echo "Reality public key does not match the private-key source" >&2
   exit 1
@@ -151,11 +175,18 @@ export CEAVPN_XRAY_OUTPUT="$xray_new"
 export CEAVPN_NGINX_TEMPLATE="$nginx_template"
 export CEAVPN_NGINX_OUTPUT="$nginx_new"
 export CEAVPN_SUB_DOMAIN CEAVPN_COVER_DOMAIN
+export CEAVPN_NODE_MODE="$node_mode"
+if [[ "$node_mode" == "lte" ]]; then
+  export CEAVPN_LTE_EXIT_ADDRESS CEAVPN_LTE_EXIT_PORT
+  export CEAVPN_LTE_EXIT_UUID CEAVPN_LTE_EXIT_SNI
+  export CEAVPN_LTE_EXIT_HOST CEAVPN_LTE_EXIT_PATH
+fi
 
 python3 - <<'PY'
 import json
 import os
 import re
+import uuid
 from pathlib import Path
 
 xray_template = Path(os.environ["CEAVPN_XRAY_TEMPLATE"]).read_text(
@@ -172,6 +203,47 @@ xray_replacements = {
     "__FALLBACK_WS_PATH__": os.environ["CEAVPN_FALLBACK_WS_PATH"],
     "__COVER_DOMAIN__": os.environ["CEAVPN_COVER_DOMAIN"],
 }
+node_mode = os.environ["CEAVPN_NODE_MODE"]
+if node_mode == "lte":
+    try:
+        exit_port = int(os.environ["CEAVPN_LTE_EXIT_PORT"])
+    except ValueError as exc:
+        raise SystemExit("invalid LTE exit port") from exc
+    if not 1 <= exit_port <= 65535:
+        raise SystemExit("invalid LTE exit port")
+    try:
+        exit_uuid = str(uuid.UUID(os.environ["CEAVPN_LTE_EXIT_UUID"]))
+    except ValueError as exc:
+        raise SystemExit("invalid LTE exit UUID") from exc
+    exit_path = os.environ["CEAVPN_LTE_EXIT_PATH"]
+    if (
+        not exit_path.startswith("/ws-")
+        or len(exit_path) != 52
+        or any(character not in "0123456789abcdef" for character in exit_path[4:])
+    ):
+        raise SystemExit("invalid LTE exit WebSocket path")
+    for variable in (
+        "CEAVPN_LTE_EXIT_ADDRESS",
+        "CEAVPN_LTE_EXIT_SNI",
+        "CEAVPN_LTE_EXIT_HOST",
+    ):
+        value = os.environ[variable]
+        if (
+            not value
+            or len(value) > 253
+            or any(character.isspace() or ord(character) < 32 for character in value)
+        ):
+            raise SystemExit(f"invalid LTE exit endpoint: {variable}")
+    xray_replacements.update(
+        {
+            "__LTE_EXIT_ADDRESS__": os.environ["CEAVPN_LTE_EXIT_ADDRESS"],
+            "__LTE_EXIT_PORT__": str(exit_port),
+            "__LTE_EXIT_UUID__": exit_uuid,
+            "__LTE_EXIT_SNI__": os.environ["CEAVPN_LTE_EXIT_SNI"],
+            "__LTE_EXIT_HOST__": os.environ["CEAVPN_LTE_EXIT_HOST"],
+            "__LTE_EXIT_PATH__": exit_path,
+        }
+    )
 nginx_replacements = {
     "__FALLBACK_WS_PATH__": os.environ["CEAVPN_FALLBACK_WS_PATH"],
     "__SUB_DOMAIN__": os.environ["CEAVPN_SUB_DOMAIN"],
@@ -219,6 +291,38 @@ if (
     != os.environ["CEAVPN_FALLBACK_WS_PATH"]
 ):
     raise SystemExit("invalid Xray WebSocket fallback")
+
+outbounds = {
+    outbound.get("tag"): outbound
+    for outbound in parsed_xray.get("outbounds", [])
+    if isinstance(outbound, dict)
+}
+if node_mode == "lte":
+    lte_exit = outbounds.get("LTE EXIT", {})
+    vnext = lte_exit.get("settings", {}).get("vnext", [])
+    if (
+        lte_exit.get("protocol") != "vless"
+        or len(vnext) != 1
+        or vnext[0].get("address") != os.environ["CEAVPN_LTE_EXIT_ADDRESS"]
+        or vnext[0].get("port") != int(os.environ["CEAVPN_LTE_EXIT_PORT"])
+        or vnext[0].get("users", [{}])[0].get("id")
+        != str(uuid.UUID(os.environ["CEAVPN_LTE_EXIT_UUID"]))
+        or lte_exit.get("streamSettings", {}).get("network") != "ws"
+        or lte_exit.get("streamSettings", {}).get("security") != "tls"
+    ):
+        raise SystemExit("invalid LTE chained exit")
+    routed_inbounds = [
+        rule
+        for rule in parsed_xray.get("routing", {}).get("rules", [])
+        if rule.get("outboundTag") == "LTE EXIT"
+    ]
+    if len(routed_inbounds) != 1 or set(routed_inbounds[0].get("inboundTag", [])) != {
+        "VLESS WS TLS FALLBACK",
+        "VLESS TCP REALITY",
+    }:
+        raise SystemExit("LTE inbounds are not forced through the chained exit")
+elif "LTE EXIT" in outbounds:
+    raise SystemExit("direct node unexpectedly contains an LTE exit")
 
 required_nginx_fragments = (
     "listen 8443 ssl;",

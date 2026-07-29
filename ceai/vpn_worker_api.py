@@ -54,10 +54,6 @@ class VpnWorkerAuthenticator:
         headers: Any,
         body: bytes,
     ) -> str:
-        secret = self.settings.vpn_worker_secret
-        if len(secret) < 32:
-            raise web.HTTPServiceUnavailable(text="VPN worker is not configured")
-
         worker_id = str(headers.get(WORKER_ID_HEADER, "")).strip()
         timestamp = str(headers.get(TIMESTAMP_HEADER, "")).strip()
         nonce = str(headers.get(NONCE_HEADER, "")).strip()
@@ -74,6 +70,12 @@ class VpnWorkerAuthenticator:
             server = self.servers.get_by_worker_id(conn, worker_id)
         if server is None or not bool(server["is_active"]):
             raise web.HTTPUnauthorized(text="Invalid VPN worker authentication")
+
+        secret = dict(self.settings.vpn_worker_secrets).get(
+            worker_id, self.settings.vpn_worker_secret
+        )
+        if len(secret.encode("utf-8")) < 32:
+            raise web.HTTPServiceUnavailable(text="VPN worker is not configured")
 
         try:
             timestamp_number = int(timestamp)

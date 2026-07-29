@@ -154,6 +154,15 @@ VPN_PLANS = [
 
 VPN_ADDITIONAL_SERVERS = (
     {
+        "code": "ru-lte-1",
+        "name": "Белые списки · Россия 1",
+        "provider": "marzban",
+        "region": "RU",
+        "api_base_url": "http://127.0.0.1:8000",
+        "worker_id": "cea-vpn-lte-1",
+        "subscription_base_url": "https://sub.111-88-158-45.sslip.io:8443",
+    },
+    {
         "code": "us-1",
         "name": "CEA VPN Charlotte 1",
         "provider": "marzban",
