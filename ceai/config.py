@@ -407,11 +407,12 @@ def load_settings() -> Settings:
         vpn_admin_demo_telegram_ids=read_int_list(
             "VPN_ADMIN_DEMO_TELEGRAM_IDS"
         ),
-        vpn_payment_provider=read(
-            "VPN_PAYMENT_PROVIDER", "disabled"
-        ).strip().lower(),
         vpn_platega_merchant_id=read("VPN_PLATEGA_MERCHANT_ID").strip(),
         vpn_platega_secret=read("VPN_PLATEGA_SECRET"),
+        vpn_payment_provider=read(
+            "VPN_PAYMENT_PROVIDER",
+            "platega" if read("VPN_PLATEGA_MERCHANT_ID").strip() else "disabled",
+        ).strip().lower(),
         vpn_platega_api_base_url=_normalize_base_url(
             read("VPN_PLATEGA_API_BASE_URL", "https://app.platega.io")
         ),

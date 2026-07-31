@@ -895,27 +895,6 @@ def create_vpn_router(services: AppServices) -> Router:
             await callback.answer()
             return
 
-    @router.pre_checkout_query(F.invoice_payload.startswith("vpn_stars_"))
-    async def vpn_stars_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
-        await pre_checkout_query.answer(ok=True)
-
-    @router.message(F.successful_payment, F.successful_payment.invoice_payload.startswith("vpn_stars_"))
-    async def vpn_stars_successful_payment(message: Message) -> None:
-        payload = message.successful_payment.invoice_payload
-        raw_id = payload.removeprefix("vpn_stars_")
-        if not raw_id.isdigit():
-            return
-        payment_id = int(raw_id)
-        user = services.users.ensure_telegram_user(**_user_kwargs(message))
-        outcome = await asyncio.to_thread(
-            services.vpn.confirm_stars_payment,
-            user_id=int(user["id"]),
-            payment_id=payment_id,
-            telegram_payment_charge_id=message.successful_payment.telegram_payment_charge_id,
-        )
-        text, kb = render_subscription(outcome.subscription, user=user)
-        await message.answer(text, reply_markup=kb, parse_mode="HTML")
-
         if not is_owner:
             if callback.message:
                 await _screen(
@@ -958,6 +937,27 @@ def create_vpn_router(services: AppServices) -> Router:
                 kb,
             )
         await callback.answer()
+
+    @router.pre_checkout_query(F.invoice_payload.startswith("vpn_stars_"))
+    async def vpn_stars_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
+        await pre_checkout_query.answer(ok=True)
+
+    @router.message(F.successful_payment, F.successful_payment.invoice_payload.startswith("vpn_stars_"))
+    async def vpn_stars_successful_payment(message: Message) -> None:
+        payload = message.successful_payment.invoice_payload
+        raw_id = payload.removeprefix("vpn_stars_")
+        if not raw_id.isdigit():
+            return
+        payment_id = int(raw_id)
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        outcome = await asyncio.to_thread(
+            services.vpn.confirm_stars_payment,
+            user_id=int(user["id"]),
+            payment_id=payment_id,
+            telegram_payment_charge_id=message.successful_payment.telegram_payment_charge_id,
+        )
+        text, kb = render_subscription(outcome.subscription, user=user)
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
     @router.callback_query(F.data.startswith("vpn:demo_pay:"))
     async def confirm_demo_payment(callback: CallbackQuery) -> None:
