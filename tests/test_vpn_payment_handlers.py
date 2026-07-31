@@ -74,7 +74,8 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
                     "vpn:payment:1:platega",
                 )
                 callback.answer.assert_awaited_once_with(
-                    "Выберите новый способ оплаты."
+                    "Выберите новый способ оплаты.",
+                    show_alert=True,
                 )
 
     async def test_platega_order_creation_runs_in_worker_thread(self) -> None:

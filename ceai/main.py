@@ -541,12 +541,12 @@ async def run_webhook(
 
     register_vpn_subscription_delivery_routes(
         app,
-        db=db,
+        db=services.vpn.db,
         settings=settings,
     )
     register_vpn_worker_routes(
         app,
-        db=db,
+        db=services.vpn.db,
         services=services,
         settings=settings,
         on_completed=notify_vpn_ready,
@@ -713,7 +713,13 @@ async def main() -> None:
     db.migrate()
     seed_reference_data(db)
 
-    services = build_services(db, settings)
+    vpn_db = db
+    if settings.vpn_database_url and settings.vpn_database_url != settings.database_url:
+        vpn_db = Database(settings.vpn_database_url)
+        vpn_db.migrate()
+        seed_reference_data(vpn_db)
+
+    services = build_services(db, settings, vpn_db=vpn_db)
     bot = Bot(token=settings.telegram_bot_token)
     await bot.set_my_commands(BOT_COMMANDS)
     await bot.set_my_description(description=BOT_DESCRIPTION)

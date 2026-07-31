@@ -30,12 +30,15 @@ class AppServices:
     vpn: VpnService
 
 
-def build_services(db: Database, settings: Settings) -> AppServices:
+def build_services(
+    db: Database, settings: Settings, vpn_db: Database | None = None
+) -> AppServices:
+    target_vpn_db = vpn_db or db
     provider = AIProviderRouter(settings, db)
     referrals = ReferralService(db)
     return AppServices(
         settings=settings,
-        users=UserService(db),
+        users=UserService(db, vpn_db=target_vpn_db),
         admin=AdminService(db, settings),
         catalog=CatalogService(db),
         subscriptions=SubscriptionService(db),
@@ -73,7 +76,7 @@ def build_services(db: Database, settings: Settings) -> AppServices:
         generations=GenerationService(db, provider),
         text_chats=TextChatService(db),
         vpn=VpnService(
-            db,
+            target_vpn_db,
             server_code=settings.vpn_server_code,
             trial_days=settings.vpn_trial_days,
             allow_admin_demo_payment=settings.vpn_allow_admin_demo_payment,

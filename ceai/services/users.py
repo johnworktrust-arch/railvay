@@ -8,8 +8,9 @@ from ceai.repositories.users import UserRepository
 
 
 class UserService:
-    def __init__(self, db: Database) -> None:
+    def __init__(self, db: Database, vpn_db: Database | None = None) -> None:
         self.db = db
+        self.vpn_db = vpn_db
         self.users = UserRepository()
         self.sessions = BotSessionRepository()
 
@@ -33,7 +34,19 @@ class UserService:
             )
             if self.sessions.get_for_user(conn, user["id"]) is None:
                 self.sessions.set_state(conn, user_id=user["id"], state="idle")
-            return user
+
+        if self.vpn_db is not None and self.vpn_db != self.db:
+            with self.vpn_db.transaction() as vpn_conn:
+                self.users.upsert_telegram_user(
+                    vpn_conn,
+                    telegram_id=telegram_id,
+                    username=username,
+                    first_name=first_name,
+                    last_name=last_name,
+                    language_code=language_code,
+                    explicit_id=int(user["id"]),
+                )
+        return user
 
     def get_session(self, user_id: int) -> Dict[str, Any] | None:
         with self.db.transaction() as conn:

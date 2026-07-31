@@ -91,6 +91,7 @@ class Settings:
     admin_telegram_ids: Tuple[int, ...] = ()
     admin_telegram_usernames: Tuple[str, ...] = ()
     admin_database_url: str = ""
+    vpn_database_url: str = ""
     admin_web_host: str = "127.0.0.1"
     admin_web_port: int = 8090
     admin_web_password: str = ""
@@ -369,6 +370,7 @@ def load_settings() -> Settings:
         admin_telegram_ids=read_int_list("ADMIN_TELEGRAM_IDS"),
         admin_telegram_usernames=read_username_list("ADMIN_TELEGRAM_USERNAMES"),
         admin_database_url=read("ADMIN_DATABASE_URL").strip(),
+        vpn_database_url=read("VPN_DATABASE_URL").strip(),
         admin_web_host=read("ADMIN_WEB_HOST", "127.0.0.1").strip(),
         admin_web_port=read_int("ADMIN_WEB_PORT", 8090),
         admin_web_password=read("ADMIN_WEB_PASSWORD"),
