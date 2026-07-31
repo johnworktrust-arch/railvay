@@ -34,6 +34,43 @@ class VpnBotUiTest(unittest.TestCase):
         )
         self.assertEqual(used.inline_keyboard[0][0].text, "Подключить VPN 🚀")
 
+    def test_user_with_existing_subscription_has_used_trial(self) -> None:
+        from ceai.database import Database
+        from ceai.config import load_settings
+        from ceai.services.app import build_services
+        from ceai.repositories.vpn_subscriptions import VpnSubscriptionRepository
+        from ceai.seed import seed_reference_data
+
+        db = Database("sqlite:///:memory:")
+        db.migrate()
+        seed_reference_data(db)
+        settings = load_settings()
+        services = build_services(db, settings)
+
+        user = services.users.ensure_telegram_user(telegram_id=5555, username="sub_user")
+        user_id = int(user["id"])
+
+        self.assertFalse(services.vpn.has_used_trial(user_id))
+
+        repo = VpnSubscriptionRepository()
+        with db.transaction() as conn:
+            sub = repo.create_provisioning(
+                conn,
+                user_id=user_id,
+                server_id=1,
+                plan_id=1,
+                kind="paid",
+                provider_username="u_5555",
+                starts_at="2026-01-01T00:00:00Z",
+                ends_at="2026-02-01T00:00:00Z",
+            )
+            repo.mark_active(conn, subscription_id=int(sub["id"]), subscription_url="https://sub.test/1")
+            repo.mark_status(conn, subscription_id=int(sub["id"]), status="expired")
+
+        # Now the user has a past expired subscription, so has_used_trial should be True
+        self.assertTrue(services.vpn.has_used_trial(user_id))
+        db.close()
+
     def test_trial_expiry_reminder_shows_time_and_renewal_button(self) -> None:
         now = datetime(2026, 7, 24, 7, 43, tzinfo=timezone.utc)
         text, keyboard = trial_expiry_reminder_screen(

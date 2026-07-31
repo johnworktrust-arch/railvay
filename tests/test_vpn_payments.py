@@ -207,10 +207,8 @@ class VpnPaymentTest(unittest.TestCase):
         services = SimpleNamespace(settings=settings)
         owner_event = SimpleNamespace(from_user=SimpleNamespace(id=9101))
         other_event = SimpleNamespace(from_user=SimpleNamespace(id=9102))
-        self.assertTrue(_admin_demo_authorized(owner_event, services))
-        self.assertFalse(_admin_demo_authorized(other_event, services))
-        settings.vpn_allow_admin_demo_payment = False
         self.assertFalse(_admin_demo_authorized(owner_event, services))
+        self.assertFalse(_admin_demo_authorized(other_event, services))
 
     def test_another_user_cannot_confirm_or_read_order(self) -> None:
         order = self._new_order()

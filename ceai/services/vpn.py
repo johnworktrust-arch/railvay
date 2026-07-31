@@ -179,10 +179,14 @@ class VpnService:
 
         with self.db.transaction() as conn:
             existing_claim = self.trials.get_by_user_id(conn, user_id)
-            if existing_claim is not None:
-                subscription = self.subscriptions.get_by_id(
-                    conn, int(existing_claim["subscription_id"])
+            existing_sub = self.subscriptions.get_latest_for_user(conn, user_id)
+            if existing_claim is not None or existing_sub is not None:
+                sub_id = (
+                    int(existing_claim["subscription_id"])
+                    if existing_claim is not None
+                    else int(existing_sub["id"])
                 )
+                subscription = self.subscriptions.get_by_id(conn, sub_id)
                 if subscription is None:
                     raise RuntimeError("VPN trial points to a missing subscription")
                 return VpnTrialOutcome(
@@ -190,13 +194,6 @@ class VpnService:
                     created=False,
                     trial_already_used=True,
                 )
-
-            live = self.subscriptions.get_live_for_user(conn, user_id)
-            if live is not None:
-                subscription = self.subscriptions.get_by_id(conn, int(live["id"]))
-                if subscription is None:
-                    raise RuntimeError("VPN subscription disappeared")
-                return VpnTrialOutcome(subscription=subscription, created=False)
 
             server = self._require_checkout_ready_server(conn)
 
@@ -1105,7 +1102,11 @@ class VpnService:
 
     def has_used_trial(self, user_id: int) -> bool:
         with self.db.transaction() as conn:
-            return self.trials.get_by_user_id(conn, user_id) is not None
+            if self.trials.get_by_user_id(conn, user_id) is not None:
+                return True
+            if self.subscriptions.get_latest_for_user(conn, user_id) is not None:
+                return True
+        return False
 
     def claim_due_trial_expiry_reminders(
         self,

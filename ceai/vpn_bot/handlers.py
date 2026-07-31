@@ -295,10 +295,7 @@ def _payment_callback_id(data: str | None, prefix: str) -> int | None:
 
 
 def _admin_demo_authorized(event: CallbackQuery, services: AppServices) -> bool:
-    return bool(
-        services.settings.vpn_allow_admin_demo_payment
-        and event.from_user.id in services.settings.vpn_admin_demo_telegram_ids
-    )
+    return False
 
 
 def _format_ends_at(value: Any) -> str:
@@ -646,6 +643,28 @@ def create_vpn_router(services: AppServices) -> Router:
 
     @router.callback_query(F.data == "vpn:trial")
     async def trial(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if services.vpn.has_used_trial(int(user["id"])):
+            if callback.message:
+                await _screen(
+                    callback.message,
+                    "🎁 <b>Пробный период уже использован</b>\n\n"
+                    "Выберите тариф, чтобы подключить VPN.",
+                    InlineKeyboardMarkup(
+                        inline_keyboard=[
+                            [
+                                InlineKeyboardButton(
+                                    text="🚀 Выбрать тариф",
+                                    callback_data="vpn:plans",
+                                )
+                            ],
+                            _back(),
+                        ]
+                    ),
+                )
+            await callback.answer("Пробный период уже использован.", show_alert=False)
+            return
+
         if callback.message:
             channel = _channel_username(services.settings.vpn_channel_url)
             await _screen(
