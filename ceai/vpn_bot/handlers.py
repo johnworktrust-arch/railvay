@@ -814,7 +814,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     "Доступно: <b>до 1 устройства</b>\n"
                     "Оплата: <b>Telegram Stars (⭐)</b>\n"
                     f"Сумма: <b>{price_stars} ⭐</b>\n\n"
-                    "<blockquote>▶ Оплатите заказ и нажмите проверку оплаты</blockquote>\n\n"
+                    "💡 Оплатите заказ и нажмите проверку оплаты\n\n"
                     f"Нажмите «Заплатить ⭐️{price_stars}» ниже. После оплаты подписка выдастся автоматически.",
                     InlineKeyboardMarkup(
                         inline_keyboard=[_back(f"vpn:tariff:{code}")]
