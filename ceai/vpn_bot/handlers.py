@@ -232,9 +232,13 @@ def main_keyboard(
 
 def plans_keyboard() -> InlineKeyboardMarkup:
     rows = [
-        # Show only ruble price; Stars payment is not yet implemented.
-        [InlineKeyboardButton(text=f"{name} — {old}₽", callback_data=f"vpn:tariff:{code}")]
-        for code, (name, old, price) in TARIFFS.items()
+        [
+            InlineKeyboardButton(
+                text=f"{name} — {price_rub}₽ / {price_stars} ⭐️",
+                callback_data=f"vpn:tariff:{code}",
+            )
+        ]
+        for code, (name, price_rub, price_stars) in TARIFFS.items()
     ]
     rows.append(_back())
     return InlineKeyboardMarkup(inline_keyboard=rows)
