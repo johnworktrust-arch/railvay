@@ -157,7 +157,6 @@ def subscription_connect_button(
     return InlineKeyboardButton(
         text="Подключить VPN 🚀",
         url=landing_url,
-        style="primary",
     )
 
 
@@ -579,8 +578,11 @@ def create_vpn_router(services: AppServices) -> Router:
         trial_available = not services.vpn.has_used_trial(user_id)
         await _screen(
             message,
-            "<b>Привет! Я — CEA VPN 🥷</b>\n\nПомогу подключить VPN за пару минут.\n\n"
-            "⚡ Быстрое подключение\n🛡 Защищённое соединение\n🌍 Доступ к нужным сайтам",
+            "Приветствую в <b>CEA VPN</b> 🤗\n\n"
+            "Здесь ты сможешь подключить VPN за пару минут.\n\n"
+            "💎 Безлимитный трафик\n"
+            "🚀 Быстрое подключение\n"
+            "🔗 Доступ к заблокированным сайтам",
             main_keyboard(
                 support_username=services.settings.vpn_support_username,
                 trial_available=trial_available,
