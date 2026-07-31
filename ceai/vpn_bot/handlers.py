@@ -841,56 +841,15 @@ def create_vpn_router(services: AppServices) -> Router:
             await callback.answer("Способ оплаты не найден.", show_alert=True)
             return
 
-        is_owner = _admin_demo_authorized(callback, services)
-        if services.vpn.uses_platega:
-            try:
-                order, _ = await asyncio.to_thread(
-                    services.vpn.create_platega_payment,
-                    user_id=int(user["id"]),
-                    plan_code=plan_code,
-                    user_name=callback.from_user.username or "",
-                )
-            except BusinessRuleError as exc:
-                await callback.answer(str(exc), show_alert=True)
-                return
-            payment_url = str(order.get("payment_url") or "")
-            if not payment_url:
-                await callback.answer(
-                    "Ссылка на оплату ещё создаётся. Нажмите ещё раз.",
-                    show_alert=True,
-                )
-                return
+        if method == "platega":
             if callback.message:
-                order_code = f"CEA-H{int(order['id']):05X}"
-                kb = InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            InlineKeyboardButton(
-                                text="🇷🇺 Оплатить через СБП",
-                                url=payment_url,
-                            )
-                        ],
-                        [
-                            InlineKeyboardButton(
-                                text="✅ Проверить оплату",
-                                callback_data=f"vpn:check:{order['id']}",
-                                style="success",
-                            )
-                        ],
-                        _back(f"vpn:tariff:{code}"),
-                    ]
-                )
                 await _screen(
                     callback.message,
-                    f"📦 <b>Заказ: {order_code}</b>\n\n"
-                    f"VPN: <b>{name}</b>\n"
-                    "Доступно: <b>до 1 устройства</b>\n"
-                    "Оплата: <b>СБП</b>\n"
-                    f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
-                    "<blockquote>▶ Оплатите заказ и нажмите проверку оплаты</blockquote>\n\n"
-                    "Нажмите «Оплатить через СБП». После оплаты подписка выдастся автоматически.\n\n"
-                    "Если оплата уже прошла, но экран не обновился — нажмите «Проверить оплату».",
-                    kb,
+                    "💳 <b>Оплата картой / СБП</b>\n\n"
+                    "Оплата картой временно недоступна. Воспользуйтесь оплатой <b>⭐ Звёздами</b>.",
+                    InlineKeyboardMarkup(
+                        inline_keyboard=[_back(f"vpn:tariff:{code}")]
+                    ),
                 )
             await callback.answer()
             return

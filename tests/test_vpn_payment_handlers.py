@@ -80,37 +80,20 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
                 )
 
     async def test_platega_order_creation_runs_in_worker_thread(self) -> None:
-        create_payment = Mock()
-        order = {
-            "id": 17,
-            "amount_rub": 149,
-            "payment_url": "https://pay.platega.io/order-17",
-        }
-        services = _services(
-            vpn=SimpleNamespace(
-                uses_platega=True,
-                create_platega_payment=create_payment,
-            )
-        )
+        services = _services(vpn=SimpleNamespace())
         payment = _handler(create_vpn_router(services), "payment")
         callback = _callback("vpn:payment:1:platega")
 
-        to_thread = AsyncMock(return_value=(order, True))
-        with patch("ceai.vpn_bot.handlers.asyncio.to_thread", to_thread):
-            await payment(callback)
+        await payment(callback)
 
-        create_payment.assert_not_called()
-        to_thread.assert_awaited_once_with(
-            create_payment,
-            user_id=42,
-            plan_code="vpn-1m",
-            user_name="vpn_user",
-        )
+        callback.message.edit_text.assert_awaited_once()
+        text = callback.message.edit_text.await_args.args[0]
+        keyboard = callback.message.edit_text.await_args.kwargs["reply_markup"]
+        self.assertIn("Оплата картой временно недоступна", text)
+        self.assertEqual(len(keyboard.inline_keyboard), 1)
         self.assertEqual(
-            callback.message.edit_text.await_args.kwargs["reply_markup"]
-            .inline_keyboard[0][0]
-            .url,
-            "https://pay.platega.io/order-17",
+            keyboard.inline_keyboard[0][0].callback_data,
+            "vpn:tariff:1",
         )
 
     async def test_platega_status_check_runs_in_worker_thread(self) -> None:
