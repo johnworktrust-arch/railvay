@@ -672,6 +672,48 @@ def _landing_html(subscription_url: str, *, client: str) -> str:
     )
 
 
+def expired_subscription_response() -> web.Response:
+    remark = "⚠️ Подписка истекла. Продлите в боте"
+    uri = (
+        "vless://00000000-0000-0000-0000-000000000000@127.0.0.1:1"
+        "?type=ws&security=none#"
+        + quote(remark, safe="")
+    )
+    body = base64.b64encode((uri + "\n").encode("utf-8"))
+    headers = {
+        "profile-title": "CEA VPN (Подписка истекла)",
+        "subscription-userinfo": "upload=0; download=0; total=0; expire=0",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "routing-enable": "0",
+    }
+    return web.Response(
+        body=body,
+        content_type="text/plain",
+        charset="utf-8",
+        headers=headers,
+    )
+
+
+def is_subscription_active(subscription: Mapping[str, Any] | None) -> bool:
+    if not subscription:
+        return False
+    status = str(subscription.get("status") or "active")
+    if status != "active":
+        return False
+    ends_at_str = subscription.get("ends_at")
+    if ends_at_str:
+        try:
+            dt = datetime.fromisoformat(str(ends_at_str))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            if dt <= datetime.now(timezone.utc):
+                return False
+        except Exception:
+            return False
+    return True
+
+
 def register_vpn_subscription_delivery_routes(
     app: web.Application,
     *,
@@ -681,15 +723,15 @@ def register_vpn_subscription_delivery_routes(
     profiles = parse_extra_profiles(settings.vpn_extra_profiles_json)
     repository = VpnSubscriptionRepository()
 
-    def resolve(token: str) -> dict[str, Any]:
+    def resolve(token: str, *, allow_inactive: bool = False) -> dict[str, Any] | None:
         match = TOKEN_RE.fullmatch(token)
         if match is None:
-            raise web.HTTPNotFound()
+            return None
         subscription_id = int(match.group("id"))
         with db.transaction() as conn:
             subscription = repository.get_by_id(conn, subscription_id)
         if subscription is None:
-            raise web.HTTPNotFound()
+            return None
         secret = settings.vpn_delivery_signing_secret
         expected = _signature(
             subscription_id,
@@ -699,11 +741,16 @@ def register_vpn_subscription_delivery_routes(
         if len(secret.encode("utf-8")) < 32 or not hmac.compare_digest(
             expected, match.group("signature")
         ):
-            raise web.HTTPNotFound()
+            return None
+        if not allow_inactive and not is_subscription_active(subscription):
+            return None
         return subscription
 
     async def merged_subscription(request: web.Request) -> web.Response:
-        subscription = resolve(request.match_info["token"])
+        token = request.match_info["token"]
+        subscription = resolve(token)
+        if subscription is None:
+            return expired_subscription_response()
         upstream_url = str(subscription.get("subscription_url") or "")
         parsed = urlsplit(upstream_url)
         if (
@@ -715,45 +762,43 @@ def register_vpn_subscription_delivery_routes(
             or parsed.query
             or parsed.fragment
         ):
-            raise web.HTTPServiceUnavailable(text="VPN subscription is unavailable")
+            return expired_subscription_response()
         timeout = ClientTimeout(total=15, connect=5)
-        async with ClientSession(timeout=timeout) as session:
-            async with session.get(
-                upstream_url,
-                headers={"Accept": "text/plain", "Accept-Encoding": "identity"},
-                allow_redirects=False,
-            ) as upstream:
-                body = await upstream.read()
-                if upstream.status != 200 or len(body) > 512 * 1024:
-                    raise web.HTTPBadGateway(text="VPN subscription is unavailable")
-                headers = {
-                    name: upstream.headers[name]
-                    for name in FORWARDED_HEADERS
-                    if name in upstream.headers
-                }
-            replica_profiles = replica_ready_extra_profiles(
-                db,
-                repository,
-                profiles,
-                subscription_id=int(subscription["id"]),
-                worker_health_max_age_seconds=(
-                    settings.vpn_worker_health_max_age_seconds
-                ),
-            )
-            eligible_profiles = await qualified_extra_profiles(
-                session,
-                replica_profiles,
-            )
         try:
+            async with ClientSession(timeout=timeout) as session:
+                async with session.get(
+                    upstream_url,
+                    headers={"Accept": "text/plain", "Accept-Encoding": "identity"},
+                    allow_redirects=False,
+                ) as upstream:
+                    body = await upstream.read()
+                    if upstream.status != 200 or len(body) > 512 * 1024:
+                        return expired_subscription_response()
+                    headers = {
+                        name: upstream.headers[name]
+                        for name in FORWARDED_HEADERS
+                        if name in upstream.headers
+                    }
+                replica_profiles = replica_ready_extra_profiles(
+                    db,
+                    repository,
+                    profiles,
+                    subscription_id=int(subscription["id"]),
+                    worker_health_max_age_seconds=(
+                        settings.vpn_worker_health_max_age_seconds
+                    ),
+                )
+                eligible_profiles = await qualified_extra_profiles(
+                    session,
+                    replica_profiles,
+                )
             merged = merge_subscription_profiles(
                 body,
                 provider_uuid=str(subscription.get("provider_uuid") or ""),
                 profiles=eligible_profiles,
             )
-        except ValueError as exc:
-            raise web.HTTPBadGateway(
-                text="VPN subscription is unavailable"
-            ) from exc
+        except Exception:
+            return expired_subscription_response()
         headers.update(
             {
                 "Cache-Control": "no-store",
@@ -769,7 +814,9 @@ def register_vpn_subscription_delivery_routes(
         )
 
     async def landing(request: web.Request) -> web.Response:
-        subscription = resolve(request.match_info["token"])
+        subscription = resolve(request.match_info["token"], allow_inactive=True)
+        if subscription is None:
+            raise web.HTTPNotFound()
         subscription_url = delivery_subscription_url(subscription, settings)
         client = request.match_info["client"]
         if client == "connect":
@@ -793,6 +840,8 @@ def register_vpn_subscription_delivery_routes(
 __all__ = [
     "delivery_base_url",
     "delivery_subscription_url",
+    "expired_subscription_response",
+    "is_subscription_active",
     "merge_subscription_profiles",
     "parse_extra_profiles",
     "qualification_profile_fingerprint",
