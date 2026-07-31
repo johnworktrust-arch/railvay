@@ -32,10 +32,10 @@ from ceai.vpn_subscription_delivery import (
 
 # (name, display_price_rub, stars_price) — stars_price kept for future use
 TARIFFS = {
-    "1": ("1 месяц", 189, 149),
-    "3": ("3 месяца", 479, 399),
-    "6": ("6 месяцев", 790, 649),
-    "12": ("1 год", 1290, 999),
+    "1": ("1 месяц", 199, 149),
+    "3": ("3 месяца", 499, 399),
+    "6": ("6 месяцев", 899, 649),
+    "12": ("1 год", 1390, 999),
 }
 
 VPN_PLAN_CODES = {
