@@ -805,6 +805,22 @@ def create_vpn_router(services: AppServices) -> Router:
                 await callback.answer(str(exc), show_alert=True)
                 return
 
+            if callback.message:
+                order_code = f"CEA-H{int(order['id']):05X}"
+                await _screen(
+                    callback.message,
+                    f"📦 <b>Заказ: {order_code}</b>\n\n"
+                    f"VPN: <b>{name}</b>\n"
+                    "Доступно: <b>до 1 устройства</b>\n"
+                    "Оплата: <b>Telegram Stars (⭐)</b>\n"
+                    f"Сумма: <b>{price_stars} ⭐</b>\n\n"
+                    "<blockquote>▶ Оплатите заказ и нажмите проверку оплаты</blockquote>\n\n"
+                    f"Нажмите «Заплатить ⭐️{price_stars}» ниже. После оплаты подписка выдастся автоматически.",
+                    InlineKeyboardMarkup(
+                        inline_keyboard=[_back(f"vpn:tariff:{code}")]
+                    ),
+                )
+
             try:
                 await callback.bot.send_invoice(
                     chat_id=callback.from_user.id,
