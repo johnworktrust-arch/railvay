@@ -30,6 +30,7 @@ from ceai.vpn_subscription_delivery import (
 )
 
 
+# (name, display_price_rub, stars_price) — stars_price kept for future use
 TARIFFS = {
     "1": ("1 месяц", 189, 149),
     "3": ("3 месяца", 479, 399),
@@ -61,8 +62,15 @@ def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
 async def _screen(message: Message, text: str, keyboard: InlineKeyboardMarkup) -> None:
     try:
         await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
-    except Exception:
-        await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+    except Exception as _exc:
+        # MessageNotModified is harmless; other errors fall back to a new message.
+        _msg = str(_exc).lower()
+        if "message is not modified" not in _msg:
+            logging.debug("edit_text failed, falling back to answer: %s", _exc)
+        try:
+            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+        except Exception:
+            logging.exception("_screen answer fallback also failed")
 
 
 def _back(callback_data: str = "vpn:main") -> list[InlineKeyboardButton]:
@@ -225,7 +233,8 @@ def main_keyboard(
 
 def plans_keyboard() -> InlineKeyboardMarkup:
     rows = [
-        [InlineKeyboardButton(text=f"{name} – {old}₽ / {price} ⭐", callback_data=f"vpn:tariff:{code}")]
+        # Show only ruble price; Stars payment is not yet implemented.
+        [InlineKeyboardButton(text=f"{name} — {old}₽", callback_data=f"vpn:tariff:{code}")]
         for code, (name, old, price) in TARIFFS.items()
     ]
     rows.append(_back())
@@ -261,9 +270,10 @@ def trial_keyboard(channel_url: str) -> InlineKeyboardMarkup:
 
 
 def _channel_username(channel_url: str) -> str:
+    """Return @username from a t.me URL, a bare username, or an @-prefixed name."""
     value = channel_url.strip().rstrip("/")
     if value.startswith("@"):
-        return value
+        return "@" + value.lstrip("@")  # normalise: avoid double-@
     if "t.me/" in value:
         return "@" + value.rsplit("/", 1)[-1].lstrip("@")
     return value
@@ -402,12 +412,14 @@ def subscription_screen(
     subscription_base_url: str,
     user: Dict[str, Any] | None = None,
     balance_kopecks: int = 0,
+    trial_available: bool = False,
 ) -> tuple[str, InlineKeyboardMarkup]:
     if subscription is None or subscription.get("status") in {"expired", "disabled"}:
+        hint = "Подключите бесплатные 3 дня или выберите тариф." if trial_available else "Выберите тариф, чтобы подключить VPN."
         return (
             "👤 <b>Моя подписка</b>\n\n"
             "Статус: ❌ <b>Нет активной подписки</b>\n\n"
-            "Подключите бесплатные 3 дня или выберите тариф.",
+            + hint,
             InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
@@ -429,7 +441,25 @@ def subscription_screen(
         )
 
     status = str(subscription.get("status") or "")
-    if status in {"provisioning", "error"}:
+    if status == "error":
+        text = (
+            "👤 <b>Моя подписка</b>\n\n"
+            "Статус: ❌ <b>Ошибка подключения</b>\n\n"
+            "При создании VPN произошла ошибка. Напишите в поддержку — "
+            "мы разберёмся и восстановим доступ."
+        )
+        return text, InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🆘 Поддержка",
+                        url=f"https://t.me/{support_username}",
+                    )
+                ],
+                _back(),
+            ]
+        )
+    if status == "provisioning":
         text = (
             "👤 <b>Моя подписка</b>\n\n"
             "Статус: ⏳ <b>Подключаем VPN</b>\n\n"
@@ -438,6 +468,12 @@ def subscription_screen(
         )
         return text, InlineKeyboardMarkup(
             inline_keyboard=[
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Обновить статус",
+                        callback_data="vpn:subscription",
+                    )
+                ],
                 [
                     InlineKeyboardButton(
                         text="🆘 Поддержка",
@@ -488,6 +524,18 @@ def subscription_screen(
     )
     balance = format_rubles_from_kopecks(max(0, int(balance_kopecks)))
 
+    # Add copy-link and renew buttons
+    rows.append(
+        [
+            InlineKeyboardButton(
+                text="🔄 Продлить подписку",
+                callback_data="vpn:plans",
+            )
+        ]
+    )
+    if subscription_url:
+        rows.append([subscription_copy_button(subscription_url)])
+
     return (
         "👤 <b>Профиль:</b>\n"
         "<blockquote>"
@@ -495,8 +543,6 @@ def subscription_screen(
         f"🆔 <b>ID:</b> {escape(telegram_id_text)}\n"
         f"💳 <b>Баланс:</b> {escape(balance)}"
         "</blockquote>\n"
-        "🔑 <b>Ваша подписка:</b>\n"
-        f"<code>{escape(subscription_url)}</code>\n\n"
         "📦 <b>Информация о тарифе:</b>\n"
         "<blockquote>"
         f"💎 <b>Тариф:</b> {escape(str(plan_name))}\n"
@@ -514,10 +560,11 @@ def _referral_text(user: Dict[str, Any], stats: Any, bot_username: str) -> str:
     username = bot_username or "your_vpn_bot"
     link = f"https://t.me/{username}?start=ref_{code}"
     minimum = format_rubles_from_kopecks(stats.withdrawal_min_kopecks).replace(" ₽", "₽")
+    example_earned = int(1000 * stats.rate_percent / 100)
     return (
         f"👥 <b>Приглашайте друзей и зарабатывайте {stats.rate_percent}% с каждого пополнения!</b>\n\n"
-        "Например:\n<blockquote>— Друзья перешли по вашей ссылке и потратили 1000₽\n"
-        "— Вы получаете 300.0₽ и выводите на КАРТУ!</blockquote>\n\n"
+        f"Например:\n<blockquote>— Друзья перешли по вашей ссылке и потратили 1000₽\n"
+        f"— Вы получаете {example_earned}₽ и выводите на карту!</blockquote>\n\n"
         "📊 <b>Ваша статистика:</b>\n<blockquote>"
         f"— Приглашено: {stats.invited_count}\n"
         f"— Баланс: {escape(format_rubles_from_kopecks(stats.balance_kopecks))}\n"
@@ -537,6 +584,7 @@ def create_vpn_router(services: AppServices) -> Router:
         *,
         user: Dict[str, Any] | None = None,
         balance_kopecks: int = 0,
+        trial_available: bool = False,
     ) -> tuple[str, InlineKeyboardMarkup]:
         return subscription_screen(
             with_delivery_subscription(subscription, services.settings),
@@ -547,6 +595,7 @@ def create_vpn_router(services: AppServices) -> Router:
             ),
             user=user,
             balance_kopecks=balance_kopecks,
+            trial_available=trial_available,
         )
 
     async def show_main(message: Message, *, user_id: int) -> None:
@@ -588,7 +637,7 @@ def create_vpn_router(services: AppServices) -> Router:
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="📄 Публичная оферта", url=services.settings.public_offer_url),
                  InlineKeyboardButton(text="🔒 Политика конфиденциальности", url=services.settings.privacy_policy_url)],
-                [InlineKeyboardButton(text="🎟 Ввести промокод", callback_data="vpn:promo")],
+                # Promo codes not yet implemented — button hidden until ready.
                 [InlineKeyboardButton(text="🆘 Написать в поддержку", url=f"https://t.me/{services.settings.vpn_support_username}")],
                 _back(),
             ])
@@ -605,11 +654,13 @@ def create_vpn_router(services: AppServices) -> Router:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         current = services.vpn.get_current_subscription(int(user["id"]))
         referral_stats = services.referrals.stats(int(user["id"]))
+        trial_available = not services.vpn.has_used_trial(int(user["id"]))
         if callback.message:
             text, kb = render_subscription(
                 current,
                 user=user,
                 balance_kopecks=referral_stats.balance_kopecks,
+                trial_available=trial_available,
             )
             await _screen(callback.message, text, kb)
         await callback.answer()
@@ -652,15 +703,12 @@ def create_vpn_router(services: AppServices) -> Router:
             except BusinessRuleError as exc:
                 await callback.answer(str(exc), show_alert=True)
                 return
-            current = services.vpn.get_current_subscription(int(user["id"]))
+            sub = outcome.subscription
+            trial_expired = outcome.trial_already_used and str(
+                sub.get("status") or ""
+            ) in {"expired", "disabled"}
             if callback.message:
-                text, kb = render_subscription(
-                    current or outcome.subscription,
-                    user=user,
-                )
-                if outcome.trial_already_used and (current or outcome.subscription).get(
-                    "status"
-                ) in {"expired", "disabled"}:
+                if trial_expired:
                     text = (
                         "🎁 <b>Пробный период уже использован</b>\n\n"
                         "Выберите тариф, чтобы снова подключить VPN."
@@ -676,8 +724,13 @@ def create_vpn_router(services: AppServices) -> Router:
                             _back(),
                         ]
                     )
+                else:
+                    text, kb = render_subscription(sub, user=user)
                 await _screen(callback.message, text, kb)
-            await callback.answer("Подписка подтверждена — подключаем VPN.")
+            if trial_expired:
+                await callback.answer("Пробный период уже использован.", show_alert=False)
+            else:
+                await callback.answer("Подписка подтверждена — подключаем VPN.")
         else:
             await callback.answer(
                 "Подписка не найдена. Подпишитесь на канал и попробуйте ещё раз.",
@@ -710,7 +763,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 "Покупка VPN\n\n"
                 f"Тариф: <b>{name}</b>\n"
                 "Доступно: <b>1 устройство</b>\n"
-                f"К оплате: <b>{old}₽ / {price} ⭐</b>\n\n"
+                f"К оплате: <b>{old}₽</b>\n\n"
                 "<blockquote>▶ Выбери способ оплаты</blockquote>",
                 payment_keyboard(code),
             )
@@ -737,12 +790,12 @@ def create_vpn_router(services: AppServices) -> Router:
                     "Покупка VPN\n\n"
                     f"Тариф: <b>{name}</b>\n"
                     "Доступно: <b>1 устройство</b>\n"
-                    f"К оплате: <b>{old}₽ / {price} ⭐</b>\n\n"
+                    f"К оплате: <b>{old}₽</b>\n\n"
                     "<blockquote>▶ Способы оплаты обновились. "
                     "Выберите оплату через Platega.</blockquote>",
                     payment_keyboard(code),
                 )
-            await callback.answer("Выберите новый способ оплаты.")
+            await callback.answer("Выберите новый способ оплаты.", show_alert=True)
             return
         if method not in labels:
             await callback.answer("Способ оплаты не найден.", show_alert=True)
@@ -792,9 +845,9 @@ def create_vpn_router(services: AppServices) -> Router:
                     f"📦 <b>Заказ: CEA-{int(order['id']):06d}</b>\n\n"
                     f"VPN: <b>{name}</b>\n"
                     "Доступно: <b>1 устройство</b>\n"
-                    f"Оплата: <b>{labels[method]}</b>\n"
+                    f"Способ оплаты: <b>{labels[method]}</b>\n"
                     f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
-                    "<blockquote>▶ Оплатите заказ и нажмите проверку</blockquote>\n\n"
+                    "<blockquote>▶ Оплатите заказ и нажмите «Проверить оплату»</blockquote>\n\n"
                     "VPN будет выдан автоматически только после подтверждения "
                     "оплаты платёжной системой.",
                     kb,
