@@ -487,27 +487,7 @@ def subscription_screen(
     plan_name = subscription.get("plan_name") or "3 бесплатных дня"
     max_devices = int(subscription.get("plan_max_devices") or 1)
     ends_at = _format_ends_at(subscription["ends_at"])
-    rows: list[list[InlineKeyboardButton]] = []
     subscription_url = str(subscription.get("subscription_url") or "")
-    if connect_landing_url(subscription_url, subscription_base_url):
-        rows.append(
-            [
-                subscription_connect_button(
-                    subscription_url, subscription_base_url
-                )
-            ]
-        )
-    rows.extend(
-        [
-            [
-                InlineKeyboardButton(
-                    text="🆘 Поддержка",
-                    url=f"https://t.me/{support_username}",
-                )
-            ],
-            _back(),
-        ]
-    )
 
     profile = user or {}
     display_name = (
@@ -522,33 +502,30 @@ def subscription_screen(
     telegram_id_text = (
         str(telegram_id) if telegram_id is not None else "не указан"
     )
-    balance = format_rubles_from_kopecks(max(0, int(balance_kopecks)))
 
-    # Add copy-link and renew buttons
+    # Logical button order: primary action → renew → support → back
+    rows: list[list[InlineKeyboardButton]] = []
+    if connect_landing_url(subscription_url, subscription_base_url):
+        rows.append(
+            [subscription_connect_button(subscription_url, subscription_base_url)]
+        )
     rows.append(
-        [
-            InlineKeyboardButton(
-                text="🔄 Продлить подписку",
-                callback_data="vpn:plans",
-            )
-        ]
+        [InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="vpn:plans")]
     )
-    if subscription_url:
-        rows.append([subscription_copy_button(subscription_url)])
+    rows.append(
+        [InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{support_username}")]
+    )
+    rows.append(_back())
 
     return (
-        "👤 <b>Профиль:</b>\n"
+        "👤 <b>Моя подписка:</b>\n"
         "<blockquote>"
-        f"📝 <b>Имя:</b> {escape(display_name)}\n"
-        f"🆔 <b>ID:</b> {escape(telegram_id_text)}\n"
-        f"💳 <b>Баланс:</b> {escape(balance)}"
-        "</blockquote>\n"
-        "📦 <b>Информация о тарифе:</b>\n"
-        "<blockquote>"
-        f"💎 <b>Тариф:</b> {escape(str(plan_name))}\n"
-        f"📱 <b>Лимит устройств:</b> {max_devices}"
-        "</blockquote>\n"
-        f"📅 <b>Срок действия:</b> {escape(ends_at)} (МСК)\n\n"
+        f"📝 Имя: {escape(display_name)}\n"
+        f"🆔 ID: {escape(telegram_id_text)}\n"
+        f"💎 Тариф: {escape(str(plan_name))}\n"
+        f"📱 Лимит устройств: {max_devices}\n"
+        f"📅 Срок действия: {escape(ends_at)} (МСК)"
+        "</blockquote>\n\n"
         "💡 Нажмите «Подключить VPN» — откроется персональная "
         "инструкция для вашего устройства.",
         InlineKeyboardMarkup(inline_keyboard=rows),

@@ -36,7 +36,6 @@ from ceai.bot.handlers import create_router
 from ceai.vpn_bot.handlers import (
     create_vpn_router,
     happ_subscription_instructions,
-    subscription_copy_button,
     subscription_open_button,
     subscription_v2box_button,
     trial_expiry_reminder_screen,
@@ -523,9 +522,6 @@ async def run_webhook(
                                 subscription_url,
                                 subscription_base_url,
                             )
-                        ],
-                        [
-                            subscription_copy_button(subscription_url)
                         ],
                         [
                             InlineKeyboardButton(
