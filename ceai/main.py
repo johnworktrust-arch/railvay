@@ -37,6 +37,7 @@ from ceai.vpn_bot.handlers import (
     create_vpn_router,
     happ_subscription_instructions,
     subscription_open_button,
+    subscription_screen,
     subscription_v2box_button,
     trial_expiry_reminder_screen,
 )
@@ -490,51 +491,36 @@ async def run_webhook(
     register_platega_routes(app, settings=settings, services=services, bot=bot)
     register_vpn_platega_routes(app, settings=settings, services=services)
 
+    notified_subscription_ids: set[int] = set()
+
     async def notify_vpn_ready(completion) -> None:
-        if vpn_bot is None or completion.operation == "disable":
+        if vpn_bot is None or completion.operation != "create":
             return
-        subscription_url = delivery_subscription_url(
-            completion.subscription, settings
-        )
-        if not subscription_url:
+        sub_id = int(completion.subscription.get("id") or 0)
+        if sub_id <= 0 or sub_id in notified_subscription_ids:
             return
+        notified_subscription_ids.add(sub_id)
+
         subscription_base_url = (
             delivery_base_url(settings) or settings.vpn_subscription_base_url
+        )
+        user = services.users.get_by_telegram_id(completion.telegram_id)
+        sub = dict(completion.subscription)
+        sub = with_delivery_subscription(sub, settings) or sub
+        text, keyboard = subscription_screen(
+            sub,
+            support_username=settings.vpn_support_username,
+            subscription_base_url=subscription_base_url,
+            user=user,
         )
         try:
             await vpn_bot.send_message(
                 chat_id=completion.telegram_id,
-                text=(
-                    "✅ <b>VPN готов!</b>\n\n"
-                    "Ссылка персональная — не передавайте её другим.\n\n"
-                    f"{happ_subscription_instructions()}"
-                ),
-                reply_markup=InlineKeyboardMarkup(
-                    inline_keyboard=[
-                        [
-                            subscription_open_button(
-                                subscription_url,
-                                subscription_base_url,
-                            )
-                        ],
-                        [
-                            subscription_v2box_button(
-                                subscription_url,
-                                subscription_base_url,
-                            )
-                        ],
-                        [
-                            InlineKeyboardButton(
-                                text="👤 Моя подписка",
-                                callback_data="vpn:subscription",
-                            )
-                        ],
-                    ]
-                ),
+                text=text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
             )
         except Exception:
-            # The job is already committed; a Telegram delivery failure must not
-            # make the worker repeat the provisioning result.
             logging.exception(
                 "Could not notify Telegram user that VPN provisioning completed"
             )

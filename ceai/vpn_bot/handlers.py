@@ -410,12 +410,35 @@ def subscription_screen(
     balance_kopecks: int = 0,
     trial_available: bool = False,
 ) -> tuple[str, InlineKeyboardMarkup]:
+    profile = user or {}
+    display_name = (
+        str(profile.get("first_name") or "").strip()
+        or (
+            f"@{str(profile.get('username')).lstrip('@')}"
+            if profile.get("username")
+            else "Пользователь"
+        )
+    )
+    telegram_id = profile.get("telegram_id")
+    telegram_id_text = (
+        str(telegram_id) if telegram_id is not None else "не указан"
+    )
+
+    user_info_block = (
+        "<blockquote>"
+        f"📝 Имя: {escape(display_name)}\n"
+        f"🆔 ID: {escape(telegram_id_text)}"
+        "</blockquote>"
+    )
+
     if subscription is None or subscription.get("status") in {"expired", "disabled"}:
-        hint = "Подключите бесплатные 3 дня или выберите тариф." if trial_available else "Выберите тариф, чтобы подключить VPN."
+        sub_info_block = "<blockquote>❌ Статус: <b>Нет активной подписки</b></blockquote>"
+        footer_text = "💡 Нажмите «Подключить VPN» — выберите тариф для подключения."
         return (
-            "👤 <b>Моя подписка</b>\n\n"
-            "Статус: ❌ <b>Нет активной подписки</b>\n\n"
-            + hint,
+            f"👤 <b>Моя подписка:</b>\n\n"
+            f"{user_info_block}\n\n"
+            f"{sub_info_block}\n\n"
+            f"{footer_text}",
             InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
@@ -438,72 +461,54 @@ def subscription_screen(
 
     status = str(subscription.get("status") or "")
     if status == "error":
-        text = (
-            "👤 <b>Моя подписка</b>\n\n"
-            "Статус: ❌ <b>Ошибка подключения</b>\n\n"
-            "При создании VPN произошла ошибка. Напишите в поддержку — "
-            "мы разберёмся и восстановим доступ."
-        )
-        return text, InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🆘 Поддержка",
-                        url=f"https://t.me/{support_username}",
-                    )
-                ],
-                _back(),
-            ]
-        )
-    if status == "provisioning":
-        text = (
-            "👤 <b>Моя подписка</b>\n\n"
-            "Статус: ⏳ <b>Подключаем VPN</b>\n\n"
-            "Сервер создаёт персональные настройки. Обычно это занимает "
-            "до одной минуты; бот пришлёт их автоматически."
-        )
-        return text, InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="🔄 Обновить статус",
-                        callback_data="vpn:subscription",
-                    )
-                ],
-                [
-                    InlineKeyboardButton(
-                        text="🆘 Поддержка",
-                        url=f"https://t.me/{support_username}",
-                    )
-                ],
-                _back(),
-            ]
+        sub_info_block = "<blockquote>❌ Статус: <b>Ошибка подключения</b></blockquote>"
+        footer_text = "При создании VPN произошла ошибка. Напишите в поддержку — мы разберёмся и восстановим доступ."
+        return (
+            f"👤 <b>Моя подписка:</b>\n\n"
+            f"{user_info_block}\n\n"
+            f"{sub_info_block}\n\n"
+            f"{footer_text}",
+            InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="🆘 Поддержка",
+                            url=f"https://t.me/{support_username}",
+                        )
+                    ],
+                    _back(),
+                ]
+            ),
         )
 
-    plan_name = subscription.get("plan_name") or "3 бесплатных дня"
+    kind = str(subscription.get("kind") or "")
+    raw_plan_name = str(subscription.get("plan_name") or "")
+    if kind == "trial" or raw_plan_name in {"3 бесплатных дня", "Пробная подписка"}:
+        plan_name = "Пробная подписка"
+    else:
+        plan_name = raw_plan_name or "30 дней"
+
     max_devices = int(subscription.get("plan_max_devices") or 1)
     ends_at = _format_ends_at(subscription["ends_at"])
     subscription_url = str(subscription.get("subscription_url") or "")
 
-    profile = user or {}
-    display_name = (
-        str(profile.get("first_name") or "").strip()
-        or (
-            f"@{str(profile.get('username')).lstrip('@')}"
-            if profile.get("username")
-            else "Пользователь"
-        )
+    sub_info_block = (
+        "<blockquote>"
+        f"💎 Тариф: {escape(plan_name)}\n"
+        f"📱 Лимит устройств: {max_devices}\n"
+        f"📅 Срок действия: {escape(ends_at)} (МСК)"
+        "</blockquote>"
     )
-    telegram_id = profile.get("telegram_id")
-    telegram_id_text = (
-        str(telegram_id) if telegram_id is not None else "не указан"
-    )
+    footer_text = "💡 Нажмите «Подключить VPN» — откроется персональная инструкция для вашего устройства."
 
-    # Logical button order: primary action → renew → support → back
     rows: list[list[InlineKeyboardButton]] = []
     if connect_landing_url(subscription_url, subscription_base_url):
         rows.append(
             [subscription_connect_button(subscription_url, subscription_base_url)]
+        )
+    else:
+        rows.append(
+            [InlineKeyboardButton(text="Подключить VPN 🚀", callback_data="vpn:subscription", style="primary")]
         )
     rows.append(
         [InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="vpn:plans")]
@@ -514,16 +519,10 @@ def subscription_screen(
     rows.append(_back())
 
     return (
-        "👤 <b>Моя подписка:</b>\n"
-        "<blockquote>"
-        f"📝 Имя: {escape(display_name)}\n"
-        f"🆔 ID: {escape(telegram_id_text)}\n"
-        f"💎 Тариф: {escape(str(plan_name))}\n"
-        f"📱 Лимит устройств: {max_devices}\n"
-        f"📅 Срок действия: {escape(ends_at)} (МСК)"
-        "</blockquote>\n\n"
-        "💡 Нажмите «Подключить VPN» — откроется персональная "
-        "инструкция для вашего устройства.",
+        f"👤 <b>Моя подписка:</b>\n\n"
+        f"{user_info_block}\n\n"
+        f"{sub_info_block}\n\n"
+        f"{footer_text}",
         InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
