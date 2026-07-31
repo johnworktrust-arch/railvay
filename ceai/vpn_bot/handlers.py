@@ -247,8 +247,6 @@ def plans_keyboard() -> InlineKeyboardMarkup:
 
 
 def payment_keyboard(code: str) -> InlineKeyboardMarkup:
-    tariff_data = TARIFFS.get(code)
-    price_stars = tariff_data[2] if tariff_data else 169
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
@@ -259,7 +257,7 @@ def payment_keyboard(code: str) -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(
-                    text=f"⭐ Оплатить звездами ({price_stars} ⭐)",
+                    text="⭐ Оплатить звездами",
                     callback_data=f"vpn:payment:{code}:stars",
                 )
             ],
