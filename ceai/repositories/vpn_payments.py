@@ -12,9 +12,10 @@ from ceai.time_utils import iso_now
 
 ADMIN_DEMO_PROVIDER = "admin_demo"
 PLATEGA_PROVIDER = "platega"
+STARS_PROVIDER = "telegram_stars"
 RUB_CURRENCY = "RUB"
 
-_SUPPORTED_PROVIDERS = frozenset({ADMIN_DEMO_PROVIDER, PLATEGA_PROVIDER})
+_SUPPORTED_PROVIDERS = frozenset({ADMIN_DEMO_PROVIDER, PLATEGA_PROVIDER, STARS_PROVIDER})
 _PROVIDER_TERMINAL_TRANSITIONS = {
     "failed": frozenset({"pending"}),
     "cancelled": frozenset({"pending"}),
@@ -90,6 +91,69 @@ class VpnPaymentRepository:
             raise RuntimeError("Could not load pending VPN admin demo payment")
         # A pending order is an immutable price/duration snapshot. If the plan
         # changes later, the existing order keeps the terms shown to the user.
+        return payment, False
+
+    def create_or_get_pending_stars(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        user_id: int,
+        plan_id: int,
+        amount_rub: int,
+        duration_days: int,
+        payment_method: str = "stars",
+    ) -> Tuple[Dict[str, Any], bool]:
+        method = self._normalize_payment_method(payment_method)
+        self._validate_snapshot(
+            user_id=user_id,
+            plan_id=plan_id,
+            amount_rub=amount_rub,
+            duration_days=duration_days,
+        )
+        now = iso_now()
+        external_id = f"vpn_stars_{secrets.token_urlsafe(18)}"
+        cursor = conn.execute(
+            """
+            INSERT INTO vpn_payments (
+                user_id, vpn_plan_id, vpn_subscription_id,
+                provider, external_id, payment_method, status,
+                amount_rub, duration_days, currency,
+                created_at, updated_at, paid_at
+            )
+            VALUES (
+                ?, ?, NULL, 'telegram_stars', ?, ?, 'pending', ?, ?,
+                'RUB', ?, ?, NULL
+            )
+            ON CONFLICT DO NOTHING
+            RETURNING id
+            """,
+            (
+                user_id,
+                plan_id,
+                external_id,
+                method,
+                amount_rub,
+                duration_days,
+                now,
+                now,
+            ),
+        )
+        row = cursor.fetchone()
+        if row is not None:
+            payment = self.get_by_id(conn, int(row["id"]))
+            if payment is None:
+                raise RuntimeError("Could not create VPN stars payment")
+            return payment, True
+
+        payment = self._get_pending_for_terms(
+            conn,
+            user_id=user_id,
+            plan_id=plan_id,
+            provider="telegram_stars",
+            payment_method=method,
+        )
+        if payment is None:
+            raise RuntimeError("Could not load pending VPN stars payment")
         return payment, False
 
     def create_or_get_pending_platega(

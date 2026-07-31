@@ -26,6 +26,7 @@ def _callback(data: str):
             language_code="ru",
         ),
         message=SimpleNamespace(edit_text=AsyncMock(), answer=AsyncMock()),
+        bot=SimpleNamespace(send_invoice=AsyncMock()),
         answer=AsyncMock(),
     )
 
@@ -56,7 +57,7 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
         )
         payment = _handler(create_vpn_router(services), "payment")
 
-        for method in ("sbp", "card", "crypto", "stars", "other"):
+        for method in ("sbp", "card", "crypto", "other"):
             with self.subTest(method=method):
                 callback = _callback(f"vpn:payment:1:{method}")
 
@@ -144,6 +145,25 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
         callback.answer.assert_awaited_once()
         self.assertTrue(callback.answer.await_args.kwargs["show_alert"])
         self.assertIn("Оплата ещё не подтверждена", callback.answer.await_args.args[0])
+
+    async def test_stars_payment_sends_invoice(self) -> None:
+        create_stars_payment = Mock(return_value={"id": 88, "provider": "telegram_stars"})
+        services = _services(
+            vpn=SimpleNamespace(
+                create_stars_payment=create_stars_payment,
+            )
+        )
+        payment = _handler(create_vpn_router(services), "payment")
+        callback = _callback("vpn:payment:1:stars")
+
+        to_thread = AsyncMock(return_value={"id": 88})
+        with patch("ceai.vpn_bot.handlers.asyncio.to_thread", to_thread):
+            await payment(callback)
+
+        callback.bot.send_invoice.assert_awaited_once()
+        kwargs = callback.bot.send_invoice.await_args.kwargs
+        self.assertEqual(kwargs["currency"], "XTR")
+        self.assertEqual(kwargs["payload"], "vpn_stars_88")
 
 
 if __name__ == "__main__":

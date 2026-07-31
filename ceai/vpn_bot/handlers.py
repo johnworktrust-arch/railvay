@@ -18,7 +18,9 @@ from aiogram.types import (
     CopyTextButton,
     InlineKeyboardButton,
     InlineKeyboardMarkup,
+    LabeledPrice,
     Message,
+    PreCheckoutQuery,
 )
 
 from ceai.services.app import AppServices
@@ -45,7 +47,7 @@ VPN_PLAN_CODES = {
     "12": "vpn-12m",
 }
 
-LEGACY_PAYMENT_METHODS = frozenset({"sbp", "card", "crypto", "stars", "other"})
+LEGACY_PAYMENT_METHODS = frozenset({"sbp", "card", "crypto", "other"})
 
 
 def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
@@ -245,16 +247,25 @@ def plans_keyboard() -> InlineKeyboardMarkup:
 
 
 def payment_keyboard(code: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(inline_keyboard=[
-        [
-            InlineKeyboardButton(
-                text="💳 Оплатить картой / СБП",
-                callback_data=f"vpn:payment:{code}:platega",
-                style="primary",
-            )
-        ],
-        _back("vpn:plans"),
-    ])
+    tariff_data = TARIFFS.get(code)
+    price_stars = tariff_data[2] if tariff_data else 169
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="💳 Оплатить картой / СБП",
+                    callback_data=f"vpn:payment:{code}:platega",
+                )
+            ],
+            [
+                InlineKeyboardButton(
+                    text=f"⭐ Оплатить звездами ({price_stars} ⭐)",
+                    callback_data=f"vpn:payment:{code}:stars",
+                )
+            ],
+            _back("vpn:plans"),
+        ]
+    )
 
 
 def referral_keyboard() -> InlineKeyboardMarkup:
@@ -757,15 +768,15 @@ def create_vpn_router(services: AppServices) -> Router:
         if tariff_data is None:
             await callback.answer("Тариф не найден.", show_alert=True)
             return
-        name, old, price = tariff_data
+        name, price_rub, price_stars = tariff_data
         if callback.message:
             await _screen(
                 callback.message,
                 "Покупка VPN\n\n"
                 f"Тариф: <b>{name}</b>\n"
                 "Доступно: <b>1 устройство</b>\n"
-                f"К оплате: <b>{old}₽</b>\n\n"
-                "<blockquote>▶ Выбери способ оплаты</blockquote>",
+                f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
+                "💡 Выберите способ оплаты:",
                 payment_keyboard(code),
             )
         await callback.answer()
@@ -782,7 +793,37 @@ def create_vpn_router(services: AppServices) -> Router:
         if tariff_data is None or plan_code is None:
             await callback.answer("Тариф не найден.", show_alert=True)
             return
-        name, old, price = tariff_data
+        name, price_rub, price_stars = tariff_data
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+
+        if method == "stars":
+            try:
+                order = await asyncio.to_thread(
+                    services.vpn.create_stars_payment,
+                    user_id=int(user["id"]),
+                    plan_code=plan_code,
+                )
+            except BusinessRuleError as exc:
+                await callback.answer(str(exc), show_alert=True)
+                return
+
+            try:
+                await callback.bot.send_invoice(
+                    chat_id=callback.from_user.id,
+                    title=f"VPN {name}",
+                    description=f"Подписка VPN на {name} — 1 устройство",
+                    payload=f"vpn_stars_{order['id']}",
+                    currency="XTR",
+                    prices=[LabeledPrice(label=f"VPN {name}", amount=price_stars)],
+                    provider_token="",
+                )
+            except Exception:
+                logging.exception("Could not send Telegram Stars invoice for VPN")
+                await callback.answer("Не удалось выставить счёт в Telegram Stars.", show_alert=True)
+                return
+            await callback.answer()
+            return
+
         labels = {"platega": "Карта / СБП"}
         if method in LEGACY_PAYMENT_METHODS:
             if callback.message:
@@ -791,9 +832,9 @@ def create_vpn_router(services: AppServices) -> Router:
                     "Покупка VPN\n\n"
                     f"Тариф: <b>{name}</b>\n"
                     "Доступно: <b>1 устройство</b>\n"
-                    f"К оплате: <b>{old}₽</b>\n\n"
+                    f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                     "<blockquote>▶ Способы оплаты обновились. "
-                    "Выберите оплату через Platega.</blockquote>",
+                    "Выберите оплату через Platega или Звёзды.</blockquote>",
                     payment_keyboard(code),
                 )
             await callback.answer("Выберите новый способ оплаты.", show_alert=True)
@@ -801,7 +842,7 @@ def create_vpn_router(services: AppServices) -> Router:
         if method not in labels:
             await callback.answer("Способ оплаты не найден.", show_alert=True)
             return
-        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+
         is_owner = _admin_demo_authorized(callback, services)
         if services.vpn.uses_platega:
             try:
@@ -828,7 +869,6 @@ def create_vpn_router(services: AppServices) -> Router:
                             InlineKeyboardButton(
                                 text="🇷🇺 Оплатить картой / СБП",
                                 url=payment_url,
-                                style="primary",
                             )
                         ],
                         [
@@ -855,6 +895,27 @@ def create_vpn_router(services: AppServices) -> Router:
                 )
             await callback.answer()
             return
+
+    @router.pre_checkout_query(F.invoice_payload.startswith("vpn_stars_"))
+    async def vpn_stars_pre_checkout(pre_checkout_query: PreCheckoutQuery) -> None:
+        await pre_checkout_query.answer(ok=True)
+
+    @router.message(F.successful_payment, F.successful_payment.invoice_payload.startswith("vpn_stars_"))
+    async def vpn_stars_successful_payment(message: Message) -> None:
+        payload = message.successful_payment.invoice_payload
+        raw_id = payload.removeprefix("vpn_stars_")
+        if not raw_id.isdigit():
+            return
+        payment_id = int(raw_id)
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        outcome = await asyncio.to_thread(
+            services.vpn.confirm_stars_payment,
+            user_id=int(user["id"]),
+            payment_id=payment_id,
+            telegram_payment_charge_id=message.successful_payment.telegram_payment_charge_id,
+        )
+        text, kb = render_subscription(outcome.subscription, user=user)
+        await message.answer(text, reply_markup=kb, parse_mode="HTML")
 
         if not is_owner:
             if callback.message:

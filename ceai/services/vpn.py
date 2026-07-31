@@ -662,7 +662,88 @@ class VpnService:
             return VpnPaymentOutcome(
                 payment=payment,
                 subscription=subscription,
-                processed=bool(marked_paid),
+                processed=True,
+            )
+
+    def create_stars_payment(
+        self,
+        *,
+        user_id: int,
+        plan_code: str,
+    ) -> Dict[str, Any]:
+        with self.db.transaction() as conn:
+            plan = self.plans.get_by_code(conn, plan_code)
+            if plan is None or not bool(plan["is_active"]):
+                raise BusinessRuleError("Тариф не найден.")
+            self._require_checkout_ready_server(conn)
+            payment, _ = self.payments.create_or_get_pending_stars(
+                conn,
+                user_id=user_id,
+                plan_id=int(plan["id"]),
+                amount_rub=int(plan["price_rub"]),
+                duration_days=int(plan["duration_days"]),
+            )
+            return payment
+
+    def confirm_stars_payment(
+        self,
+        *,
+        user_id: int,
+        payment_id: int,
+        telegram_payment_charge_id: str = "",
+    ) -> VpnPaymentOutcome:
+        with self.db.transaction() as conn:
+            payment = self.payments.get_for_user(conn, payment_id, user_id)
+            if payment is None or payment.get("provider") != "telegram_stars":
+                raise BusinessRuleError("Заказ не найден.")
+
+            plan = self.plans.get_by_id(conn, int(payment["vpn_plan_id"]))
+            if plan is None:
+                raise RuntimeError("VPN payment plan missing")
+
+            if payment.get("status") == "paid":
+                subscription_id = payment.get("vpn_subscription_id")
+                if subscription_id:
+                    sub = self.subscriptions.get_by_id(conn, int(subscription_id))
+                else:
+                    sub = self.subscriptions.get_latest_for_user(conn, user_id)
+                return VpnPaymentOutcome(
+                    payment=payment,
+                    subscription=sub,
+                    confirmed=True,
+                    processed=False,
+                )
+
+            payment, marked_paid = self.payments.mark_paid(
+                conn,
+                payment_id=payment_id,
+                external_id=telegram_payment_charge_id or str(payment.get("external_id") or f"stars_charge_{payment_id}"),
+            )
+            if not marked_paid:
+                sub = self.subscriptions.get_latest_for_user(conn, user_id)
+                return VpnPaymentOutcome(
+                    payment=payment,
+                    subscription=sub,
+                    confirmed=True,
+                    processed=False,
+                )
+
+            subscription = self._fulfill_paid_payment(
+                conn,
+                payment=payment,
+                plan=plan,
+            )
+            payment = self.payments.link_subscription(
+                conn,
+                payment_id=payment_id,
+                user_id=user_id,
+                subscription_id=int(subscription["id"]),
+            )
+            return VpnPaymentOutcome(
+                payment=payment,
+                subscription=subscription,
+                confirmed=True,
+                processed=True,
             )
 
     def _apply_verified_platega_transaction(
