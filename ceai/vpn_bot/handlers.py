@@ -863,11 +863,12 @@ def create_vpn_router(services: AppServices) -> Router:
                 )
                 return
             if callback.message:
+                order_code = f"CEA-H{int(order['id']):05X}"
                 kb = InlineKeyboardMarkup(
                     inline_keyboard=[
                         [
                             InlineKeyboardButton(
-                                text="🇷🇺 Оплатить картой / СБП",
+                                text="🇷🇺 Оплатить через СБП",
                                 url=payment_url,
                             )
                         ],
@@ -883,14 +884,14 @@ def create_vpn_router(services: AppServices) -> Router:
                 )
                 await _screen(
                     callback.message,
-                    f"📦 <b>Заказ: CEA-{int(order['id']):06d}</b>\n\n"
+                    f"📦 <b>Заказ: {order_code}</b>\n\n"
                     f"VPN: <b>{name}</b>\n"
-                    "Доступно: <b>1 устройство</b>\n"
-                    f"Способ оплаты: <b>{labels[method]}</b>\n"
+                    "Доступно: <b>до 1 устройства</b>\n"
+                    "Оплата: <b>СБП</b>\n"
                     f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
-                    "<blockquote>▶ Оплатите заказ и нажмите «Проверить оплату»</blockquote>\n\n"
-                    "VPN будет выдан автоматически только после подтверждения "
-                    "оплаты платёжной системой.",
+                    "<blockquote>▶ Оплатите заказ и нажмите проверку оплаты</blockquote>\n\n"
+                    "Нажмите «Оплатить через СБП». После оплаты подписка выдастся автоматически.\n\n"
+                    "Если оплата уже прошла, но экран не обновился — нажмите «Проверить оплату».",
                     kb,
                 )
             await callback.answer()
