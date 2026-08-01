@@ -1,82 +1,8 @@
 from __future__ import annotations
 
-import re
 from html import escape
 
 from ceai.config import Settings
-
-
-REQUIRED_PUBLICATION_FIELDS = (
-    "vpn_legal_provider_name",
-    "vpn_legal_provider_status",
-    "vpn_legal_inn",
-    "vpn_legal_address",
-    "vpn_legal_email",
-    "vpn_privacy_policy_url",
-)
-
-EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-IP_STATUS_RE = re.compile(r"(?:^|\W)ип(?:$|\W)", re.IGNORECASE)
-
-
-def vpn_agreement_is_publishable(settings: Settings | None) -> bool:
-    """Return whether the document has the minimum public seller details."""
-    if settings is None:
-        return False
-    if not all(
-        str(getattr(settings, field, "") or "").strip()
-        for field in REQUIRED_PUBLICATION_FIELDS
-    ):
-        return False
-
-    inn = settings.vpn_legal_inn.strip()
-    if not _valid_inn(inn):
-        return False
-    if not EMAIL_RE.fullmatch(settings.vpn_legal_email.strip()):
-        return False
-
-    status = settings.vpn_legal_provider_status.strip().casefold()
-    registration_required = (
-        "индивидуальн" in status
-        or "общество" in status
-        or "юридическ" in status
-        or "ооо" in status
-        or IP_STATUS_RE.search(status) is not None
-    )
-    registration_number = settings.vpn_legal_registration_number.strip()
-    if registration_required and not _valid_registration_number(registration_number):
-        return False
-    if registration_number and not _valid_registration_number(registration_number):
-        return False
-    return True
-
-
-def _valid_inn(value: str) -> bool:
-    if not value.isdigit() or len(value) not in {10, 12}:
-        return False
-    digits = [int(char) for char in value]
-    if len(digits) == 10:
-        checksum = sum(
-            weight * digit
-            for weight, digit in zip((2, 4, 10, 3, 5, 9, 4, 6, 8), digits)
-        )
-        return checksum % 11 % 10 == digits[9]
-    first_checksum = sum(
-        weight * digit
-        for weight, digit in zip((7, 2, 4, 10, 3, 5, 9, 4, 6, 8), digits)
-    )
-    second_checksum = sum(
-        weight * digit
-        for weight, digit in zip((3, 7, 2, 4, 10, 3, 5, 9, 4, 6, 8), digits)
-    )
-    return (
-        first_checksum % 11 % 10 == digits[10]
-        and second_checksum % 11 % 10 == digits[11]
-    )
-
-
-def _valid_registration_number(value: str) -> bool:
-    return value.isdigit() and len(value) in {13, 15}
 
 
 def _calendar_day_phrase(value: int) -> str:
@@ -100,8 +26,10 @@ def _setting(settings: Settings | None, name: str, default: str = "") -> str:
 
 def render_vpn_user_agreement_html(settings: Settings | None) -> str:
     """Render the standalone CEA VPN agreement bundled with the application."""
-    is_publishable = vpn_agreement_is_publishable(settings)
     support_username = _setting(settings, "vpn_support_username", "cea_help").lstrip("@")
+    support_hours = _setting(
+        settings, "vpn_support_hours", "Ежедневно, с 08:00 до 22:00 МСК"
+    )
     bot_username = _setting(settings, "vpn_bot_username", "ceavpn_bot").lstrip("@")
     privacy_url = _setting(settings, "vpn_privacy_policy_url")
     trial_days = max(1, int(getattr(settings, "vpn_trial_days", 3) or 3))
@@ -111,65 +39,27 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
         settings, "vpn_agreement_effective_date", "1 августа 2026 года"
     )
 
-    provider_name = _setting(settings, "vpn_legal_provider_name")
-    provider_status = _setting(settings, "vpn_legal_provider_status")
-    inn = _setting(settings, "vpn_legal_inn")
-    registration_number = _setting(settings, "vpn_legal_registration_number")
-    address = _setting(settings, "vpn_legal_address")
-    email = _setting(settings, "vpn_legal_email")
-    support_hours = _setting(settings, "vpn_legal_support_hours")
-
     safe_support_username = escape(support_username)
     safe_support_url = escape(f"https://t.me/{support_username}", quote=True)
     safe_bot_username = escape(bot_username)
     safe_bot_url = escape(f"https://t.me/{bot_username}", quote=True)
     safe_privacy_url = escape(privacy_url, quote=True)
 
-    if is_publishable:
-        heading = "Публичная оферта CEA VPN"
-        eyebrow = "Юридический документ"
-        status_markup = (
-            '<div class="notice notice-ok"><strong>Действующая редакция.</strong> '
-            "Оплата тарифа или активация пробного периода означает принятие "
-            "условий этого документа.</div>"
-        )
-        provider_rows = [
-            f"<dt>Исполнитель</dt><dd>{escape(provider_name)}</dd>",
-            f"<dt>Статус</dt><dd>{escape(provider_status)}</dd>",
-            f"<dt>ИНН</dt><dd>{escape(inn)}</dd>",
-        ]
-        if registration_number:
-            provider_rows.append(
-                f"<dt>ОГРН / ОГРНИП</dt><dd>{escape(registration_number)}</dd>"
-            )
-        provider_rows.extend(
-            [
-                f"<dt>Адрес</dt><dd>{escape(address)}</dd>",
-                (
-                    '<dt>Электронная почта</dt><dd><a href="mailto:'
-                    f'{escape(email, quote=True)}">{escape(email)}</a></dd>'
-                ),
-            ]
-        )
-        if support_hours:
-            provider_rows.append(
-                f"<dt>Режим поддержки</dt><dd>{escape(support_hours)}</dd>"
-            )
-        provider_markup = "".join(provider_rows)
-    else:
-        heading = "Проект соглашения CEA VPN"
-        eyebrow = "Документ для тестового режима"
-        status_markup = (
-            '<div class="notice notice-draft"><strong>Платная версия ещё не '
-            "опубликована.</strong> В настройках не заполнены обязательные "
-            "реквизиты исполнителя. До их публикации этот текст не является "
-            "полной публичной офертой на платные услуги.</div>"
-        )
-        provider_markup = (
-            "<dt>Исполнитель</dt><dd>Будет указан до запуска приёма платежей</dd>"
-            f"<dt>Поддержка</dt><dd><a href=\"{safe_support_url}\">"
-            f"@{safe_support_username}</a></dd>"
-        )
+    heading = "Пользовательское соглашение CEA VPN"
+    eyebrow = "Правила использования сервиса"
+    status_markup = (
+        '<div class="notice notice-ok"><strong>Актуальная редакция.</strong> '
+        "Оплата тарифа или активация пробного периода означает принятие "
+        "условий этого документа.</div>"
+    )
+    contacts_markup = (
+        "<dt>Сервис</dt><dd>CEA VPN</dd>"
+        f"<dt>Telegram-бот</dt><dd><a href=\"{safe_bot_url}\">"
+        f"@{safe_bot_username}</a></dd>"
+        f"<dt>Поддержка</dt><dd><a href=\"{safe_support_url}\">"
+        f"@{safe_support_username}</a></dd>"
+        f"<dt>Время работы</dt><dd>{escape(support_hours)}</dd>"
+    )
 
     if privacy_url:
         privacy_paragraph = (
@@ -178,8 +68,8 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
         )
     else:
         privacy_paragraph = (
-            "До запуска приёма оплаты Исполнитель обязан опубликовать отдельную "
-            "Политику конфиденциальности CEA VPN и добавить ссылку на неё в Сервис."
+            "По вопросам обработки данных Пользователь может обратиться в поддержку "
+            f'<a href="{safe_support_url}">@{safe_support_username}</a>.'
         )
 
     return f"""<!doctype html>
@@ -200,7 +90,6 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
       --line: #26344d;
       --accent: #7357ff;
       --accent-2: #25b887;
-      --warning: #f4bd50;
       --max: 860px;
     }}
     * {{ box-sizing: border-box; }}
@@ -237,7 +126,6 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
     .meta {{ margin-top: 18px; color: var(--muted); }}
     .notice {{ margin: 26px 0 0; padding: 16px 18px; border-radius: 16px; border: 1px solid; }}
     .notice-ok {{ background: rgba(37,184,135,.09); border-color: rgba(37,184,135,.38); }}
-    .notice-draft {{ background: rgba(244,189,80,.09); border-color: rgba(244,189,80,.45); }}
     nav {{
       display: grid;
       grid-template-columns: repeat(3, 1fr);
@@ -295,21 +183,21 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
     <nav aria-label="Навигация по документу">
       <a href="#service">Услуга и тарифы</a>
       <a href="#refunds">Возврат и отмена</a>
-      <a href="#contacts">Реквизиты и поддержка</a>
+      <a href="#contacts">Поддержка</a>
     </nav>
 
     <article>
       <section id="general">
         <h2>1. Общие положения</h2>
         <p>Настоящий документ регулирует использование Telegram-бота <a href="{safe_bot_url}">@{safe_bot_username}</a> и предоставляемого через него сервиса CEA VPN (далее — <strong>Сервис</strong>).</p>
-        <p><strong>Пользователь</strong> — дееспособное физическое лицо, которое использует Сервис, активирует пробный период или приобретает подписку. <strong>Исполнитель</strong> — лицо, реквизиты которого приведены в разделе 13.</p>
-        <p>Сервис предназначен для создания защищённого сетевого соединения через доступную инфраструктуру Исполнителя. Пользователь обязан применять Сервис только законным способом.</p>
+        <p><strong>Пользователь</strong> — дееспособное физическое лицо, которое использует Сервис, активирует пробный период или приобретает подписку. <strong>Администрация</strong> — команда CEA VPN, обеспечивающая работу Сервиса и поддержку Пользователей.</p>
+        <p>Сервис предназначен для создания защищённого сетевого соединения через доступную инфраструктуру Администрации. Пользователь обязан применять Сервис только законным способом.</p>
       </section>
 
       <section id="acceptance">
         <h2>2. Принятие условий и заключение договора</h2>
-        <p>Активация пробного периода подтверждает принятие правил бесплатного использования. Оплата выбранного тарифа после ознакомления с его ценой, сроком и настоящим документом является акцептом оферты и заключением договора на соответствующий оплаченный период.</p>
-        <p>До акцепта Пользователь обязан проверить сведения о тарифе и ограничениях. Если Пользователь не согласен с условиями, он не должен активировать пробный период или оплачивать тариф.</p>
+        <p>Активация пробного периода подтверждает принятие правил бесплатного использования. Оплата выбранного тарифа после ознакомления с его ценой, сроком и настоящим документом означает принятие соглашения на соответствующий оплаченный период.</p>
+        <p>До оплаты Пользователь обязан проверить сведения о тарифе и ограничениях. Если Пользователь не согласен с условиями, он не должен активировать пробный период или оплачивать тариф.</p>
         <p>Использование Telegram-аккаунта и подтверждённого платежа позволяет сторонам идентифицировать действия Пользователя в электронной форме. Пользователь отвечает за безопасность своего аккаунта Telegram.</p>
       </section>
 
@@ -333,8 +221,8 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
 
       <section id="payment">
         <h2>5. Тарифы и оплата</h2>
-        <p>Актуальные цена, срок, валюта, способ оплаты и итоговая сумма показываются в Telegram-боте до платежа и становятся частью договора. Исполнитель вправе менять условия только для будущих покупок и продлений.</p>
-        <p>Оплата может приниматься через Telegram Stars и/или платёжного партнёра Platega, если соответствующий способ доступен в боте. Platega и Telegram обрабатывают платёж по собственным правилам; услугу CEA VPN оказывает Исполнитель.</p>
+        <p>Актуальные цена, срок, валюта, способ оплаты и итоговая сумма показываются в Telegram-боте до платежа и становятся частью соглашения. Администрация вправе менять условия только для будущих покупок и продлений.</p>
+        <p>Оплата может приниматься через Telegram Stars и/или платёжного партнёра Platega, если соответствующий способ доступен в боте. Platega и Telegram обрабатывают платёж по собственным правилам; доступ CEA VPN предоставляет Администрация.</p>
         <p>Подписка активируется только после серверного подтверждения успешной оплаты. Если деньги списаны, но доступ не выдан, Пользователь должен обратиться в поддержку и приложить идентификатор или подтверждение платежа.</p>
         <p><strong>Автоматическое продление и рекуррентные списания не применяются.</strong> После окончания срока новый тариф оплачивается Пользователем отдельно. Если автопродление появится в будущем, оно может быть включено только после отдельного явного согласия Пользователя.</p>
       </section>
@@ -343,13 +231,13 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
         <h2>6. Правила использования</h2>
         <p>Пользователь обязан соблюдать применимое законодательство, правила Telegram, платёжных систем и стороннего VPN-приложения.</p>
         <p>Запрещены: передача доступа третьим лицам; использование более чем на одном устройстве; спам, мошенничество, атаки и вредоносный трафик; несанкционированный доступ; нарушение авторских и иных прав; распространение запрещённой информации; использование Сервиса для доступа к ресурсам, доступ к которым ограничен законодательством Российской Федерации; вмешательство в инфраструктуру и обход технических лимитов.</p>
-        <p>При объективных признаках нарушения, угрозе безопасности или законном требовании уполномоченного органа Исполнитель вправе временно ограничить доступ на время проверки. Если нарушение подтверждено, доступ может быть прекращён с учётом обязательных прав Пользователя по закону.</p>
+        <p>При объективных признаках нарушения, угрозе безопасности или законном требовании уполномоченного органа Администрация вправе временно ограничить доступ на время проверки. Если нарушение подтверждено, доступ может быть прекращён с учётом обязательных прав Пользователя по закону.</p>
       </section>
 
       <section id="availability">
         <h2>7. Доступность и технические ограничения</h2>
-        <p>Исполнитель принимает разумные меры для стабильной работы, однако результат зависит от оператора связи, маршрутизации, устройства, настроек, стороннего приложения, Telegram, хостинга и иных внешних систем.</p>
-        <p>Возможны плановые работы, аварии и временная недоступность отдельных узлов. Исполнитель устраняет контролируемые неполадки в разумный срок и вправе предоставить соразмерное продление, замену доступа или возврат в предусмотренных законом случаях.</p>
+        <p>Администрация принимает разумные меры для стабильной работы, однако результат зависит от оператора связи, маршрутизации, устройства, настроек, стороннего приложения, Telegram, хостинга и иных внешних систем.</p>
+        <p>Возможны плановые работы, аварии и временная недоступность отдельных узлов. Администрация устраняет контролируемые неполадки в разумный срок и вправе предоставить соразмерное продление, замену доступа или возврат в предусмотренных законом случаях.</p>
       </section>
 
       <section id="refunds">
@@ -360,15 +248,15 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
       </section>
 
       <section id="rights">
-        <h2>9. Права и обязанности Исполнителя</h2>
-        <p>Исполнитель обязан предоставить оплаченный доступ, поддерживать разумный уровень безопасности, принимать обращения и не ухудшать задним числом срок и основные условия уже оплаченной подписки.</p>
-        <p>Исполнитель вправе обновлять инфраструктуру и интерфейс, заменять технически сопоставимые узлы, предотвращать злоупотребления и приостанавливать работу для обслуживания или исполнения требований закона.</p>
+        <h2>9. Права и обязанности Администрации</h2>
+        <p>Администрация обязуется предоставить оплаченный доступ, поддерживать разумный уровень безопасности, принимать обращения и не ухудшать задним числом срок и основные условия уже оплаченной подписки.</p>
+        <p>Администрация вправе обновлять инфраструктуру и интерфейс, заменять технически сопоставимые узлы, предотвращать злоупотребления и приостанавливать работу для обслуживания или исполнения требований закона.</p>
       </section>
 
       <section id="liability">
         <h2>10. Ответственность</h2>
-        <p>Стороны отвечают в пределах, установленных применимым законодательством. Никакое условие документа не исключает обязательную ответственность Исполнителя и законные права потребителя.</p>
-        <p>Исполнитель не отвечает за действия Пользователя, неисправность его устройства, ошибки стороннего приложения и недоступность внешних сетей или сервисов, которые Исполнитель объективно не контролирует. Это не освобождает Исполнителя от ответственности за собственное ненадлежащее оказание услуги.</p>
+        <p>Стороны отвечают в пределах, установленных применимым законодательством. Никакое условие документа не исключает обязательную ответственность Администрации и законные права потребителя.</p>
+        <p>Администрация не отвечает за действия Пользователя, неисправность его устройства, ошибки стороннего приложения и недоступность внешних сетей или сервисов, которые Администрация объективно не контролирует. Это не исключает ответственность Администрации в случаях, предусмотренных законом.</p>
       </section>
 
       <section id="privacy">
@@ -384,8 +272,8 @@ def render_vpn_user_agreement_html(settings: Settings | None) -> str:
       </section>
 
       <section id="contacts">
-        <h2>13. Исполнитель, обращения и споры</h2>
-        <dl>{provider_markup}</dl>
+        <h2>13. Обращения и споры</h2>
+        <dl>{contacts_markup}</dl>
         <p>Поддержка CEA VPN: <a href="{safe_support_url}">@{safe_support_username}</a>.</p>
         <p>К отношениям сторон применяется законодательство Российской Федерации. Стороны стремятся урегулировать разногласия через поддержку; право Пользователя обратиться в суд по правилам защиты прав потребителей не ограничивается.</p>
         <div class="actions">

@@ -103,14 +103,8 @@ class Settings:
     info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
     support_username: str = "cea_help"
     vpn_support_username: str = "cea_help"
+    vpn_support_hours: str = "Ежедневно, с 08:00 до 22:00 МСК"
     vpn_channel_url: str = DEFAULT_INFO_CHANNEL_URL
-    vpn_legal_provider_name: str = ""
-    vpn_legal_provider_status: str = ""
-    vpn_legal_inn: str = ""
-    vpn_legal_registration_number: str = ""
-    vpn_legal_address: str = ""
-    vpn_legal_email: str = ""
-    vpn_legal_support_hours: str = ""
     vpn_agreement_version: str = "1.0"
     vpn_agreement_effective_date: str = "1 августа 2026 года"
     vpn_server_code: str = "nl-1"
@@ -403,18 +397,12 @@ def load_settings() -> Settings:
         vpn_support_username=read(
             "VPN_SUPPORT_USERNAME", read("SUPPORT_USERNAME", "cea_help")
         ).strip().lstrip("@"),
+        vpn_support_hours=read(
+            "VPN_SUPPORT_HOURS", "Ежедневно, с 08:00 до 22:00 МСК"
+        ).strip(),
         vpn_channel_url=_normalize_telegram_url(
             read("VPN_CHANNEL_URL", read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL))
         ),
-        vpn_legal_provider_name=read("VPN_LEGAL_PROVIDER_NAME").strip(),
-        vpn_legal_provider_status=read("VPN_LEGAL_PROVIDER_STATUS").strip(),
-        vpn_legal_inn=read("VPN_LEGAL_INN").strip(),
-        vpn_legal_registration_number=read(
-            "VPN_LEGAL_REGISTRATION_NUMBER"
-        ).strip(),
-        vpn_legal_address=read("VPN_LEGAL_ADDRESS").strip(),
-        vpn_legal_email=read("VPN_LEGAL_EMAIL").strip(),
-        vpn_legal_support_hours=read("VPN_LEGAL_SUPPORT_HOURS").strip(),
         vpn_agreement_version=read(
             "VPN_AGREEMENT_VERSION", "1.0"
         ).strip(),

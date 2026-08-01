@@ -11,10 +11,7 @@ from ceai.config import Settings, load_settings
 from ceai.health import _handle_health_request
 from ceai.main import vpn_user_agreement
 from ceai.vpn_bot.handlers import about_keyboard, payment_keyboard
-from ceai.vpn_user_agreement import (
-    render_vpn_user_agreement_html,
-    vpn_agreement_is_publishable,
-)
+from ceai.vpn_user_agreement import render_vpn_user_agreement_html
 
 
 def _settings(**overrides) -> Settings:
@@ -33,70 +30,32 @@ def _settings(**overrides) -> Settings:
 
 
 class VpnUserAgreementRenderTest(unittest.TestCase):
-    def test_draft_is_honest_and_contains_actual_vpn_terms(self) -> None:
+    def test_agreement_contains_actual_vpn_terms_without_owner_details(self) -> None:
         settings = _settings(vpn_trial_days=3)
 
         html = render_vpn_user_agreement_html(settings)
 
-        self.assertFalse(vpn_agreement_is_publishable(settings))
-        self.assertIn("Проект соглашения CEA VPN", html)
-        self.assertIn("не является полной публичной офертой", html)
+        self.assertIn("Пользовательское соглашение CEA VPN", html)
+        self.assertIn("Актуальная редакция", html)
         self.assertIn("одного устройства", html)
         self.assertIn("3 календарных дня", html)
         self.assertIn("Автоматическое продление и рекуррентные списания не применяются", html)
         self.assertIn("Platega", html)
         self.assertIn("фактически оказанной части услуги", html)
         self.assertIn("не обещает абсолютную анонимность", html)
+        self.assertIn("Ежедневно, с 08:00 до 22:00 МСК", html)
+        self.assertNotIn("<dt>ИНН</dt>", html)
+        self.assertNotIn("<dt>ОГРН", html)
+        self.assertNotIn("<dt>Адрес</dt>", html)
+        self.assertNotIn("Электронная почта", html)
 
-    def test_complete_provider_details_publish_offer_and_are_escaped(self) -> None:
-        settings = _settings(
-            vpn_legal_provider_name='ИП Иванов <script>alert("x")</script>',
-            vpn_legal_provider_status="Индивидуальный предприниматель",
-            vpn_legal_inn="500100732259",
-            vpn_legal_registration_number="123456789012345",
-            vpn_legal_address="Москва, ул. Тестовая, 1",
-            vpn_legal_email="legal+vpn@example.test",
-            vpn_legal_support_hours="Ежедневно, 10:00–20:00 МСК",
+    def test_support_hours_are_configurable_and_escaped(self) -> None:
+        html = render_vpn_user_agreement_html(
+            _settings(vpn_support_hours='08:00–22:00 МСК <script>alert("x")</script>')
         )
 
-        html = render_vpn_user_agreement_html(settings)
-
-        self.assertTrue(vpn_agreement_is_publishable(settings))
-        self.assertIn("Публичная оферта CEA VPN", html)
-        self.assertIn("Действующая редакция", html)
         self.assertNotIn("<script>alert", html)
         self.assertIn("&lt;script&gt;alert", html)
-        self.assertIn("123456789012345", html)
-
-    def test_missing_single_required_detail_keeps_document_in_draft(self) -> None:
-        settings = _settings(
-            vpn_legal_provider_name="Иван Иванов",
-            vpn_legal_provider_status="Самозанятый",
-            vpn_legal_inn="500100732259",
-            vpn_legal_address="Москва",
-            vpn_legal_email="owner@example.test",
-        )
-        self.assertTrue(vpn_agreement_is_publishable(settings))
-
-        settings = _settings(
-            vpn_legal_provider_name="Иван Иванов",
-            vpn_legal_provider_status="Самозанятый",
-            vpn_legal_inn="",
-            vpn_legal_address="Москва",
-            vpn_legal_email="owner@example.test",
-        )
-        self.assertFalse(vpn_agreement_is_publishable(settings))
-
-    def test_invalid_email_or_registration_number_never_publishes(self) -> None:
-        settings = _settings(
-            vpn_legal_provider_name="ИП Иванов",
-            vpn_legal_provider_status="Индивидуальный предприниматель",
-            vpn_legal_inn="500100732259",
-            vpn_legal_registration_number="not-a-number",
-            vpn_legal_address="Москва",
-            vpn_legal_email='owner@example.test" onclick="alert(1)',
-        )
-        self.assertFalse(vpn_agreement_is_publishable(settings))
 
 
 class VpnUserAgreementConfigTest(unittest.TestCase):
@@ -142,7 +101,7 @@ class VpnUserAgreementConfigTest(unittest.TestCase):
             "https://cea-ai-production.up.railway.app/vpn/user-agreement",
         )
 
-    def test_explicit_vpn_document_urls_and_legal_details_are_read(self) -> None:
+    def test_explicit_vpn_document_urls_and_support_hours_are_read(self) -> None:
         with (
             patch("ceai.config._load_dotenv", return_value={}),
             patch.dict(
@@ -151,12 +110,7 @@ class VpnUserAgreementConfigTest(unittest.TestCase):
                     "TELEGRAM_BOT_TOKEN": "test",
                     "VPN_USER_AGREEMENT_URL": "https://legal.example/offer",
                     "VPN_PRIVACY_POLICY_URL": "https://legal.example/privacy",
-                    "VPN_LEGAL_PROVIDER_NAME": "Иван Иванов",
-                    "VPN_LEGAL_PROVIDER_STATUS": "Самозанятый",
-                    "VPN_LEGAL_INN": "123456789012",
-                    "VPN_LEGAL_ADDRESS": "Москва",
-                    "VPN_LEGAL_EMAIL": "owner@example.test",
-                    "VPN_LEGAL_SUPPORT_HOURS": "10:00–20:00 МСК",
+                    "VPN_SUPPORT_HOURS": "08:00–22:00 МСК",
                     "VPN_AGREEMENT_VERSION": "2.1",
                 },
                 clear=True,
@@ -166,13 +120,12 @@ class VpnUserAgreementConfigTest(unittest.TestCase):
 
         self.assertEqual(settings.vpn_user_agreement_url, "https://legal.example/offer")
         self.assertEqual(settings.vpn_privacy_policy_url, "https://legal.example/privacy")
-        self.assertEqual(settings.vpn_legal_provider_name, "Иван Иванов")
-        self.assertEqual(settings.vpn_legal_support_hours, "10:00–20:00 МСК")
+        self.assertEqual(settings.vpn_support_hours, "08:00–22:00 МСК")
         self.assertEqual(settings.vpn_agreement_version, "2.1")
 
 
 class VpnAboutKeyboardTest(unittest.TestCase):
-    def test_about_uses_only_vpn_legal_urls(self) -> None:
+    def test_about_uses_only_vpn_document_urls(self) -> None:
         settings = _settings(public_offer_url="https://ai.example/offer")
 
         keyboard = about_keyboard(settings)
