@@ -12,6 +12,7 @@ from ceai.internal_api import (
     handle_provider_status_request,
 )
 from ceai.public_offer import PUBLIC_OFFER_TEXT
+from ceai.vpn_user_agreement import render_vpn_user_agreement_html
 
 
 async def _handle_health_request(
@@ -38,6 +39,10 @@ async def _handle_health_request(
         status = "200 OK"
         content_type = "text/plain; charset=utf-8"
         body = PUBLIC_OFFER_TEXT.encode("utf-8")
+    elif path == "/vpn/user-agreement":
+        status = "200 OK"
+        content_type = "text/html; charset=utf-8"
+        body = render_vpn_user_agreement_html(settings).encode("utf-8")
     elif path == "/internal/provider-settings" and method == "POST":
         content_length = int(request_headers.get("content-length", "0") or "0")
         body_start = raw.split(b"\r\n\r\n", 1)[1] if b"\r\n\r\n" in raw else b""

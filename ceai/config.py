@@ -98,10 +98,21 @@ class Settings:
     admin_web_session_secret: str = ""
     public_offer_url: str = DEFAULT_PUBLIC_OFFER_URL
     privacy_policy_url: str = DEFAULT_PRIVACY_POLICY_URL
+    vpn_user_agreement_url: str = ""
+    vpn_privacy_policy_url: str = ""
     info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
     support_username: str = "cea_help"
     vpn_support_username: str = "cea_help"
     vpn_channel_url: str = DEFAULT_INFO_CHANNEL_URL
+    vpn_legal_provider_name: str = ""
+    vpn_legal_provider_status: str = ""
+    vpn_legal_inn: str = ""
+    vpn_legal_registration_number: str = ""
+    vpn_legal_address: str = ""
+    vpn_legal_email: str = ""
+    vpn_legal_support_hours: str = ""
+    vpn_agreement_version: str = "1.0"
+    vpn_agreement_effective_date: str = "1 августа 2026 года"
     vpn_server_code: str = "nl-1"
     vpn_worker_id: str = "cea-vpn-nl1"
     vpn_worker_secret: str = ""
@@ -349,6 +360,9 @@ def load_settings() -> Settings:
         if app_base_url
         else DEFAULT_PRIVACY_POLICY_URL
     )
+    vpn_user_agreement_default = (
+        f"{app_base_url}/vpn/user-agreement" if app_base_url else ""
+    )
 
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
@@ -377,6 +391,11 @@ def load_settings() -> Settings:
         admin_web_session_secret=read("ADMIN_WEB_SESSION_SECRET"),
         public_offer_url=read("PUBLIC_OFFER_URL", public_offer_default),
         privacy_policy_url=read("PRIVACY_POLICY_URL", privacy_policy_default),
+        vpn_user_agreement_url=(
+            read("VPN_USER_AGREEMENT_URL").strip()
+            or vpn_user_agreement_default
+        ),
+        vpn_privacy_policy_url=read("VPN_PRIVACY_POLICY_URL").strip(),
         info_channel_url=_normalize_telegram_url(
             read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL)
         ),
@@ -387,6 +406,21 @@ def load_settings() -> Settings:
         vpn_channel_url=_normalize_telegram_url(
             read("VPN_CHANNEL_URL", read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL))
         ),
+        vpn_legal_provider_name=read("VPN_LEGAL_PROVIDER_NAME").strip(),
+        vpn_legal_provider_status=read("VPN_LEGAL_PROVIDER_STATUS").strip(),
+        vpn_legal_inn=read("VPN_LEGAL_INN").strip(),
+        vpn_legal_registration_number=read(
+            "VPN_LEGAL_REGISTRATION_NUMBER"
+        ).strip(),
+        vpn_legal_address=read("VPN_LEGAL_ADDRESS").strip(),
+        vpn_legal_email=read("VPN_LEGAL_EMAIL").strip(),
+        vpn_legal_support_hours=read("VPN_LEGAL_SUPPORT_HOURS").strip(),
+        vpn_agreement_version=read(
+            "VPN_AGREEMENT_VERSION", "1.0"
+        ).strip(),
+        vpn_agreement_effective_date=read(
+            "VPN_AGREEMENT_EFFECTIVE_DATE", "1 августа 2026 года"
+        ).strip(),
         vpn_server_code=read("VPN_SERVER_CODE", "nl-1").strip(),
         vpn_worker_id=read("VPN_WORKER_ID", "cea-vpn-nl1").strip(),
         vpn_worker_secret=read("VPN_WORKER_SECRET"),

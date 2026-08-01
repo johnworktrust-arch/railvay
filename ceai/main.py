@@ -47,6 +47,7 @@ from ceai.vpn_subscription_delivery import (
     delivery_subscription_url,
     register_vpn_subscription_delivery_routes,
 )
+from ceai.vpn_user_agreement import render_vpn_user_agreement_html
 
 
 BOT_COMMANDS = [
@@ -76,6 +77,23 @@ async def health(request: web.Request) -> web.Response:
 
 async def public_offer(request: web.Request) -> web.Response:
     return web.Response(text=PUBLIC_OFFER_TEXT, content_type="text/plain")
+
+
+async def vpn_user_agreement(request: web.Request) -> web.Response:
+    return web.Response(
+        text=render_vpn_user_agreement_html(request.app.get("settings")),
+        content_type="text/html",
+        charset="utf-8",
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "Content-Security-Policy": (
+                "default-src 'none'; style-src 'unsafe-inline'; "
+                "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+            ),
+            "Referrer-Policy": "no-referrer",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
 
 
 async def payment_return(request: web.Request) -> web.Response:
@@ -483,6 +501,7 @@ async def run_webhook(
     app["settings"] = settings
     app.router.add_get("/healthz", health)
     app.router.add_get("/public-offer", public_offer)
+    app.router.add_get("/vpn/user-agreement", vpn_user_agreement)
     yookassa_return_path = _normalize_path(settings.yookassa_return_path)
     yookassa_webhook_path = _normalize_path(settings.yookassa_webhook_path)
     crypto_webhook_path = _crypto_webhook_path(settings)

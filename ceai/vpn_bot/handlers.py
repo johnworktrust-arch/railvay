@@ -23,6 +23,7 @@ from aiogram.types import (
     PreCheckoutQuery,
 )
 
+from ceai.config import Settings
 from ceai.services.app import AppServices
 from ceai.services.exceptions import BusinessRuleError
 from ceai.services.referrals import format_rubles_from_kopecks
@@ -77,6 +78,41 @@ async def _screen(message: Message, text: str, keyboard: InlineKeyboardMarkup) -
 
 def _back(callback_data: str = "vpn:main") -> list[InlineKeyboardButton]:
     return [InlineKeyboardButton(text="⬅️ Назад", callback_data=callback_data)]
+
+
+def about_keyboard(settings: Settings) -> InlineKeyboardMarkup:
+    rows: list[list[InlineKeyboardButton]] = []
+    if settings.vpn_user_agreement_url.strip():
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📄 Пользовательское соглашение",
+                    url=settings.vpn_user_agreement_url,
+                )
+            ]
+        )
+    if settings.vpn_privacy_policy_url.strip():
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="🔒 Политика конфиденциальности",
+                    url=settings.vpn_privacy_policy_url,
+                )
+            ]
+        )
+
+    rows.extend(
+        [
+            [
+                InlineKeyboardButton(
+                    text="🆘 Написать в поддержку",
+                    url=f"https://t.me/{settings.vpn_support_username}",
+                )
+            ],
+            _back(),
+        ]
+    )
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def subscription_copy_button(subscription_url: str) -> InlineKeyboardButton:
@@ -246,24 +282,32 @@ def plans_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def payment_keyboard(code: str) -> InlineKeyboardMarkup:
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
+def payment_keyboard(code: str, agreement_url: str = "") -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text="💳 Оплатить картой / СБП",
+                callback_data=f"vpn:payment:{code}:platega",
+            )
+        ],
+        [
+            InlineKeyboardButton(
+                text="⭐ Оплатить звездами",
+                callback_data=f"vpn:payment:{code}:stars",
+            )
+        ],
+    ]
+    if agreement_url.strip():
+        rows.append(
             [
                 InlineKeyboardButton(
-                    text="💳 Оплатить картой / СБП",
-                    callback_data=f"vpn:payment:{code}:platega",
+                    text="📄 Пользовательское соглашение",
+                    url=agreement_url,
                 )
-            ],
-            [
-                InlineKeyboardButton(
-                    text="⭐ Оплатить звездами",
-                    callback_data=f"vpn:payment:{code}:stars",
-                )
-            ],
-            _back("vpn:plans"),
-        ]
-    )
+            ]
+        )
+    rows.append(_back("vpn:plans"))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
 def referral_keyboard() -> InlineKeyboardMarkup:
@@ -622,15 +666,15 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "vpn:about")
     async def about(callback: CallbackQuery) -> None:
         if callback.message:
-            kb = InlineKeyboardMarkup(inline_keyboard=[
-                [InlineKeyboardButton(text="📄 Публичная оферта", url=services.settings.public_offer_url),
-                 InlineKeyboardButton(text="🔒 Политика конфиденциальности", url=services.settings.privacy_policy_url)],
-                # Promo codes not yet implemented — button hidden until ready.
-                [InlineKeyboardButton(text="🆘 Написать в поддержку", url=f"https://t.me/{services.settings.vpn_support_username}")],
-                _back(),
-            ])
-            await _screen(callback.message, "🛡 <b>О сервисе</b>\n\nCEA VPN — простой VPN для стабильного и защищённого подключения.\n\nДокументы доступны по кнопкам ниже.\n\n"
-                          f"Канал — {escape(services.settings.vpn_channel_url)}\nПоддержка — @{escape(services.settings.vpn_support_username)}", kb)
+            await _screen(
+                callback.message,
+                "🛡 <b>О сервисе</b>\n\n"
+                "CEA VPN — простой VPN для стабильного и защищённого подключения.\n\n"
+                "Документы доступны по кнопкам ниже.\n\n"
+                f"Канал — {escape(services.settings.vpn_channel_url)}\n"
+                f"Поддержка — @{escape(services.settings.vpn_support_username)}",
+                about_keyboard(services.settings),
+            )
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:promo")
@@ -774,8 +818,12 @@ def create_vpn_router(services: AppServices) -> Router:
                 f"Тариф: <b>{name}</b>\n"
                 "Доступно: <b>1 устройство</b>\n"
                 f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
-                "💡 Выберите способ оплаты:",
-                payment_keyboard(code),
+                "💡 Выберите способ оплаты. Продолжая оплату, вы принимаете "
+                "условия пользовательского соглашения:",
+                payment_keyboard(
+                    code,
+                    getattr(services.settings, "vpn_user_agreement_url", ""),
+                ),
             )
         await callback.answer()
 
@@ -849,7 +897,10 @@ def create_vpn_router(services: AppServices) -> Router:
                     f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                     "<blockquote>▶ Способы оплаты обновились. "
                     "Выберите оплату через Platega или Звёзды.</blockquote>",
-                    payment_keyboard(code),
+                    payment_keyboard(
+                        code,
+                        getattr(services.settings, "vpn_user_agreement_url", ""),
+                    ),
                 )
             await callback.answer("Выберите новый способ оплаты.", show_alert=True)
             return
