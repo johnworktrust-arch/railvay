@@ -7,7 +7,12 @@ from unittest.mock import patch
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
 
-from ceai.config import Settings, load_settings
+from ceai.config import (
+    DEFAULT_VPN_PRIVACY_POLICY_URL,
+    DEFAULT_VPN_USER_AGREEMENT_URL,
+    Settings,
+    load_settings,
+)
 from ceai.health import _handle_health_request
 from ceai.main import vpn_user_agreement
 from ceai.vpn_bot.handlers import about_keyboard, payment_keyboard
@@ -59,7 +64,7 @@ class VpnUserAgreementRenderTest(unittest.TestCase):
 
 
 class VpnUserAgreementConfigTest(unittest.TestCase):
-    def test_railway_domain_builds_separate_vpn_agreement_url(self) -> None:
+    def test_railway_domain_keeps_separate_telegraph_vpn_documents(self) -> None:
         with (
             patch("ceai.config._load_dotenv", return_value={}),
             patch.dict(
@@ -73,17 +78,18 @@ class VpnUserAgreementConfigTest(unittest.TestCase):
         ):
             settings = load_settings()
 
-        self.assertEqual(
-            settings.vpn_user_agreement_url,
-            "https://cea-ai-production.up.railway.app/vpn/user-agreement",
-        )
+        self.assertEqual(settings.vpn_user_agreement_url, DEFAULT_VPN_USER_AGREEMENT_URL)
+        self.assertEqual(settings.vpn_privacy_policy_url, DEFAULT_VPN_PRIVACY_POLICY_URL)
         self.assertNotEqual(settings.vpn_user_agreement_url, settings.public_offer_url)
 
-    def test_empty_override_does_not_hide_railway_agreement(self) -> None:
+    def test_empty_overrides_do_not_hide_vpn_documents(self) -> None:
         with (
             patch(
                 "ceai.config._load_dotenv",
-                return_value={"VPN_USER_AGREEMENT_URL": ""},
+                return_value={
+                    "VPN_USER_AGREEMENT_URL": "",
+                    "VPN_PRIVACY_POLICY_URL": "",
+                },
             ),
             patch.dict(
                 "os.environ",
@@ -96,10 +102,8 @@ class VpnUserAgreementConfigTest(unittest.TestCase):
         ):
             settings = load_settings()
 
-        self.assertEqual(
-            settings.vpn_user_agreement_url,
-            "https://cea-ai-production.up.railway.app/vpn/user-agreement",
-        )
+        self.assertEqual(settings.vpn_user_agreement_url, DEFAULT_VPN_USER_AGREEMENT_URL)
+        self.assertEqual(settings.vpn_privacy_policy_url, DEFAULT_VPN_PRIVACY_POLICY_URL)
 
     def test_explicit_vpn_document_urls_and_support_hours_are_read(self) -> None:
         with (
@@ -108,8 +112,8 @@ class VpnUserAgreementConfigTest(unittest.TestCase):
                 "os.environ",
                 {
                     "TELEGRAM_BOT_TOKEN": "test",
-                    "VPN_USER_AGREEMENT_URL": "https://legal.example/offer",
-                    "VPN_PRIVACY_POLICY_URL": "https://legal.example/privacy",
+                    "VPN_USER_AGREEMENT_URL": "https://telegra.ph/vpn-offer-test",
+                    "VPN_PRIVACY_POLICY_URL": "https://telegra.ph/vpn-privacy-test",
                     "VPN_SUPPORT_HOURS": "08:00–22:00 МСК",
                     "VPN_AGREEMENT_VERSION": "2.1",
                 },
@@ -118,10 +122,28 @@ class VpnUserAgreementConfigTest(unittest.TestCase):
         ):
             settings = load_settings()
 
-        self.assertEqual(settings.vpn_user_agreement_url, "https://legal.example/offer")
-        self.assertEqual(settings.vpn_privacy_policy_url, "https://legal.example/privacy")
+        self.assertEqual(settings.vpn_user_agreement_url, "https://telegra.ph/vpn-offer-test")
+        self.assertEqual(settings.vpn_privacy_policy_url, "https://telegra.ph/vpn-privacy-test")
         self.assertEqual(settings.vpn_support_hours, "08:00–22:00 МСК")
         self.assertEqual(settings.vpn_agreement_version, "2.1")
+
+    def test_non_telegraph_vpn_document_overrides_fall_back_to_defaults(self) -> None:
+        with (
+            patch("ceai.config._load_dotenv", return_value={}),
+            patch.dict(
+                "os.environ",
+                {
+                    "TELEGRAM_BOT_TOKEN": "test",
+                    "VPN_USER_AGREEMENT_URL": "https://telegra.ph:bad/offer",
+                    "VPN_PRIVACY_POLICY_URL": "https://example.com/privacy",
+                },
+                clear=True,
+            ),
+        ):
+            settings = load_settings()
+
+        self.assertEqual(settings.vpn_user_agreement_url, DEFAULT_VPN_USER_AGREEMENT_URL)
+        self.assertEqual(settings.vpn_privacy_policy_url, DEFAULT_VPN_PRIVACY_POLICY_URL)
 
 
 class VpnAboutKeyboardTest(unittest.TestCase):
@@ -143,7 +165,26 @@ class VpnAboutKeyboardTest(unittest.TestCase):
         self.assertNotIn("https://ai.example/offer", [button.url for button in buttons])
         self.assertEqual(
             [len(row) for row in keyboard.inline_keyboard],
-            [1, 1, 1, 1],
+            [2, 1, 1, 1],
+        )
+        self.assertEqual(
+            [button.text for button in keyboard.inline_keyboard[0]],
+            [
+                "📄 Пользовательское соглашение",
+                "🔒 Политика конфиденциальности",
+            ],
+        )
+        self.assertEqual(
+            keyboard.inline_keyboard[1][0].callback_data,
+            "vpn:promo",
+        )
+        self.assertEqual(
+            keyboard.inline_keyboard[2][0].url,
+            "https://t.me/cea_help",
+        )
+        self.assertEqual(
+            keyboard.inline_keyboard[3][0].callback_data,
+            "vpn:main",
         )
 
     def test_payment_selection_repeats_agreement_link_before_checkout(self) -> None:

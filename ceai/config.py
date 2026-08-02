@@ -16,6 +16,12 @@ DEFAULT_PUBLIC_OFFER_URL = (
 DEFAULT_PRIVACY_POLICY_URL = (
     "https://telegra.ph/Politika-konfidencialnosti-Cea-AI-07-16"
 )
+DEFAULT_VPN_USER_AGREEMENT_URL = (
+    "https://telegra.ph/Polzovatelskoe-soglashenie-CEA-VPN-08-02"
+)
+DEFAULT_VPN_PRIVACY_POLICY_URL = (
+    "https://telegra.ph/Politika-konfidencialnosti-CEA-VPN-08-02"
+)
 DEFAULT_INFO_CHANNEL_URL = "https://t.me/ceafamily"
 KLING_API_KEY_NAMES = (
     "KLING_API_KEY",
@@ -64,6 +70,25 @@ def _normalize_base_url(value: str) -> str:
     return f"https://{cleaned}"
 
 
+def _normalize_telegraph_document_url(value: str, default: str) -> str:
+    """Keep public VPN legal documents on the requested Telegra.ph host."""
+    cleaned = value.strip() or default
+    try:
+        parsed = urlsplit(cleaned)
+        if (
+            parsed.scheme == "https"
+            and parsed.hostname == "telegra.ph"
+            and parsed.port is None
+            and parsed.username is None
+            and parsed.password is None
+            and parsed.path not in {"", "/"}
+        ):
+            return cleaned
+    except ValueError:
+        pass
+    return default
+
+
 @dataclass(frozen=True)
 class VpnAdditionalServer:
     code: str
@@ -98,8 +123,8 @@ class Settings:
     admin_web_session_secret: str = ""
     public_offer_url: str = DEFAULT_PUBLIC_OFFER_URL
     privacy_policy_url: str = DEFAULT_PRIVACY_POLICY_URL
-    vpn_user_agreement_url: str = ""
-    vpn_privacy_policy_url: str = ""
+    vpn_user_agreement_url: str = DEFAULT_VPN_USER_AGREEMENT_URL
+    vpn_privacy_policy_url: str = DEFAULT_VPN_PRIVACY_POLICY_URL
     info_channel_url: str = DEFAULT_INFO_CHANNEL_URL
     support_username: str = "cea_help"
     vpn_support_username: str = "cea_help"
@@ -354,10 +379,6 @@ def load_settings() -> Settings:
         if app_base_url
         else DEFAULT_PRIVACY_POLICY_URL
     )
-    vpn_user_agreement_default = (
-        f"{app_base_url}/vpn/user-agreement" if app_base_url else ""
-    )
-
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
         vpn_telegram_bot_token=read("VPN_TELEGRAM_BOT_TOKEN"),
@@ -385,11 +406,14 @@ def load_settings() -> Settings:
         admin_web_session_secret=read("ADMIN_WEB_SESSION_SECRET"),
         public_offer_url=read("PUBLIC_OFFER_URL", public_offer_default),
         privacy_policy_url=read("PRIVACY_POLICY_URL", privacy_policy_default),
-        vpn_user_agreement_url=(
-            read("VPN_USER_AGREEMENT_URL").strip()
-            or vpn_user_agreement_default
+        vpn_user_agreement_url=_normalize_telegraph_document_url(
+            read("VPN_USER_AGREEMENT_URL"),
+            DEFAULT_VPN_USER_AGREEMENT_URL,
         ),
-        vpn_privacy_policy_url=read("VPN_PRIVACY_POLICY_URL").strip(),
+        vpn_privacy_policy_url=_normalize_telegraph_document_url(
+            read("VPN_PRIVACY_POLICY_URL"),
+            DEFAULT_VPN_PRIVACY_POLICY_URL,
+        ),
         info_channel_url=_normalize_telegram_url(
             read("INFO_CHANNEL_URL", DEFAULT_INFO_CHANNEL_URL)
         ),

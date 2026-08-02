@@ -82,27 +82,32 @@ def _back(callback_data: str = "vpn:main") -> list[InlineKeyboardButton]:
 
 def about_keyboard(settings: Settings) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
+    document_buttons: list[InlineKeyboardButton] = []
     if settings.vpn_user_agreement_url.strip():
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="📄 Пользовательское соглашение",
-                    url=settings.vpn_user_agreement_url,
-                )
-            ]
+        document_buttons.append(
+            InlineKeyboardButton(
+                text="📄 Пользовательское соглашение",
+                url=settings.vpn_user_agreement_url,
+            )
         )
     if settings.vpn_privacy_policy_url.strip():
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="🔒 Политика конфиденциальности",
-                    url=settings.vpn_privacy_policy_url,
-                )
-            ]
+        document_buttons.append(
+            InlineKeyboardButton(
+                text="🔒 Политика конфиденциальности",
+                url=settings.vpn_privacy_policy_url,
+            )
         )
+    if document_buttons:
+        rows.append(document_buttons)
 
     rows.extend(
         [
+            [
+                InlineKeyboardButton(
+                    text="🎟 Ввести промокод",
+                    callback_data="vpn:promo",
+                )
+            ],
             [
                 InlineKeyboardButton(
                     text="🆘 Написать в поддержку",
