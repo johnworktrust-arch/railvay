@@ -4,6 +4,7 @@ import unittest
 from datetime import datetime, timezone
 
 from ceai.vpn_bot.handlers import (
+    VPN_MAIN_SCREEN_TEXT,
     connect_landing_url,
     happ_landing_url,
     main_keyboard,
@@ -14,6 +15,18 @@ from ceai.vpn_bot.handlers import (
 
 
 class VpnBotUiTest(unittest.TestCase):
+    def test_public_copy_uses_payment_moderation_safe_wording(self) -> None:
+        from ceai.main import VPN_BOT_DESCRIPTION, VPN_BOT_SHORT_DESCRIPTION
+
+        public_copy = "\n".join(
+            [VPN_MAIN_SCREEN_TEXT, VPN_BOT_DESCRIPTION, VPN_BOT_SHORT_DESCRIPTION]
+        )
+
+        self.assertNotIn("заблокированным сайтам", public_copy.lower())
+        self.assertIn("стабильное и защищённое соединение", public_copy.lower())
+        self.assertLessEqual(len(VPN_BOT_SHORT_DESCRIPTION), 120)
+        self.assertLessEqual(len(VPN_BOT_DESCRIPTION), 512)
+
     def test_main_menu_hides_trial_after_it_has_been_used(self) -> None:
         available = main_keyboard(
             support_username="cea_help",

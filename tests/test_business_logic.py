@@ -2169,6 +2169,20 @@ class MigrationAndUITest(unittest.TestCase):
         self.assertNotIn('BotCommand(command="admin"', main_source)
         self.assertNotIn('BotCommand(command="help"', main_source)
 
+    def test_vpn_bot_profile_copy_is_updated_on_startup(self) -> None:
+        main_source = Path("ceai/main.py").read_text(encoding="utf-8")
+
+        self.assertIn("VPN_BOT_DESCRIPTION", main_source)
+        self.assertIn("VPN_BOT_SHORT_DESCRIPTION", main_source)
+        self.assertIn(
+            "await vpn_bot.set_my_description(description=VPN_BOT_DESCRIPTION)",
+            main_source,
+        )
+        self.assertIn(
+            "short_description=VPN_BOT_SHORT_DESCRIPTION",
+            main_source,
+        )
+
     def test_admin_command_is_hidden_and_silent_for_regular_users(self) -> None:
         handlers_source = Path("ceai/bot/handlers.py").read_text(encoding="utf-8")
 

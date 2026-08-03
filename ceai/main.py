@@ -67,6 +67,19 @@ BOT_SHORT_DESCRIPTION = (
     "🚀 Все современные нейросети в одном боте. "
     "ℹ️ Канал @ceafamily"
 )
+VPN_BOT_DESCRIPTION = (
+    "CEA VPN — сервис для стабильного и защищённого интернет-соединения.\n\n"
+    "— безлимитный трафик\n"
+    "— быстрое подключение\n"
+    "— одна подписка для одного устройства\n"
+    "— поддержка @cea_help\n\n"
+    "🚀 Нажмите /start, чтобы подключиться."
+)
+VPN_BOT_SHORT_DESCRIPTION = (
+    "🚀 CeaAI VPN. Безлимитный трафик, быстрое подключение, "
+    "стабильное и защищённое соединение\n"
+    "ℹ️ Канал @ceafamily"
+)
 PLATEGA_CALLBACK_MAX_BODY_BYTES = 64 * 1024
 TELEGRAM_BOT_USERNAME_RE = re.compile(r"[A-Za-z0-9_]{5,32}")
 
@@ -739,6 +752,18 @@ async def main() -> None:
     vpn_dispatcher = None
     if settings.vpn_telegram_bot_token:
         vpn_bot = Bot(token=settings.vpn_telegram_bot_token)
+        await vpn_bot.set_my_description(description=VPN_BOT_DESCRIPTION)
+        await vpn_bot.set_my_description(
+            description=VPN_BOT_DESCRIPTION,
+            language_code="ru",
+        )
+        await vpn_bot.set_my_short_description(
+            short_description=VPN_BOT_SHORT_DESCRIPTION
+        )
+        await vpn_bot.set_my_short_description(
+            short_description=VPN_BOT_SHORT_DESCRIPTION,
+            language_code="ru",
+        )
         vpn_dispatcher = Dispatcher()
         vpn_dispatcher.include_router(create_vpn_router(services))
     health_server = None
