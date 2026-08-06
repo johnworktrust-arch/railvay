@@ -7,6 +7,7 @@ import logging
 import os
 import re
 from contextlib import suppress
+from typing import Callable
 
 from aiogram import Bot, Dispatcher
 from aiogram.exceptions import TelegramForbiddenError
@@ -39,6 +40,7 @@ from ceai.vpn_bot.handlers import (
     subscription_open_button,
     subscription_screen,
     subscription_v2box_button,
+    trial_expired_screen,
     trial_expiry_reminder_screen,
 )
 from ceai.vpn_worker_api import register_vpn_worker_routes
@@ -168,6 +170,20 @@ async def platega_reconciliation_loop(services: AppServices, bot: Bot) -> None:
         await asyncio.sleep(max(30, interval_seconds))
 
 
+async def _settle_vpn_notification_claim(
+    action: Callable[[int], None],
+    claim_id: int,
+    *,
+    failure_message: str,
+) -> None:
+    try:
+        await asyncio.to_thread(action, claim_id)
+    except Exception:
+        # A stale lease becomes claimable again, so a temporary database error
+        # must not terminate the long-running VPN maintenance task.
+        logging.exception(failure_message)
+
+
 async def vpn_maintenance_loop(
     services: AppServices,
     vpn_bot: Bot | None = None,
@@ -206,22 +222,31 @@ async def vpn_maintenance_loop(
                     )
                 except TelegramForbiddenError:
                     # A blocked/deactivated chat cannot become deliverable later.
-                    await asyncio.to_thread(
+                    await _settle_vpn_notification_claim(
                         services.vpn.complete_trial_expiry_reminder,
                         claim_id,
+                        failure_message=(
+                            "Could not complete VPN trial expiry reminder"
+                        ),
                     )
                 except Exception:
-                    await asyncio.to_thread(
-                        services.vpn.release_trial_expiry_reminder,
-                        claim_id,
-                    )
                     logging.exception(
                         "Could not send VPN trial expiry reminder"
                     )
+                    await _settle_vpn_notification_claim(
+                        services.vpn.release_trial_expiry_reminder,
+                        claim_id,
+                        failure_message=(
+                            "Could not release VPN trial expiry reminder"
+                        ),
+                    )
                 else:
-                    await asyncio.to_thread(
+                    await _settle_vpn_notification_claim(
                         services.vpn.complete_trial_expiry_reminder,
                         claim_id,
+                        failure_message=(
+                            "Could not complete VPN trial expiry reminder"
+                        ),
                     )
         try:
             queued = await asyncio.to_thread(services.vpn.enqueue_due_expirations)
@@ -229,6 +254,49 @@ async def vpn_maintenance_loop(
                 logging.info("Queued %s expired VPN subscription(s)", queued)
         except Exception:
             logging.exception("VPN maintenance loop failed")
+        if vpn_bot is not None:
+            try:
+                expired_notices = await asyncio.to_thread(
+                    services.vpn.claim_due_trial_expired_notices
+                )
+            except Exception:
+                expired_notices = []
+                logging.exception("Could not claim expired VPN trial notices")
+            for notice in expired_notices:
+                claim_id = int(notice["claim_id"])
+                text, keyboard = trial_expired_screen(notice["ends_at"])
+                try:
+                    await vpn_bot.send_message(
+                        chat_id=int(notice["telegram_id"]),
+                        text=text,
+                        reply_markup=keyboard,
+                        parse_mode="HTML",
+                    )
+                except TelegramForbiddenError:
+                    await _settle_vpn_notification_claim(
+                        services.vpn.complete_trial_expired_notice,
+                        claim_id,
+                        failure_message=(
+                            "Could not complete expired VPN trial notice"
+                        ),
+                    )
+                except Exception:
+                    logging.exception("Could not send expired VPN trial notice")
+                    await _settle_vpn_notification_claim(
+                        services.vpn.release_trial_expired_notice,
+                        claim_id,
+                        failure_message=(
+                            "Could not release expired VPN trial notice"
+                        ),
+                    )
+                else:
+                    await _settle_vpn_notification_claim(
+                        services.vpn.complete_trial_expired_notice,
+                        claim_id,
+                        failure_message=(
+                            "Could not complete expired VPN trial notice"
+                        ),
+                    )
         await asyncio.sleep(max(30, interval_seconds))
 
 

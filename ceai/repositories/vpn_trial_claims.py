@@ -167,6 +167,127 @@ class VpnTrialClaimRepository:
             (iso_now(), claim_id),
         )
 
+    def claim_due_expired_notices(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        now: str,
+        stale_before: str,
+        limit: int = 100,
+    ) -> List[Dict[str, Any]]:
+        candidates = conn.execute(
+            """
+            SELECT
+                claim.id AS claim_id,
+                claim.subscription_id,
+                subscription.ends_at,
+                account.telegram_id
+            FROM vpn_trial_claims claim
+            JOIN vpn_subscriptions subscription
+              ON subscription.id = claim.subscription_id
+            JOIN users account
+              ON account.id = claim.user_id
+            WHERE claim.status = 'provisioned'
+              AND claim.expired_notice_sent_at IS NULL
+              AND (
+                    claim.expired_notice_claimed_at IS NULL
+                    OR claim.expired_notice_claimed_at <= ?
+              )
+              AND subscription.kind = 'trial'
+              AND subscription.billing_kind = 'trial'
+              AND subscription.status IN ('active', 'expired', 'disabled')
+              AND subscription.ends_at <= ?
+              AND NOT EXISTS (
+                    SELECT 1
+                    FROM vpn_subscriptions paid
+                    WHERE paid.user_id = claim.user_id
+                      AND paid.id <> subscription.id
+                      AND paid.billing_kind = 'paid'
+              )
+            ORDER BY subscription.ends_at ASC, claim.id ASC
+            LIMIT ?
+            """,
+            (stale_before, now, limit),
+        ).fetchall()
+
+        claimed: List[Dict[str, Any]] = []
+        for candidate in candidates:
+            cursor = conn.execute(
+                """
+                UPDATE vpn_trial_claims
+                SET expired_notice_claimed_at = ?, updated_at = ?
+                WHERE id = ?
+                  AND status = 'provisioned'
+                  AND expired_notice_sent_at IS NULL
+                  AND (
+                        expired_notice_claimed_at IS NULL
+                        OR expired_notice_claimed_at <= ?
+                  )
+                  AND EXISTS (
+                        SELECT 1
+                        FROM vpn_subscriptions subscription
+                        WHERE subscription.id = vpn_trial_claims.subscription_id
+                          AND subscription.kind = 'trial'
+                          AND subscription.billing_kind = 'trial'
+                          AND subscription.status IN (
+                              'active', 'expired', 'disabled'
+                          )
+                          AND subscription.ends_at <= ?
+                          AND NOT EXISTS (
+                                SELECT 1
+                                FROM vpn_subscriptions paid
+                                WHERE paid.user_id = vpn_trial_claims.user_id
+                                  AND paid.id <> subscription.id
+                                  AND paid.billing_kind = 'paid'
+                          )
+                  )
+                """,
+                (
+                    now,
+                    now,
+                    int(candidate["claim_id"]),
+                    stale_before,
+                    now,
+                ),
+            )
+            if cursor.rowcount == 1:
+                claimed.append(row_to_dict(candidate) or {})
+        return claimed
+
+    def mark_expired_notice_sent(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        claim_id: int,
+        sent_at: str,
+    ) -> None:
+        conn.execute(
+            """
+            UPDATE vpn_trial_claims
+            SET expired_notice_sent_at = ?,
+                expired_notice_claimed_at = NULL,
+                updated_at = ?
+            WHERE id = ?
+            """,
+            (sent_at, sent_at, claim_id),
+        )
+
+    def release_expired_notice(
+        self,
+        conn: sqlite3.Connection,
+        *,
+        claim_id: int,
+    ) -> None:
+        conn.execute(
+            """
+            UPDATE vpn_trial_claims
+            SET expired_notice_claimed_at = NULL, updated_at = ?
+            WHERE id = ?
+              AND expired_notice_sent_at IS NULL
+            """,
+            (iso_now(), claim_id),
+        )
+
     def mark_status(
         self,
         conn: sqlite3.Connection,

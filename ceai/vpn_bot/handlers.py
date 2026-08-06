@@ -471,6 +471,39 @@ def trial_expiry_reminder_screen(
     return text, keyboard
 
 
+def trial_expired_screen(
+    ends_at: Any,
+) -> tuple[str, InlineKeyboardMarkup]:
+    text = (
+        "<b>Пробный период закончился</b>\n"
+        "⚠️\n\n"
+        "Статус подписки:\n"
+        "<blockquote>"
+        "🔴 <b>Пробный период завершён</b>\n"
+        f"📅 <b>Дата окончания:</b> {escape(_format_ends_at(ends_at))} (МСК)"
+        "</blockquote>\n"
+        "Тариф:\n"
+        "<blockquote>"
+        "🎁 <b>3 дня бесплатно</b>\n"
+        "Трафик: безлимит\n"
+        "Устройств: 1"
+        "</blockquote>\n"
+        "📶 Продлите подписку, чтобы снова пользоваться VPN."
+    )
+    keyboard = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="🔄 Продлить подписку",
+                    callback_data="vpn:plans",
+                    style="success",
+                )
+            ]
+        ]
+    )
+    return text, keyboard
+
+
 def subscription_screen(
     subscription: Dict[str, Any] | None,
     *,

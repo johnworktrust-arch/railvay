@@ -10,7 +10,9 @@ from aiohttp import web
 
 from ceai.config import Settings
 from ceai.database import Database
+from ceai.repositories.vpn_plans import VpnPlanRepository
 from ceai.repositories.vpn_servers import VpnServerRepository
+from ceai.repositories.vpn_subscriptions import VpnSubscriptionRepository
 from ceai.services.exceptions import BusinessRuleError
 from ceai.services.users import UserService
 from ceai.services.vpn import VpnService, _marzban_profile_version
@@ -61,6 +63,28 @@ class VpnRuntimeTest(unittest.TestCase):
                 checked_at=utcnow().isoformat(),
             )
         self.vpn = VpnService(self.db, server_code="nl-1", trial_days=3)
+
+    def _activate_trial(self, *, subscription_suffix: str):
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        job = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        self.assertIsNotNone(job)
+        assert job is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(job["job_id"]),
+            lease_token=str(job["lease_token"]),
+            subscription_url=(
+                "https://sub.example.test:8443/sub/" + subscription_suffix
+            ),
+        )
+        return trial
 
     def test_signed_legacy_direct_profile_defaults_only_to_vision(self) -> None:
         tags, flow, worker_epoch = _worker_transport_profile(
@@ -282,6 +306,148 @@ class VpnRuntimeTest(unittest.TestCase):
         self.vpn.complete_trial_expiry_reminder(claim_id)
         self.assertEqual(self.vpn.claim_due_trial_expiry_reminders(), [])
         self.assertTrue(self.vpn.has_used_trial(int(self.user["id"])))
+
+    def test_trial_expired_notice_is_claimed_once_and_can_retry(self) -> None:
+        trial = self._activate_trial(subscription_suffix="expired-notice")
+        subscription_id = int(trial.subscription["id"])
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE vpn_subscriptions SET ends_at = ? WHERE id = ?",
+                (
+                    (utcnow() + timedelta(minutes=1)).isoformat(),
+                    subscription_id,
+                ),
+            )
+        self.assertEqual(self.vpn.claim_due_trial_expired_notices(), [])
+
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE vpn_subscriptions
+                SET status = 'expired', ends_at = ?
+                WHERE id = ?
+                """,
+                (
+                    (utcnow() - timedelta(minutes=1)).isoformat(),
+                    subscription_id,
+                ),
+            )
+            conn.execute(
+                """
+                UPDATE vpn_trial_claims
+                SET expiry_reminder_sent_at = ?
+                WHERE subscription_id = ?
+                """,
+                (utcnow().isoformat(), subscription_id),
+            )
+
+        first = self.vpn.claim_due_trial_expired_notices()
+        self.assertEqual(len(first), 1)
+        self.assertEqual(first[0]["telegram_id"], self.user["telegram_id"])
+        self.assertEqual(self.vpn.claim_due_trial_expired_notices(), [])
+
+        claim_id = int(first[0]["claim_id"])
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE vpn_trial_claims
+                SET expired_notice_claimed_at = ?
+                WHERE id = ?
+                """,
+                (
+                    (utcnow() - timedelta(minutes=10)).isoformat(),
+                    claim_id,
+                ),
+            )
+        reclaimed = self.vpn.claim_due_trial_expired_notices()
+        self.assertEqual([item["claim_id"] for item in reclaimed], [claim_id])
+
+        self.vpn.release_trial_expired_notice(claim_id)
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE vpn_subscriptions SET status = 'disabled' WHERE id = ?",
+                (subscription_id,),
+            )
+        retried = self.vpn.claim_due_trial_expired_notices()
+        self.assertEqual([item["claim_id"] for item in retried], [claim_id])
+
+        self.vpn.complete_trial_expired_notice(claim_id)
+        self.assertEqual(self.vpn.claim_due_trial_expired_notices(), [])
+        with self.db.transaction() as conn:
+            stored = conn.execute(
+                """
+                SELECT expired_notice_claimed_at, expired_notice_sent_at
+                FROM vpn_trial_claims
+                WHERE id = ?
+                """,
+                (claim_id,),
+            ).fetchone()
+        self.assertIsNone(stored["expired_notice_claimed_at"])
+        self.assertIsNotNone(stored["expired_notice_sent_at"])
+
+    def test_paid_subscription_suppresses_trial_expired_notice(self) -> None:
+        trial = self._activate_trial(subscription_suffix="converted-trial")
+        subscription_id = int(trial.subscription["id"])
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE vpn_subscriptions
+                SET status = 'expired', billing_kind = 'paid', ends_at = ?
+                WHERE id = ?
+                """,
+                (
+                    (utcnow() - timedelta(minutes=1)).isoformat(),
+                    subscription_id,
+                ),
+            )
+
+        self.assertEqual(self.vpn.claim_due_trial_expired_notices(), [])
+
+    def test_new_paid_subscription_permanently_suppresses_old_trial_notice(
+        self,
+    ) -> None:
+        trial = self._activate_trial(subscription_suffix="old-trial")
+        subscription_id = int(trial.subscription["id"])
+        now = utcnow()
+        with self.db.transaction() as conn:
+            conn.execute(
+                """
+                UPDATE vpn_subscriptions
+                SET status = 'expired', ends_at = ?
+                WHERE id = ?
+                """,
+                ((now - timedelta(minutes=1)).isoformat(), subscription_id),
+            )
+            plan = VpnPlanRepository().upsert(
+                conn,
+                code="vpn-paid-notice-test",
+                name="30 дней",
+                duration_days=30,
+                price_rub=149,
+                price_stars=149,
+                max_devices=1,
+            )
+            paid = VpnSubscriptionRepository().create_provisioning(
+                conn,
+                user_id=int(self.user["id"]),
+                server_id=int(trial.subscription["server_id"]),
+                plan_id=int(plan["id"]),
+                kind="paid",
+                provider_username="paid_after_trial_9001",
+                starts_at=now.isoformat(),
+                ends_at=(now + timedelta(days=30)).isoformat(),
+            )
+
+        self.assertEqual(self.vpn.claim_due_trial_expired_notices(), [])
+
+        with self.db.transaction() as conn:
+            VpnSubscriptionRepository().mark_status(
+                conn,
+                subscription_id=int(paid["id"]),
+                status="disabled",
+            )
+        self.assertEqual(self.vpn.claim_due_trial_expired_notices(), [])
 
     def test_worker_converges_existing_active_subscription_to_profile_v3(self) -> None:
         trial = self.vpn.claim_trial(

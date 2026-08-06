@@ -9,6 +9,7 @@ from ceai.vpn_bot.handlers import (
     happ_landing_url,
     main_keyboard,
     subscription_screen,
+    trial_expired_screen,
     trial_expiry_reminder_screen,
     v2box_landing_url,
 )
@@ -113,6 +114,24 @@ class VpnBotUiTest(unittest.TestCase):
             keyboard.inline_keyboard[1][0].callback_data,
             "vpn:subscription",
         )
+
+    def test_trial_expired_screen_shows_only_renewal_button(self) -> None:
+        text, keyboard = trial_expired_screen(
+            datetime(2026, 7, 24, 17, 34, tzinfo=timezone.utc)
+        )
+
+        self.assertTrue(text.startswith("<b>Пробный период закончился</b>\n⚠️"))
+        self.assertIn("Пробный период завершён", text)
+        self.assertIn("24 июля 2026 года, 20:34 (МСК)", text)
+        self.assertIn("3 дня бесплатно", text)
+        self.assertIn("Устройств: 1", text)
+        self.assertNotIn("Осталось времени", text)
+        self.assertEqual(len(keyboard.inline_keyboard), 1)
+        self.assertEqual(len(keyboard.inline_keyboard[0]), 1)
+        button = keyboard.inline_keyboard[0][0]
+        self.assertEqual(button.text, "🔄 Продлить подписку")
+        self.assertEqual(button.callback_data, "vpn:plans")
+        self.assertEqual(button.style, "success")
 
     def test_active_subscription_shows_profile_and_setup_guide(self) -> None:
         subscription_url = "https://sub.example.test:8443/sub/secret-token"

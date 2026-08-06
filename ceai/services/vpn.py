@@ -1218,6 +1218,33 @@ class VpnService:
         with self.db.transaction() as conn:
             self.trials.release_expiry_reminder(conn, claim_id=claim_id)
 
+    def claim_due_trial_expired_notices(
+        self,
+        *,
+        lease_seconds: int = 300,
+        limit: int = 100,
+    ) -> list[Dict[str, Any]]:
+        now = utcnow()
+        with self.db.transaction() as conn:
+            return self.trials.claim_due_expired_notices(
+                conn,
+                now=now.isoformat(),
+                stale_before=(now - timedelta(seconds=lease_seconds)).isoformat(),
+                limit=limit,
+            )
+
+    def complete_trial_expired_notice(self, claim_id: int) -> None:
+        with self.db.transaction() as conn:
+            self.trials.mark_expired_notice_sent(
+                conn,
+                claim_id=claim_id,
+                sent_at=utcnow().isoformat(),
+            )
+
+    def release_trial_expired_notice(self, claim_id: int) -> None:
+        with self.db.transaction() as conn:
+            self.trials.release_expired_notice(conn, claim_id=claim_id)
+
     def _fulfill_paid_payment(
         self,
         conn: Any,

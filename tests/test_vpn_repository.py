@@ -99,6 +99,9 @@ class VpnRepositoryTest(unittest.TestCase):
             server_columns = conn.execute(
                 "PRAGMA table_info(vpn_servers)"
             ).fetchall()
+            trial_claim_columns = conn.execute(
+                "PRAGMA table_info(vpn_trial_claims)"
+            ).fetchall()
         self.assertTrue(table_names.issubset({row["name"] for row in rows}))
         self.assertIn(
             "current_profile_version",
@@ -107,6 +110,12 @@ class VpnRepositoryTest(unittest.TestCase):
         self.assertIn(
             "current_worker_epoch",
             {row["name"] for row in server_columns},
+        )
+        self.assertTrue(
+            {
+                "expired_notice_claimed_at",
+                "expired_notice_sent_at",
+            }.issubset({row["name"] for row in trial_claim_columns})
         )
 
         vpn_core_tables = table_names - {"vpn_payments"}
@@ -132,6 +141,63 @@ class VpnRepositoryTest(unittest.TestCase):
             source = migration_path.read_text(encoding="utf-8")
             self.assertIn("current_profile_version", source)
             self.assertIn("current_worker_epoch", source)
+
+        for migration_path in (
+            Path("migrations/017_vpn_trial_expired_notices.sql"),
+            Path("migrations/postgres/017_vpn_trial_expired_notices.sql"),
+        ):
+            source = migration_path.read_text(encoding="utf-8")
+            self.assertIn("expired_notice_claimed_at", source)
+            self.assertIn("expired_notice_sent_at", source)
+
+    def test_expired_notice_migration_backfills_only_old_trials(self) -> None:
+        conn = sqlite3.connect(":memory:")
+        conn.row_factory = sqlite3.Row
+        conn.executescript(
+            """
+            CREATE TABLE vpn_subscriptions (
+                id INTEGER PRIMARY KEY,
+                ends_at TEXT NOT NULL
+            );
+            CREATE TABLE vpn_trial_claims (
+                id INTEGER PRIMARY KEY,
+                subscription_id INTEGER NOT NULL,
+                status TEXT NOT NULL
+            );
+            """
+        )
+        now = utcnow()
+        conn.executemany(
+            "INSERT INTO vpn_subscriptions (id, ends_at) VALUES (?, ?)",
+            [
+                (1, (now - timedelta(minutes=1)).isoformat()),
+                (2, (now + timedelta(minutes=1)).isoformat()),
+            ],
+        )
+        conn.executemany(
+            """
+            INSERT INTO vpn_trial_claims (id, subscription_id, status)
+            VALUES (?, ?, 'provisioned')
+            """,
+            [(1, 1), (2, 2)],
+        )
+
+        conn.executescript(
+            Path("migrations/017_vpn_trial_expired_notices.sql").read_text(
+                encoding="utf-8"
+            )
+        )
+        rows = conn.execute(
+            """
+            SELECT id, expired_notice_sent_at
+            FROM vpn_trial_claims
+            ORDER BY id
+            """
+        ).fetchall()
+        conn.close()
+
+        self.assertIsNotNone(rows[0]["expired_notice_sent_at"])
+        self.assertIsNone(rows[1]["expired_notice_sent_at"])
 
     def test_server_and_plan_upserts_are_stable(self) -> None:
         self.assertEqual(self.server["api_base_url"], "https://vpn1.example.test")
