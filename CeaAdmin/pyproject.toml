@@ -1,0 +1,25 @@
+[project]
+name = "ceaadmin"
+version = "0.1.0"
+description = "Unified Admin Web Dashboard for CeaAI and CeaVPN."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "aiohttp>=3.9,<4.0",
+    "psycopg[binary]>=3.2,<4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ceaadmin*"]
+
+[tool.setuptools.package-data]
+ceaadmin = ["admin_assets/*.html", "admin_assets/*.css", "admin_assets/*.js"]

@@ -1,0 +1,29 @@
+from __future__ import annotations
+
+from typing import Any, Dict, List
+
+from ceaadmin.database import Database
+from ceaadmin.repositories.model_prices import ModelPriceRepository
+from ceaadmin.repositories.plans import PlanRepository
+
+
+class CatalogService:
+    def __init__(self, db: Database) -> None:
+        self.db = db
+        self.plans = PlanRepository()
+        self.models = ModelPriceRepository()
+
+    def list_plans(self) -> List[Dict[str, Any]]:
+        with self.db.transaction() as conn:
+            return self.plans.list_active(conn)
+
+    def list_models(self) -> List[Dict[str, Any]]:
+        with self.db.transaction() as conn:
+            return self.models.list_active(conn)
+
+    def get_model(self, model_price_id: int) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            model = self.models.get_by_id(conn, model_price_id)
+            if model is None or not model["is_active"]:
+                return None
+            return model
