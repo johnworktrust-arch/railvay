@@ -7,6 +7,7 @@ WORKDIR /app
 
 COPY pyproject.toml README.md ./
 COPY ceaadmin ./ceaadmin
+COPY migrations ./migrations
 COPY tests ./tests
 
 RUN pip install --no-cache-dir .
