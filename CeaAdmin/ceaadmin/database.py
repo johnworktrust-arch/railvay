@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 import sqlite3
 import threading
 from contextlib import contextmanager
@@ -17,6 +18,10 @@ class DatabaseConnection:
     def execute(self, query: str, params: tuple[Any, ...] = ()) -> Any:
         if self.driver == "postgres":
             query = query.replace("?", "%s")
+            # In SQLite, timestamps are TEXT so REPLACE(col, ' ', 'T') is used
+            # to normalise them before comparison. In PostgreSQL, timestamps are
+            # native TIMESTAMPTZ and can be compared with ISO strings directly.
+            query = re.sub(r"REPLACE\((.+?),\s*' ',\s*'T'\)", r"\1", query)
         else:
             query = query.replace("::jsonb", "")
         return self.raw_conn.execute(query, params)
