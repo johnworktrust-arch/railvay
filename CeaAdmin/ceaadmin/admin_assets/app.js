@@ -344,35 +344,39 @@ async function loadUsers() {
   }
 }
 
-function vpnTypeBadge(user) {
-  if (user.vpn_has_paid || user.vpn_billing_kind === "paid") {
-    return '<span class="badge paid">Платный</span>';
-  }
-  if (user.vpn_has_trial) {
-    return '<span class="badge trial">Пробный</span>';
-  }
-  return '<span class="badge none">Без тарифа</span>';
-}
-
 function vpnStatusBadge(user) {
   if (user.vpn_is_blocked) {
     return '<span class="badge blocked">Забанен</span>';
   }
-  const status = user.vpn_is_active ? "active" : (user.vpn_status || "none");
-  const labels = {
-    active: "Активна",
-    provisioning: "Подключается",
-    expired: "Истекла",
-    disabled: "Отключена",
-    error: "Ошибка",
-    none: "Нет подписки",
-  };
-  return `<span class="badge ${escapeHtml(status)}">${escapeHtml(labels[status] || status)}</span>`;
+  if (user.vpn_status === "error") {
+    return '<span class="badge error">Ошибка</span>';
+  }
+  if (user.vpn_status === "provisioning") {
+    return '<span class="badge provisioning">Подключается</span>';
+  }
+
+  // Active subscription
+  if (user.vpn_is_active) {
+    if (user.vpn_billing_kind === "paid" || user.vpn_has_paid) {
+      return '<span class="badge paid">Платный</span>';
+    }
+    return '<span class="badge trial">Пробный</span>';
+  }
+
+  // Inactive subscription
+  if (user.vpn_has_paid) {
+    return '<span class="badge expired">Истекла</span>';
+  }
+  if (user.vpn_has_trial) {
+    return '<span class="badge disabled">Отключена</span>';
+  }
+
+  return '<span class="badge none">Не подключен</span>';
 }
 
 function vpnUsersMarkup(users) {
   if (!users.length) {
-    return '<tr><td colspan="7" class="empty-cell">По этому фильтру VPN-пользователей нет</td></tr>';
+    return '<tr><td colspan="6" class="empty-cell">По этому фильтру VPN-пользователей нет</td></tr>';
   }
   return users.map((user) => `
     <tr data-vpn-user-id="${Number(user.id)}" tabindex="0">
@@ -383,19 +387,18 @@ function vpnUsersMarkup(users) {
           <span class="mobile-registration">До: ${escapeHtml(asDateOnly(user.vpn_ends_at))}</span>
         </div>
       </td>
-      <td>${vpnTypeBadge(user)}</td>
+      <td>${vpnStatusBadge(user)}</td>
       <td>${escapeHtml(user.vpn_plan_name || (user.vpn_has_trial ? "3 дня бесплатно" : "—"))}</td>
       <td>${escapeHtml(formatMoney.format(user.vpn_paid_amount_rub || 0))}</td>
       <td>${escapeHtml(asDate(user.vpn_starts_at))}</td>
       <td>${escapeHtml(asDate(user.vpn_ends_at))}</td>
-      <td>${vpnStatusBadge(user)}</td>
     </tr>
   `).join("");
 }
 
 async function loadVpnUsers() {
   byId("vpn-users-body").innerHTML =
-    '<tr><td colspan="7" class="loading-cell">Загрузка…</td></tr>';
+    '<tr><td colspan="6" class="loading-cell">Загрузка…</td></tr>';
   const params = new URLSearchParams({
     page: String(state.vpnPage),
     page_size: "25",
@@ -416,7 +419,7 @@ async function loadVpnUsers() {
     byId("vpn-next-page").disabled = data.page >= data.pages;
   } catch (error) {
     byId("vpn-users-body").innerHTML =
-      `<tr><td colspan="7" class="empty-cell">${escapeHtml(error.message)}</td></tr>`;
+      `<tr><td colspan="6" class="empty-cell">${escapeHtml(error.message)}</td></tr>`;
     showToast(error.message, true);
   }
 }

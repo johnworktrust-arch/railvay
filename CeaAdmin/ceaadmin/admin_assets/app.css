@@ -803,10 +803,14 @@ tbody tr:last-child td {
 
 .badge.inactive,
 .badge.none,
-.badge.expired,
 .badge.disabled {
   background: #edf0f2;
   color: #69757d;
+}
+
+.badge.expired {
+  background: var(--amber-soft);
+  color: var(--amber);
 }
 
 .badge.provisioning {
