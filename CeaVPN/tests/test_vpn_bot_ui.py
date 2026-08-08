@@ -96,7 +96,7 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertIn("9 часов 51 минута", text)
         self.assertIn("24 июля 2026 года, 20:34 (МСК)", text)
         self.assertIn("3 дня бесплатно", text)
-        self.assertIn("Устройств: 1", text)
+        self.assertIn("Устройств: 2", text)
         self.assertTrue(text.startswith("<b>Пробный период скоро закончится</b>\n⚠️"))
         self.assertEqual(
             keyboard.inline_keyboard[0][0].text,
@@ -124,7 +124,7 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertIn("Пробный период завершён", text)
         self.assertIn("24 июля 2026 года, 20:34 (МСК)", text)
         self.assertIn("3 дня бесплатно", text)
-        self.assertIn("Устройств: 1", text)
+        self.assertIn("Устройств: 2", text)
         self.assertNotIn("Осталось времени", text)
         self.assertEqual(len(keyboard.inline_keyboard), 1)
         self.assertEqual(len(keyboard.inline_keyboard[0]), 1)
@@ -139,7 +139,7 @@ class VpnBotUiTest(unittest.TestCase):
             {
                 "status": "active",
                 "plan_name": "30 дней",
-                "plan_max_devices": 1,
+                "plan_max_devices": 2,
                 "server_region": "NL",
                 "ends_at": datetime(2026, 8, 23, 19, 35, tzinfo=timezone.utc),
                 "subscription_url": subscription_url,
@@ -167,7 +167,7 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertIn("Имя: bb", text)
         self.assertIn("ID: 1625313155", text)
         self.assertIn("Тариф: 30 дней", text)
-        self.assertIn("Лимит устройств: 1", text)
+        self.assertIn("Лимит устройств: 2", text)
         self.assertNotIn("Локации:", text)
         self.assertNotIn("Нидерланды", text)
         self.assertNotIn("США", text)

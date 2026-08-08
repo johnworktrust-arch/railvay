@@ -67,7 +67,7 @@ class VpnSubscriptionRepository:
                     p.code AS plan_code,
                     p.name AS plan_name,
                     p.duration_days AS plan_duration_days,
-                    p.max_devices AS plan_max_devices
+                    p.max_devices + COALESCE(s.extra_devices, 0) AS plan_max_devices
                 FROM vpn_subscriptions s
                 JOIN vpn_servers srv ON srv.id = s.server_id
                 LEFT JOIN vpn_plans p ON p.id = s.plan_id
@@ -108,7 +108,7 @@ class VpnSubscriptionRepository:
                     p.code AS plan_code,
                     p.name AS plan_name,
                     p.duration_days AS plan_duration_days,
-                    p.max_devices AS plan_max_devices
+                    p.max_devices + COALESCE(s.extra_devices, 0) AS plan_max_devices
                 FROM vpn_subscriptions s
                 JOIN vpn_servers srv ON srv.id = s.server_id
                 LEFT JOIN vpn_plans p ON p.id = s.plan_id
@@ -155,7 +155,7 @@ class VpnSubscriptionRepository:
                     p.code AS plan_code,
                     p.name AS plan_name,
                     p.duration_days AS plan_duration_days,
-                    p.max_devices AS plan_max_devices
+                    p.max_devices + COALESCE(s.extra_devices, 0) AS plan_max_devices
                 FROM vpn_subscriptions s
                 JOIN vpn_servers srv ON srv.id = s.server_id
                 LEFT JOIN vpn_plans p ON p.id = s.plan_id
@@ -499,6 +499,22 @@ class VpnSubscriptionRepository:
             ),
         ).fetchone()
         return row is not None
+
+    def add_extra_devices(
+        self,
+        conn: Any,
+        *,
+        subscription_id: int,
+        count: int,
+    ) -> None:
+        conn.execute(
+            """
+            UPDATE vpn_subscriptions
+            SET extra_devices = extra_devices + ?
+            WHERE id = ?
+            """,
+            (count, subscription_id),
+        )
 
     def _require_by_id(
         self, conn: sqlite3.Connection, subscription_id: int, action: str

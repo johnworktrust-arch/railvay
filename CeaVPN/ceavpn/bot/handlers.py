@@ -281,7 +281,10 @@ def main_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def plans_keyboard() -> InlineKeyboardMarkup:
+EXTRA_DEVICE_PRICES = {1: 50, 2: 60, 3: 70, 4: 80, 5: 90}
+
+
+def plans_keyboard(has_active_paid_subscription: bool = False) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -291,7 +294,50 @@ def plans_keyboard() -> InlineKeyboardMarkup:
         ]
         for code, (name, price_rub, price_stars) in TARIFFS.items()
     ]
+    if has_active_paid_subscription:
+        rows.append([
+            InlineKeyboardButton(
+                text="📱 Докупить устройства",
+                callback_data="vpn:add_devices",
+            )
+        ])
     rows.append(_back())
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def add_devices_keyboard() -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=f"{cnt} устр. — {EXTRA_DEVICE_PRICES[cnt]}₽",
+                callback_data=f"vpn:extra_dev:{cnt}",
+            )
+        ]
+        for cnt in range(1, 6)
+    ]
+    rows.append(_back("vpn:plans"))
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def extra_devices_payment_keyboard(count: int, agreement_url: str = "") -> InlineKeyboardMarkup:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text="💳 Оплатить картой / СБП",
+                callback_data=f"vpn:pay_extra_dev:{count}:platega",
+            )
+        ],
+    ]
+    if agreement_url.strip():
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📄 Пользовательское соглашение",
+                    url=agreement_url,
+                )
+            ]
+        )
+    rows.append(_back("vpn:add_devices"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
@@ -447,7 +493,7 @@ def trial_expiry_reminder_screen(
         "<blockquote>"
         "🎁 <b>3 дня бесплатно</b>\n"
         "Трафик: безлимит\n"
-        "Устройств: 1"
+        "Устройств: 2"
         "</blockquote>\n"
         "📶 Успейте продлить подписку заранее, чтобы продолжить "
         "пользоваться интернетом без перерыва."
@@ -487,7 +533,7 @@ def trial_expired_screen(
         "<blockquote>"
         "🎁 <b>3 дня бесплатно</b>\n"
         "Трафик: безлимит\n"
-        "Устройств: 1"
+        "Устройств: 2"
         "</blockquote>\n"
         "📶 Продлите подписку, чтобы снова пользоваться VPN."
     )
@@ -836,15 +882,159 @@ def create_vpn_router(services: AppServices) -> Router:
 
     @router.callback_query(F.data == "vpn:plans")
     async def plans(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        active_sub = services.subscriptions.active_for_user(user["id"])
+        has_active_paid = (
+            active_sub is not None
+            and str(active_sub.get("kind")) == "paid"
+        )
         if callback.message:
             await _screen(
                 callback.message,
                 "<b>Подключить VPN 🚀</b>\n\n"
-                "Любой тариф предназначен для <b>1 устройства.</b>\n\n"
+                "Любой тариф предназначен для <b>2 устройств.</b>\n\n"
                 "ℹ️ Выберите срок подписки",
-                plans_keyboard(),
+                plans_keyboard(has_active_paid_subscription=has_active_paid),
             )
         await callback.answer()
+
+    @router.callback_query(F.data == "vpn:add_devices")
+    async def add_devices(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        active_sub = services.subscriptions.active_for_user(user["id"])
+        if active_sub is None or str(active_sub.get("kind")) != "paid":
+            await callback.answer(
+                "Докупка устройств доступна только при активной платной подписке.",
+                show_alert=True,
+            )
+            return
+
+        if callback.message:
+            await _screen(
+                callback.message,
+                "<b>Докупить устройства 📱</b>\n\n"
+                "Выберите количество дополнительных устройств для подключения к вашему VPN:\n\n"
+                "1 доп. устройство — <b>50₽</b>\n"
+                "2 доп. устройства — <b>60₽</b>\n"
+                "3 доп. устройства — <b>70₽</b>\n"
+                "4 доп. устройства — <b>80₽</b>\n"
+                "5 доп. устройств — <b>90₽</b>\n\n"
+                "ℹ️ Новые устройства привязываются к вашей текущей подписке.",
+                add_devices_keyboard(),
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("vpn:extra_dev:"))
+    async def select_extra_dev(callback: CallbackQuery) -> None:
+        try:
+            cnt = int(callback.data.rsplit(":", 1)[-1])
+        except ValueError:
+            await callback.answer("Некорректное значение.", show_alert=True)
+            return
+        price = EXTRA_DEVICE_PRICES.get(cnt)
+        if price is None:
+            await callback.answer("Некорректное количество устройств.", show_alert=True)
+            return
+
+        if callback.message:
+            await _screen(
+                callback.message,
+                "<b>Докупить устройства 📱</b>\n\n"
+                f"Дополнительно устройств: <b>+{cnt} шт.</b>\n"
+                f"К оплате: <b>{price}₽</b>\n\n"
+                "ℹ️ Нажмите «Оплатить картой / СБП» для перехода к оплате.",
+                extra_devices_payment_keyboard(
+                    cnt,
+                    getattr(services.settings, "vpn_user_agreement_url", ""),
+                ),
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("vpn:pay_extra_dev:"))
+    async def pay_extra_dev(callback: CallbackQuery) -> None:
+        parts = callback.data.split(":", 3)
+        if len(parts) != 4:
+            await callback.answer("Некорректный запрос.", show_alert=True)
+            return
+        _, _, count_str, method = parts
+        try:
+            cnt = int(count_str)
+        except ValueError:
+            await callback.answer("Некорректное количество устройств.", show_alert=True)
+            return
+        price = EXTRA_DEVICE_PRICES.get(cnt)
+        if price is None:
+            await callback.answer("Некорректная сумма.", show_alert=True)
+            return
+
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        is_owner = _admin_demo_authorized(callback, services)
+
+        if services.vpn.uses_platega:
+            try:
+                order, _ = await asyncio.to_thread(
+                    services.vpn.create_extra_devices_platega_payment,
+                    user_id=int(user["id"]),
+                    count=cnt,
+                    user_name=callback.from_user.username or "",
+                )
+            except BusinessRuleError as exc:
+                await callback.answer(str(exc), show_alert=True)
+                return
+            payment_url = str(order.get("payment_url") or "")
+            if not payment_url:
+                await callback.answer("Ссылка на оплату ещё создаётся. Нажмите еще раз.", show_alert=True)
+                return
+
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💳 Оплатить картой / СБП", url=payment_url)],
+                [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"vpn:check:{order['id']}")],
+                _back("vpn:add_devices"),
+            ])
+            order_code = f"CEA-H{int(order['id']):05X}"
+            if callback.message:
+                await _screen(
+                    callback.message,
+                    f"📦 <b>Заказ: {order_code}</b>\n\n"
+                    f"Услуга: <b>Доп. устройства (+{cnt} шт.)</b>\n"
+                    "Оплата: <b>Карта / СБП</b>\n"
+                    f"Сумма: <b>{price}₽</b>\n\n"
+                    "ℹ️ Оплатите заказ и нажмите проверку оплаты\n\n"
+                    "После оплаты дополнительные устройства добавятся к вашей подписке автоматически.",
+                    kb,
+                )
+            await callback.answer()
+            return
+
+        if is_owner:
+            try:
+                order, _ = services.vpn.create_extra_devices_admin_demo_payment(
+                    user_id=int(user["id"]),
+                    count=cnt,
+                    admin_authorized=is_owner,
+                )
+            except BusinessRuleError as exc:
+                await callback.answer(str(exc), show_alert=True)
+                return
+            kb = InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="🧪 Имитировать успешную оплату", callback_data=f"vpn:demo_pay:{order['id']}")],
+                [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"vpn:check:{order['id']}")],
+                _back("vpn:add_devices"),
+            ])
+            if callback.message:
+                await _screen(
+                    callback.message,
+                    f"📦 <b>Тестовый заказ: CEA-TEST-{int(order['id']):06d}</b>\n\n"
+                    f"Услуга: <b>Доп. устройства (+{cnt} шт.)</b>\n"
+                    f"Сумма: <b>{price}₽</b>\n\n"
+                    "ℹ️ Личный тестовый режим владельца\n\n"
+                    "Устройства добавятся после имитации успешной оплаты.",
+                    kb,
+                )
+            await callback.answer()
+            return
+
+        await callback.answer("Оплата временно недоступна.", show_alert=True)
 
     @router.callback_query(F.data.startswith("vpn:tariff:"))
     async def tariff(callback: CallbackQuery) -> None:
@@ -859,7 +1049,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 callback.message,
                 "Покупка VPN\n\n"
                 f"Тариф: <b>{name}</b>\n"
-                "Доступно: <b>1 устройство</b>\n"
+                "Доступно: <b>2 устройства</b>\n"
                 f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                 "💡 Выберите способ оплаты. Продолжая оплату, вы принимаете "
                 "условия пользовательского соглашения:",
@@ -902,7 +1092,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     callback.message,
                     f"📦 <b>Заказ: {order_code}</b>\n\n"
                     f"VPN: <b>{name}</b>\n"
-                    "Доступно: <b>до 1 устройства</b>\n"
+                    "Доступно: <b>до 2 устройств</b>\n"
                     "Оплата: <b>Telegram Stars (⭐)</b>\n"
                     f"Сумма: <b>{price_stars} ⭐</b>\n\n"
                     "💡 Оплатите заказ и нажмите проверку оплаты\n\n"
@@ -916,7 +1106,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 await callback.bot.send_invoice(
                     chat_id=callback.from_user.id,
                     title=f"VPN {name}",
-                    description=f"Подписка VPN на {name} — 1 устройство",
+                    description=f"Подписка VPN на {name} — 2 устройства",
                     payload=f"vpn_stars_{order['id']}",
                     currency="XTR",
                     prices=[LabeledPrice(label=f"VPN {name}", amount=price_stars)],
@@ -936,7 +1126,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     callback.message,
                     "Покупка VPN\n\n"
                     f"Тариф: <b>{name}</b>\n"
-                    "Доступно: <b>1 устройство</b>\n"
+                    "Доступно: <b>2 устройства</b>\n"
                     f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                     "ℹ️ Способы оплаты обновились. "
                     "Выберите оплату через Platega или Звёзды.",
@@ -1038,7 +1228,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 callback.message,
                 f"📦 <b>Тестовый заказ: CEA-TEST-{int(order['id']):06d}</b>\n\n"
                 f"VPN: <b>{name}</b>\n"
-                "Доступно: <b>1 устройство</b>\n"
+                "Доступно: <b>2 устройства</b>\n"
                 f"Оплата: <b>{labels[method]}</b>\n"
                 f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
                 "ℹ️ Личный тестовый режим владельца\n\n"

@@ -315,7 +315,7 @@ class VpnService:
             try:
                 remote = client.create_payment(
                     amount_rub=int(payment["amount_rub"]),
-                    description=f"CEA VPN — {plan_name}, 1 устройство",
+                    description=f"CEA VPN — {plan_name}, 2 устройства",
                     return_url=self._public_url(self.platega_return_path),
                     failed_url=self._public_url(self.platega_failed_path),
                     payload=f"vpn_payment:{int(payment['id'])}",
@@ -355,6 +355,99 @@ class VpnService:
         raise BusinessRuleError(
             "Не удалось обновить ссылку на оплату. Попробуйте ещё раз."
         )
+
+    def create_extra_devices_platega_payment(
+        self,
+        *,
+        user_id: int,
+        count: int,
+        user_name: str = "",
+    ) -> tuple[Dict[str, Any], bool]:
+        if count not in {1, 2, 3, 4, 5}:
+            raise BusinessRuleError("Некорректное количество устройств.")
+        price = {1: 50, 2: 60, 3: 70, 4: 80, 5: 90}[count]
+        client = self._require_platega()
+        if not self.app_base_url:
+            raise BusinessRuleError(
+                "Оплата временно недоступна: не настроен адрес приложения."
+            )
+
+        with self.db.transaction() as conn:
+            self._require_not_abuse_blocked(conn, user_id)
+            live = self.subscriptions.get_live_for_user(conn, user_id)
+            if live is None or str(live.get("kind")) != "paid":
+                raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
+            plan_id = int(live["plan_id"])
+            payment, created = self.payments.create_or_get_pending_platega(
+                conn,
+                user_id=user_id,
+                plan_id=plan_id,
+                amount_rub=price,
+                duration_days=0,
+                payment_method=PLATEGA_PAYMENT_METHOD,
+                request_external_id=f"platega_request_{secrets.token_urlsafe(18)}",
+            )
+            self._require_checkout_ready_server(conn)
+
+        if payment.get("payment_url"):
+            return payment, False
+
+        payment_id = int(payment["id"])
+        try:
+            remote = client.create_payment(
+                amount_rub=price,
+                description=f"CEA VPN — +{count} доп. устр.",
+                return_url=self.platega_return_url(payment_id),
+                failed_url=self.platega_failed_url(payment_id),
+                webhook_url=self.platega_webhook_url,
+                customer_user_id=f"tg_{user_id}",
+                customer_user_name=user_name,
+            )
+        except PlategaError as exc:
+            raise BusinessRuleError(
+                "Платёжный сервис сейчас недоступен. Попробуйте ещё раз через минуту."
+            ) from exc
+
+        expires_at = self._platega_expires_at(remote.expires_in)
+        with self.db.transaction() as conn:
+            attached = self.payments.attach_platega_transaction(
+                conn,
+                payment_id=payment_id,
+                user_id=user_id,
+                expected_external_id=str(payment["external_id"]),
+                external_id=remote.transaction_id,
+                payment_url=remote.payment_url,
+                expires_at=expires_at,
+            )
+        return attached, created
+
+    def create_extra_devices_admin_demo_payment(
+        self,
+        *,
+        user_id: int,
+        count: int,
+        admin_authorized: bool,
+    ) -> tuple[Dict[str, Any], bool]:
+        if not admin_authorized:
+            raise BusinessRuleError("Тестовый заказ доступен только владельцу.")
+        if count not in {1, 2, 3, 4, 5}:
+            raise BusinessRuleError("Некорректное количество устройств.")
+        price = {1: 50, 2: 60, 3: 70, 4: 80, 5: 90}[count]
+        with self.db.transaction() as conn:
+            self._require_not_abuse_blocked(conn, user_id)
+            live = self.subscriptions.get_live_for_user(conn, user_id)
+            if live is None or str(live.get("kind")) != "paid":
+                raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
+            plan_id = int(live["plan_id"])
+            payment, created = self.payments.create_admin_demo_payment(
+                conn,
+                user_id=user_id,
+                plan_id=plan_id,
+                amount_rub=price,
+                duration_days=0,
+                payment_method="other",
+            )
+        return payment, created
 
     def check_platega_payment(
         self,
@@ -1284,8 +1377,28 @@ class VpnService:
             if locked_user is None:
                 raise RuntimeError("VPN payment user is missing")
         now = utcnow()
-        duration = timedelta(days=int(payment["duration_days"]))
+        duration_days = int(payment["duration_days"])
         live = self.subscriptions.get_live_for_user(conn, user_id)
+
+        if duration_days == 0:
+            price_to_count = {50: 1, 60: 2, 70: 3, 80: 4, 90: 5}
+            count = price_to_count.get(int(payment.get("amount_rub") or 0), 1)
+            if live is not None:
+                self.subscriptions.add_extra_devices(
+                    conn, subscription_id=int(live["id"]), count=count
+                )
+                subscription = self.subscriptions.get_by_id(conn, int(live["id"]))
+                self._enqueue_job_or_raise(
+                    conn,
+                    subscription_id=int(live["id"]),
+                    server_id=int(live["server_id"]),
+                    operation="update",
+                    idempotency_key=f"vpn:fulfill_extra_dev:{payment_id}",
+                )
+                return subscription or live
+            raise BusinessRuleError("У вас нет активной подписки для добавления устройств.")
+
+        duration = timedelta(days=duration_days)
         if live is not None:
             current_end = self._datetime(live["ends_at"])
             ends_at = max(now, current_end) + duration

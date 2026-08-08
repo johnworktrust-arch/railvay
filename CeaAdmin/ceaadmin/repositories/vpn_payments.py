@@ -740,8 +740,8 @@ class VpnPaymentRepository:
             raise ValueError("plan_id must be greater than zero")
         if amount_rub < 0:
             raise ValueError("amount_rub must not be negative")
-        if duration_days <= 0:
-            raise ValueError("duration_days must be greater than zero")
+        if duration_days < 0:
+            raise ValueError("duration_days must not be negative")
 
     @staticmethod
     def _normalize_payment_method(payment_method: str) -> str:

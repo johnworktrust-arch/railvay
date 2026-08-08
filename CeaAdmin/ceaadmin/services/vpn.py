@@ -315,7 +315,7 @@ class VpnService:
             try:
                 remote = client.create_payment(
                     amount_rub=int(payment["amount_rub"]),
-                    description=f"CEA VPN — {plan_name}, 1 устройство",
+                    description=f"CEA VPN — {plan_name}, 2 устройства",
                     return_url=self._public_url(self.platega_return_path),
                     failed_url=self._public_url(self.platega_failed_path),
                     payload=f"vpn_payment:{int(payment['id'])}",
