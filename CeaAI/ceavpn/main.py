@@ -569,6 +569,36 @@ async def telegram_status(request: web.Request) -> web.Response:
     )
 
 
+async def debug_user(request: web.Request) -> web.Response:
+    """Debug endpoint: /debug/user?tg_id=12345"""
+    services: AppServices = request.app["services"]
+    tg_id_str = request.rel_url.query.get("tg_id", "")
+    if not tg_id_str:
+        return web.json_response({"error": "tg_id query param required"}, status=400)
+    try:
+        tg_id = int(tg_id_str)
+    except ValueError:
+        return web.json_response({"error": "tg_id must be int"}, status=400)
+
+    user = services.users.get_by_telegram_id(tg_id)
+    if not user:
+        return web.json_response({"error": "user not found"}, status=404)
+
+    sub = services.vpn.get_current_subscription(user["id"])
+
+    # also grab vpn_plans raw data
+    with services.vpn.db.transaction() as conn:
+        plans_raw = conn.execute("SELECT id, code, name, max_devices FROM vpn_plans").fetchall()
+        plans = [dict(p) for p in (plans_raw or [])]
+
+    return web.json_response({
+        "user_id": user["id"],
+        "telegram_id": tg_id,
+        "subscription": sub,
+        "vpn_plans": plans,
+    })
+
+
 async def run_webhook(
     *,
     bot: Bot,
@@ -600,6 +630,7 @@ async def run_webhook(
 
     app = web.Application(middlewares=[diagnostics_middleware])
     app["settings"] = settings
+    app["services"] = services
     app.router.add_get("/healthz", health)
     app.router.add_get("/public-offer", public_offer)
     app.router.add_get("/vpn/user-agreement", vpn_user_agreement)
@@ -608,6 +639,7 @@ async def run_webhook(
     crypto_webhook_path = _crypto_webhook_path(settings)
     app.router.add_get(yookassa_return_path, payment_return)
     app.router.add_get("/telegram/status", telegram_status)
+    app.router.add_get("/debug/user", debug_user)
     register_platega_routes(app, settings=settings, services=services, bot=bot)
     register_vpn_platega_routes(app, settings=settings, services=services)
 

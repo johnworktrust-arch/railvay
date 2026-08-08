@@ -375,7 +375,15 @@ class VpnService:
         with self.db.transaction() as conn:
             self._require_not_abuse_blocked(conn, user_id)
             live = self.subscriptions.get_live_for_user(conn, user_id)
-            if live is None or str(live.get("kind")) != "paid":
+            is_paid = (
+                live is not None
+                and (
+                    str(live.get("billing_kind")) == "paid"
+                    or live.get("plan_id") is not None
+                    or str(live.get("kind")) not in ("", "trial")
+                )
+            )
+            if not is_paid:
                 raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
             plan_id = int(live["plan_id"])
             payment, created = self.payments.create_or_get_pending_platega(
@@ -436,7 +444,15 @@ class VpnService:
         with self.db.transaction() as conn:
             self._require_not_abuse_blocked(conn, user_id)
             live = self.subscriptions.get_live_for_user(conn, user_id)
-            if live is None or str(live.get("kind")) != "paid":
+            is_paid = (
+                live is not None
+                and (
+                    str(live.get("billing_kind")) == "paid"
+                    or live.get("plan_id") is not None
+                    or str(live.get("kind")) not in ("", "trial")
+                )
+            )
+            if not is_paid:
                 raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
             plan_id = int(live["plan_id"])
             payment, created = self.payments.create_admin_demo_payment(

@@ -67,7 +67,7 @@ class VpnSubscriptionRepository:
                     p.code AS plan_code,
                     p.name AS plan_name,
                     p.duration_days AS plan_duration_days,
-                    p.max_devices + COALESCE(s.extra_devices, 0) AS plan_max_devices
+                    COALESCE(p.max_devices, 2) + COALESCE(s.extra_devices, 0) AS plan_max_devices
                 FROM vpn_subscriptions s
                 JOIN vpn_servers srv ON srv.id = s.server_id
                 LEFT JOIN vpn_plans p ON p.id = s.plan_id
@@ -108,7 +108,7 @@ class VpnSubscriptionRepository:
                     p.code AS plan_code,
                     p.name AS plan_name,
                     p.duration_days AS plan_duration_days,
-                    p.max_devices + COALESCE(s.extra_devices, 0) AS plan_max_devices
+                    COALESCE(p.max_devices, 2) + COALESCE(s.extra_devices, 0) AS plan_max_devices
                 FROM vpn_subscriptions s
                 JOIN vpn_servers srv ON srv.id = s.server_id
                 LEFT JOIN vpn_plans p ON p.id = s.plan_id
@@ -155,7 +155,7 @@ class VpnSubscriptionRepository:
                     p.code AS plan_code,
                     p.name AS plan_name,
                     p.duration_days AS plan_duration_days,
-                    p.max_devices + COALESCE(s.extra_devices, 0) AS plan_max_devices
+                    COALESCE(p.max_devices, 2) + COALESCE(s.extra_devices, 0) AS plan_max_devices
                 FROM vpn_subscriptions s
                 JOIN vpn_servers srv ON srv.id = s.server_id
                 LEFT JOIN vpn_plans p ON p.id = s.plan_id
