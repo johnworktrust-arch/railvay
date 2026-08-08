@@ -8,7 +8,6 @@ WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY ceavpn ./ceavpn
 COPY migrations ./migrations
-COPY tests ./tests
 
 RUN pip install --no-cache-dir .
 
