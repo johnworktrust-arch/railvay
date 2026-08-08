@@ -905,4 +905,6 @@ def _ensure_persistent_database(settings: Settings) -> None:
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    import ceavpn.main
+
+    asyncio.run(ceavpn.main.main())
