@@ -2,7 +2,7 @@
 name = "ceaai-mvp"
 version = "0.1.0"
 description = "CeaAI Telegram bot MVP with mock payments and mock AI providers."
-readme = "README.md"
+
 requires-python = ">=3.9"
 dependencies = [
     "aiohttp>=3.9,<4.0",

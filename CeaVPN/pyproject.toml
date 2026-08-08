@@ -2,7 +2,6 @@
 name = "ceavpn"
 version = "0.1.0"
 description = "CeaVPN Telegram bot and management backend."
-readme = "README.md"
 requires-python = ">=3.9"
 dependencies = [
     "aiohttp>=3.9,<4.0",
