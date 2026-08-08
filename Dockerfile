@@ -5,9 +5,9 @@ ENV PYTHONUNBUFFERED=1
 
 WORKDIR /app
 
-COPY pyproject.toml ./
-COPY ceavpn ./ceavpn
-COPY migrations ./migrations
+COPY CeaVPN/pyproject.toml ./
+COPY CeaVPN/ceavpn ./ceavpn
+COPY CeaVPN/migrations ./migrations
 
 RUN pip install --no-cache-dir .
 
