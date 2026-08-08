@@ -638,14 +638,21 @@ def subscription_screen(
     else:
         plan_name = raw_plan_name or "30 дней"
 
-    max_devices = int(subscription.get("plan_max_devices") or 1)
+    extra_devices = int(subscription.get("extra_devices") or 0)
+    total_devices = int(subscription.get("plan_max_devices") or 2)
+    base_devices = max(1, total_devices - extra_devices)
+    if extra_devices > 0:
+        devices_text = f"{base_devices} + {extra_devices}"
+    else:
+        devices_text = str(total_devices)
+
     ends_at = _format_ends_at(subscription["ends_at"])
     subscription_url = str(subscription.get("subscription_url") or "")
 
     sub_info_block = (
         "<blockquote>"
         f"💎 Тариф: {escape(plan_name)}\n"
-        f"📱 Лимит устройств: {max_devices}\n"
+        f"📱 Лимит устройств: {devices_text}\n"
         f"📅 Срок действия: {escape(ends_at)} (МСК)"
         "</blockquote>"
     )

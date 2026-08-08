@@ -594,12 +594,11 @@ async def run_webhook(
     notified_subscription_ids: set[int] = set()
 
     async def notify_vpn_ready(completion) -> None:
-        if vpn_bot is None or completion.operation != "create":
+        if vpn_bot is None or completion.operation not in {"create", "update"}:
             return
         sub_id = int(completion.subscription.get("id") or 0)
-        if sub_id <= 0 or sub_id in notified_subscription_ids:
+        if sub_id <= 0:
             return
-        notified_subscription_ids.add(sub_id)
 
         subscription_base_url = (
             delivery_base_url(settings) or settings.vpn_subscription_base_url
