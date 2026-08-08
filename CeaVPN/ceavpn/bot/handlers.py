@@ -282,6 +282,7 @@ def main_keyboard(
 
 
 EXTRA_DEVICE_PRICES = {1: 50, 2: 60, 3: 70, 4: 80, 5: 90}
+EXTRA_DEVICE_STARS = {1: 30, 2: 40, 3: 50, 4: 60, 5: 70}
 
 
 def plans_keyboard(has_active_paid_subscription: bool = False) -> InlineKeyboardMarkup:
@@ -309,7 +310,7 @@ def add_devices_keyboard() -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
-                text=f"{cnt} устр. — {EXTRA_DEVICE_PRICES[cnt]}₽",
+                text=f"{cnt} устр. — {EXTRA_DEVICE_PRICES[cnt]}₽ / {EXTRA_DEVICE_STARS[cnt]} ⭐️",
                 callback_data=f"vpn:extra_dev:{cnt}",
             )
         ]
@@ -319,7 +320,7 @@ def add_devices_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def extra_devices_payment_keyboard(count: int, agreement_url: str = "") -> InlineKeyboardMarkup:
+def extra_devices_payment_keyboard(count: int) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -327,21 +328,18 @@ def extra_devices_payment_keyboard(count: int, agreement_url: str = "") -> Inlin
                 callback_data=f"vpn:pay_extra_dev:{count}:platega",
             )
         ],
+        [
+            InlineKeyboardButton(
+                text="⭐ Оплатить звездами",
+                callback_data=f"vpn:pay_extra_dev:{count}:stars",
+            )
+        ],
     ]
-    if agreement_url.strip():
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="📄 Пользовательское соглашение",
-                    url=agreement_url,
-                )
-            ]
-        )
     rows.append(_back("vpn:add_devices"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def payment_keyboard(code: str, agreement_url: str = "") -> InlineKeyboardMarkup:
+def payment_keyboard(code: str) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -356,15 +354,6 @@ def payment_keyboard(code: str, agreement_url: str = "") -> InlineKeyboardMarkup
             )
         ],
     ]
-    if agreement_url.strip():
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="📄 Пользовательское соглашение",
-                    url=agreement_url,
-                )
-            ]
-        )
     rows.append(_back("vpn:plans"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -945,8 +934,9 @@ def create_vpn_router(services: AppServices) -> Router:
         except ValueError:
             await callback.answer("Некорректное значение.", show_alert=True)
             return
-        price = EXTRA_DEVICE_PRICES.get(cnt)
-        if price is None:
+        price_rub = EXTRA_DEVICE_PRICES.get(cnt)
+        price_stars = EXTRA_DEVICE_STARS.get(cnt)
+        if price_rub is None or price_stars is None:
             await callback.answer("Некорректное количество устройств.", show_alert=True)
             return
 
@@ -955,12 +945,9 @@ def create_vpn_router(services: AppServices) -> Router:
                 callback.message,
                 "<b>Докупить устройства 📱</b>\n\n"
                 f"Дополнительно устройств: <b>+{cnt} шт.</b>\n"
-                f"К оплате: <b>{price}₽</b>\n\n"
-                "ℹ️ Нажмите «Оплатить картой / СБП» для перехода к оплате.",
-                extra_devices_payment_keyboard(
-                    cnt,
-                    getattr(services.settings, "vpn_user_agreement_url", ""),
-                ),
+                f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
+                "💡 Выберите способ оплаты:",
+                extra_devices_payment_keyboard(cnt),
             )
         await callback.answer()
 
@@ -976,13 +963,57 @@ def create_vpn_router(services: AppServices) -> Router:
         except ValueError:
             await callback.answer("Некорректное количество устройств.", show_alert=True)
             return
-        price = EXTRA_DEVICE_PRICES.get(cnt)
-        if price is None:
+        price_rub = EXTRA_DEVICE_PRICES.get(cnt)
+        price_stars = EXTRA_DEVICE_STARS.get(cnt)
+        if price_rub is None or price_stars is None:
             await callback.answer("Некорректная сумма.", show_alert=True)
             return
 
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         is_owner = _admin_demo_authorized(callback, services)
+
+        if method == "stars":
+            try:
+                order = await asyncio.to_thread(
+                    services.vpn.create_extra_devices_stars_payment,
+                    user_id=int(user["id"]),
+                    count=cnt,
+                )
+            except BusinessRuleError as exc:
+                await callback.answer(str(exc), show_alert=True)
+                return
+
+            if callback.message:
+                order_code = f"CEA-H{int(order['id']):05X}"
+                await _screen(
+                    callback.message,
+                    f"📦 <b>Заказ: {order_code}</b>\n\n"
+                    f"Услуга: <b>Доп. устройства (+{cnt} шт.)</b>\n"
+                    "Оплата: <b>Telegram Stars (⭐)</b>\n"
+                    f"Сумма: <b>{price_stars} ⭐</b>\n\n"
+                    "💡 Оплатите заказ и нажмите проверку оплаты\n\n"
+                    f"Нажмите «Заплатить ⭐️{price_stars}» ниже. После оплаты устройства добавятся автоматически.",
+                    InlineKeyboardMarkup(
+                        inline_keyboard=[_back("vpn:add_devices")]
+                    ),
+                )
+
+            try:
+                await callback.bot.send_invoice(
+                    chat_id=callback.from_user.id,
+                    title=f"Доп. устройства (+{cnt} шт.)",
+                    description=f"Дополнительные устройства ({cnt} шт.) для CEA VPN",
+                    payload=f"vpn_stars_{order['id']}",
+                    currency="XTR",
+                    prices=[LabeledPrice(label=f"+{cnt} устр.", amount=price_stars)],
+                    provider_token="",
+                )
+            except Exception:
+                logging.exception("Could not send Telegram Stars invoice for extra devices")
+                await callback.answer("Не удалось выставить счёт в Telegram Stars.", show_alert=True)
+                return
+            await callback.answer()
+            return
 
         if services.vpn.uses_platega:
             try:
@@ -1065,12 +1096,8 @@ def create_vpn_router(services: AppServices) -> Router:
                 f"Тариф: <b>{name}</b>\n"
                 "Доступно: <b>2 устройства</b>\n"
                 f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
-                "💡 Выберите способ оплаты. Продолжая оплату, вы принимаете "
-                "условия пользовательского соглашения:",
-                payment_keyboard(
-                    code,
-                    getattr(services.settings, "vpn_user_agreement_url", ""),
-                ),
+                "💡 Выберите способ оплаты:",
+                payment_keyboard(code),
             )
         await callback.answer()
 
@@ -1144,10 +1171,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                     "ℹ️ Способы оплаты обновились. "
                     "Выберите оплату через Platega или Звёзды.",
-                    payment_keyboard(
-                        code,
-                        getattr(services.settings, "vpn_user_agreement_url", ""),
-                    ),
+                    payment_keyboard(code),
                 )
             await callback.answer("Выберите новый способ оплаты.", show_alert=True)
             return

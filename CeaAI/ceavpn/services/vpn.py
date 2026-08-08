@@ -465,6 +465,40 @@ class VpnService:
             )
         return payment, created
 
+    def create_extra_devices_stars_payment(
+        self,
+        *,
+        user_id: int,
+        count: int,
+    ) -> Dict[str, Any]:
+        if count not in {1, 2, 3, 4, 5}:
+            raise BusinessRuleError("Некорректное количество устройств.")
+        price_rub = {1: 50, 2: 60, 3: 70, 4: 80, 5: 90}[count]
+
+        with self.db.transaction() as conn:
+            self._require_not_abuse_blocked(conn, user_id)
+            live = self.subscriptions.get_live_for_user(conn, user_id)
+            is_paid = (
+                live is not None
+                and (
+                    str(live.get("billing_kind")) == "paid"
+                    or live.get("plan_id") is not None
+                    or str(live.get("kind")) not in ("", "trial")
+                )
+            )
+            if not is_paid:
+                raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
+            plan_id = int(live["plan_id"])
+            self._require_checkout_ready_server(conn)
+            payment, _ = self.payments.create_or_get_pending_stars(
+                conn,
+                user_id=user_id,
+                plan_id=plan_id,
+                amount_rub=price_rub,
+                duration_days=0,
+            )
+            return payment
+
     def check_platega_payment(
         self,
         *,
