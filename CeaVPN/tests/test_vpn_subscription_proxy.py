@@ -60,6 +60,33 @@ class VpnSubscriptionProxyTest(unittest.TestCase):
         self.assertTrue(all(link.startswith("vless://") for link in links))
         self.assertTrue(all("@127.0.0.1:" in link for link in links))
 
+    def test_device_limit_exceeded_body_contains_correct_remarks(self) -> None:
+        body = proxy.device_limit_exceeded_body("ceavpn_bot")
+        links = base64.b64decode(body).decode("utf-8").splitlines()
+        remarks = [unquote(urlsplit(link).fragment) for link in links]
+
+        self.assertEqual(
+            remarks,
+            [
+                "🔴 Лимит устройств исчерпан",
+                "👉 Докупить устройства можно в боте @ceavpn_bot",
+            ],
+        )
+
+    def test_is_device_limit_exceeded_enforces_max_devices(self) -> None:
+        path = "/sub/test_token_123"
+        proxy.DEVICES_REGISTRY.clear()
+
+        # Device 1 and 2 allowed for max_devices = 2
+        self.assertFalse(proxy.is_device_limit_exceeded(path, "ip1:agent1", 2, now=100))
+        self.assertFalse(proxy.is_device_limit_exceeded(path, "ip2:agent2", 2, now=100))
+
+        # Device 3 exceeds limit of 2
+        self.assertTrue(proxy.is_device_limit_exceeded(path, "ip3:agent3", 2, now=100))
+
+        # Increasing max_devices to 3 allows Device 3
+        self.assertFalse(proxy.is_device_limit_exceeded(path, "ip3:agent3", 3, now=100))
+
     def test_bot_username_is_validated(self) -> None:
         with self.assertRaises(ValueError):
             proxy.expired_subscription_body("bad username")

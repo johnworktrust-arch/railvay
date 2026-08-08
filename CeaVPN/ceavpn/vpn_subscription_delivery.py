@@ -695,6 +695,37 @@ def expired_subscription_response() -> web.Response:
     )
 
 
+def device_limit_exceeded_response(bot_username: str = "ceavpn_bot") -> web.Response:
+    username = bot_username.strip().lstrip("@")
+    zero_uuid = "00000000-0000-0000-0000-000000000000"
+    remarks = (
+        "🔴 Лимит устройств исчерпан",
+        f"👉 Докупить устройства можно в боте @{username}",
+    )
+    links = [
+        (
+            f"vless://{zero_uuid}@127.0.0.1:{index}"
+            "?type=ws&security=none#"
+            + quote(remark, safe="")
+        )
+        for index, remark in enumerate(remarks, start=1)
+    ]
+    body = base64.b64encode(("\n".join(links) + "\n").encode("utf-8"))
+    headers = {
+        "profile-title": "CEA VPN (Лимит устройств исчерпан)",
+        "subscription-userinfo": "upload=0; download=0; total=0; expire=0",
+        "Cache-Control": "no-store",
+        "X-Content-Type-Options": "nosniff",
+        "routing-enable": "0",
+    }
+    return web.Response(
+        body=body,
+        content_type="text/plain",
+        charset="utf-8",
+        headers=headers,
+    )
+
+
 def is_subscription_active(subscription: Mapping[str, Any] | None) -> bool:
     if not subscription:
         return False

@@ -5,6 +5,7 @@ import base64
 import logging
 import os
 import re
+import threading
 import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from typing import Iterable, Mapping
@@ -26,11 +27,26 @@ FORWARDED_HEADERS = {
     "support-url",
 }
 
+DEVICES_REGISTRY: dict[str, list[tuple[str, float]]] = {}
+DEVICES_LOCK = threading.Lock()
+DEVICE_TTL_SECONDS = 30 * 86400  # 30 days
+
 
 def expiration_from_headers(headers: Mapping[str, str]) -> int:
     value = headers.get("subscription-userinfo", "")
     match = re.search(r"(?:^|;)\s*expire=(\d+)(?:\s*;|$)", value)
     return int(match.group(1)) if match else 0
+
+
+def max_devices_from_headers(headers: Mapping[str, str]) -> int:
+    value = headers.get("subscription-userinfo", "")
+    match = re.search(r"(?:^|;)\s*max_devices=(\d+)(?:\s*;|$)", value)
+    if match:
+        return int(match.group(1))
+    try:
+        return int(os.getenv("DEFAULT_MAX_DEVICES", "2"))
+    except ValueError:
+        return 2
 
 
 def subscription_has_expired(
@@ -60,6 +76,61 @@ def expired_subscription_body(bot_username: str) -> bytes:
         for index, remark in enumerate(remarks, start=1)
     ]
     return base64.b64encode(("\n".join(links) + "\n").encode("utf-8"))
+
+
+def device_limit_exceeded_body(bot_username: str) -> bytes:
+    username = bot_username.strip().lstrip("@")
+    if not re.fullmatch(r"[A-Za-z0-9_]{5,32}", username):
+        raise ValueError("invalid Telegram bot username")
+    zero_uuid = "00000000-0000-0000-0000-000000000000"
+    remarks = (
+        "🔴 Лимит устройств исчерпан",
+        f"👉 Докупить устройства можно в боте @{username}",
+    )
+    links = [
+        (
+            f"vless://{zero_uuid}@127.0.0.1:{index}"
+            "?encryption=none&type=tcp&security=none"
+            f"#{quote(remark, safe='')}"
+        )
+        for index, remark in enumerate(remarks, start=1)
+    ]
+    return base64.b64encode(("\n".join(links) + "\n").encode("utf-8"))
+
+
+def is_device_limit_exceeded(
+    path: str,
+    device_key: str,
+    max_devices: int,
+    *,
+    now: float | None = None,
+) -> bool:
+    if max_devices <= 0:
+        return False
+    current_time = time.time() if now is None else now
+    with DEVICES_LOCK:
+        devices = DEVICES_REGISTRY.setdefault(path, [])
+        # Prune expired device entries
+        devices = [
+            (dev, ts)
+            for dev, ts in devices
+            if current_time - ts < DEVICE_TTL_SECONDS
+        ]
+        # Check if device_key is already registered
+        for idx, (dev, ts) in enumerate(devices):
+            if dev == device_key:
+                devices[idx] = (dev, current_time)
+                DEVICES_REGISTRY[path] = devices
+                return idx >= max_devices
+
+        # New device slot
+        if len(devices) < max_devices:
+            devices.append((device_key, current_time))
+            DEVICES_REGISTRY[path] = devices
+            return False
+
+        DEVICES_REGISTRY[path] = devices
+        return True
 
 
 def _headers_dict(items: Iterable[tuple[str, str]]) -> dict[str, str]:
@@ -101,10 +172,21 @@ class SubscriptionProxyHandler(BaseHTTPRequestHandler):
         if len(body) > MAX_RESPONSE_BYTES:
             self.send_error(502)
             return
-        if status == 200 and subscription_has_expired(headers):
-            body = expired_subscription_body(
-                os.getenv("VPN_BOT_USERNAME", "ceavpn_bot")
-            )
+
+        bot_username = os.getenv("VPN_BOT_USERNAME", "ceavpn_bot")
+        if status == 200:
+            if subscription_has_expired(headers):
+                body = expired_subscription_body(bot_username)
+            else:
+                client_ip = (
+                    self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+                    or self.client_address[0]
+                )
+                user_agent = self.headers.get("User-Agent", "").strip()
+                device_key = f"{client_ip}:{user_agent}"
+                max_devices = max_devices_from_headers(headers)
+                if is_device_limit_exceeded(self.path, device_key, max_devices):
+                    body = device_limit_exceeded_body(bot_username)
 
         self.send_response(status)
         for name, value in headers.items():
