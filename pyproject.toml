@@ -1,0 +1,26 @@
+[project]
+name = "ceaai-mvp"
+version = "0.1.0"
+description = "CeaAI Telegram bot MVP with mock payments and mock AI providers."
+readme = "README.md"
+requires-python = ">=3.9"
+dependencies = [
+    "aiohttp>=3.9,<4.0",
+    "aiogram>=3.15,<4.0",
+    "psycopg[binary]>=3.2,<4.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0",
+]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["ceaai*", "ceavpn*"]
+
+[tool.setuptools.package-data]
+ceaai = ["admin_assets/*.html", "admin_assets/*.css", "admin_assets/*.js"]
