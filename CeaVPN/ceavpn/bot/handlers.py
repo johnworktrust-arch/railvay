@@ -770,7 +770,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 callback.message,
                 "🎁 <b>3 дня бесплатно</b>\n\n"
                 f"Чтобы получить доступ, подпишитесь на канал {escape(channel)}.\n\n"
-                "<blockquote>▶ После подписки нажмите проверку</blockquote>",
+                "ℹ️ После подписки нажмите проверку",
                 trial_keyboard(services.settings.vpn_channel_url),
             )
         await callback.answer()
@@ -841,7 +841,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 callback.message,
                 "<b>Подключить VPN 🚀</b>\n\n"
                 "Любой тариф предназначен для <b>1 устройства.</b>\n\n"
-                "<blockquote>▶ Выберите срок подписки</blockquote>",
+                "ℹ️ Выберите срок подписки",
                 plans_keyboard(),
             )
         await callback.answer()
@@ -938,8 +938,8 @@ def create_vpn_router(services: AppServices) -> Router:
                     f"Тариф: <b>{name}</b>\n"
                     "Доступно: <b>1 устройство</b>\n"
                     f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
-                    "<blockquote>▶ Способы оплаты обновились. "
-                    "Выберите оплату через Platega или Звёзды.</blockquote>",
+                    "ℹ️ Способы оплаты обновились. "
+                    "Выберите оплату через Platega или Звёзды.",
                     payment_keyboard(
                         code,
                         getattr(services.settings, "vpn_user_agreement_url", ""),
@@ -997,7 +997,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     "Доступно: <b>до 1 устройства</b>\n"
                     "Оплата: <b>Карта / СБП</b>\n"
                     f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
-                    "<blockquote>▶ Оплатите заказ и нажмите проверку оплаты</blockquote>\n\n"
+                    "ℹ️ Оплатите заказ и нажмите проверку оплаты\n\n"
                     "Нажмите «Оплатить картой / СБП». После оплаты подписка выдастся автоматически.\n\n"
                     "Если оплата уже прошла, но экран не обновился — нажмите «Проверить оплату».",
                     kb,
@@ -1041,7 +1041,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 "Доступно: <b>1 устройство</b>\n"
                 f"Оплата: <b>{labels[method]}</b>\n"
                 f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
-                "<blockquote>🧪 Личный тестовый режим владельца</blockquote>\n\n"
+                "ℹ️ Личный тестовый режим владельца\n\n"
                 "Ключ будет создан только после имитации успешной оплаты. "
                 "Деньги не списываются.",
                 kb,
