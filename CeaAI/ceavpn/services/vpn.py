@@ -385,7 +385,7 @@ class VpnService:
             )
             if not is_paid:
                 raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
-            plan_id = int(live["plan_id"])
+            plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
             payment, created = self.payments.create_or_get_pending_platega(
                 conn,
                 user_id=user_id,
@@ -405,11 +405,11 @@ class VpnService:
             remote = client.create_payment(
                 amount_rub=price,
                 description=f"CEA VPN — +{count} доп. устр.",
-                return_url=self.platega_return_url(payment_id),
-                failed_url=self.platega_failed_url(payment_id),
-                webhook_url=self.platega_webhook_url,
-                customer_user_id=f"tg_{user_id}",
-                customer_user_name=user_name,
+                return_url=self._public_url(self.platega_return_path),
+                failed_url=self._public_url(self.platega_failed_path),
+                payload=f"vpn_payment:{payment_id}",
+                user_id=user_id,
+                user_name=user_name,
             )
         except PlategaError as exc:
             raise BusinessRuleError(
@@ -454,7 +454,7 @@ class VpnService:
             )
             if not is_paid:
                 raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
-            plan_id = int(live["plan_id"])
+            plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
             payment, created = self.payments.create_admin_demo_payment(
                 conn,
                 user_id=user_id,
@@ -488,7 +488,7 @@ class VpnService:
             )
             if not is_paid:
                 raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
-            plan_id = int(live["plan_id"])
+            plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
             self._require_checkout_ready_server(conn)
             payment, _ = self.payments.create_or_get_pending_stars(
                 conn,
