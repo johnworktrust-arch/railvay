@@ -890,7 +890,7 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "vpn:plans")
     async def plans(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
-        active_sub = services.subscriptions.active_for_user(user["id"])
+        active_sub = services.vpn.get_current_subscription(user["id"])
         has_active_paid = (
             active_sub is not None
             and str(active_sub.get("kind")) == "paid"
@@ -908,7 +908,7 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "vpn:add_devices")
     async def add_devices(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
-        active_sub = services.subscriptions.active_for_user(user["id"])
+        active_sub = services.vpn.get_current_subscription(user["id"])
         if active_sub is None or str(active_sub.get("kind")) != "paid":
             await callback.answer(
                 "Докупка устройств доступна только при активной платной подписке.",
