@@ -1,0 +1,101 @@
+{
+  "log": {
+    "loglevel": "warning"
+  },
+  "routing": {
+    "domainStrategy": "IPIfNonMatch",
+    "rules": [
+      {
+        "type": "field",
+        "ip": ["geoip:private"],
+        "outboundTag": "BLOCK"
+      },
+      {
+        "type": "field",
+        "protocol": ["bittorrent"],
+        "outboundTag": "BLOCK"
+      },
+      {
+        "type": "field",
+        "inboundTag": ["VLESS XHTTP REALITY"],
+        "outboundTag": "WHITELIST EXIT"
+      }
+    ]
+  },
+  "inbounds": [
+    {
+      "tag": "VLESS XHTTP REALITY",
+      "listen": "0.0.0.0",
+      "port": 443,
+      "protocol": "vless",
+      "settings": {
+        "clients": [],
+        "decryption": "none"
+      },
+      "streamSettings": {
+        "network": "xhttp",
+        "security": "reality",
+        "xhttpSettings": {
+          "path": "__XHTTP_PATH__"
+        },
+        "realitySettings": {
+          "show": false,
+          "target": "__REALITY_TARGET__",
+          "xver": 0,
+          "serverNames": ["__COVER_DOMAIN__"],
+          "privateKey": "__REALITY_PRIVATE_KEY__",
+          "shortIds": ["__REALITY_SHORT_ID__"]
+        }
+      },
+      "sniffing": {
+        "enabled": true,
+        "destOverride": ["http", "tls", "quic"],
+        "routeOnly": true
+      }
+    }
+  ],
+  "outbounds": [
+    {
+      "protocol": "vless",
+      "tag": "WHITELIST EXIT",
+      "settings": {
+        "vnext": [
+          {
+            "address": "__LTE_EXIT_ADDRESS__",
+            "port": __LTE_EXIT_PORT__,
+            "users": [
+              {
+                "id": "__LTE_EXIT_UUID__",
+                "encryption": "none"
+              }
+            ]
+          }
+        ]
+      },
+      "streamSettings": {
+        "network": "ws",
+        "security": "tls",
+        "tlsSettings": {
+          "serverName": "__LTE_EXIT_SNI__",
+          "allowInsecure": false,
+          "fingerprint": "chrome",
+          "alpn": ["http/1.1"]
+        },
+        "wsSettings": {
+          "path": "__LTE_EXIT_PATH__",
+          "headers": {
+            "Host": "__LTE_EXIT_HOST__"
+          }
+        }
+      }
+    },
+    {
+      "protocol": "freedom",
+      "tag": "DIRECT"
+    },
+    {
+      "protocol": "blackhole",
+      "tag": "BLOCK"
+    }
+  ]
+}

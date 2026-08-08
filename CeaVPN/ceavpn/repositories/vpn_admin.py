@@ -3,7 +3,7 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Dict, List
 
-from ceaadmin.repositories.base import row_to_dict, rows_to_dicts
+from ceavpn.repositories.base import row_to_dict, rows_to_dicts
 
 
 class VpnAdminRepository:
@@ -68,19 +68,13 @@ class VpnAdminRepository:
                               AND pay.provider <> 'admin_demo'
                         ) AS paid_payments,
                         (
-                            SELECT COALESCE(SUM(
-                                CASE WHEN pay.provider = 'platega' THEN ROUND(pay.amount_rub * 0.92)
-                                     ELSE pay.amount_rub END
-                            ), 0)
+                            SELECT COALESCE(SUM(pay.amount_rub), 0)
                             FROM vpn_payments pay
                             WHERE pay.status IN ('paid', 'completed', 'confirmed')
                               AND pay.provider <> 'admin_demo'
                         ) AS revenue_rub,
                         (
-                            SELECT COALESCE(SUM(
-                                CASE WHEN pay.provider = 'platega' THEN ROUND(pay.amount_rub * 0.92)
-                                     ELSE pay.amount_rub END
-                            ), 0)
+                            SELECT COALESCE(SUM(pay.amount_rub), 0)
                             FROM vpn_payments pay
                             WHERE pay.status IN ('paid', 'completed', 'confirmed')
                               AND pay.provider <> 'admin_demo'
@@ -369,10 +363,7 @@ class VpnAdminRepository:
                           AND paid.provider <> 'admin_demo'
                     ) AS vpn_paid_count,
                     (
-                        SELECT COALESCE(SUM(
-                            CASE WHEN paid.provider = 'platega' THEN ROUND(paid.amount_rub * 0.92)
-                                 ELSE paid.amount_rub END
-                        ), 0)
+                        SELECT COALESCE(SUM(paid.amount_rub), 0)
                         FROM vpn_payments paid
                         WHERE paid.user_id = u.id
                           AND paid.status = 'paid'
@@ -509,10 +500,7 @@ class VpnAdminRepository:
                     """
                     SELECT
                         COUNT(*) AS paid_count,
-                        COALESCE(SUM(
-                            CASE WHEN provider = 'platega' THEN ROUND(amount_rub * 0.92)
-                                 ELSE amount_rub END
-                        ), 0) AS paid_amount_rub,
+                        COALESCE(SUM(amount_rub), 0) AS paid_amount_rub,
                         MAX(paid_at) AS last_paid_at
                     FROM vpn_payments
                     WHERE user_id = ?

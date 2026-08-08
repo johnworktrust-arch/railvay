@@ -3,9 +3,9 @@ from __future__ import annotations
 import sqlite3
 from typing import Any, Dict, List
 
-from ceaadmin.json_utils import dumps
-from ceaadmin.repositories.base import row_to_dict, rows_to_dicts
-from ceaadmin.time_utils import iso_now
+from ceaai.json_utils import dumps
+from ceaai.repositories.base import row_to_dict, rows_to_dicts
+from ceaai.time_utils import iso_now
 
 
 class AdminRepository:
@@ -211,8 +211,7 @@ class AdminRepository:
                         WHERE paid.status = 'paid'
                           AND paid.provider = 'mock') AS mock_paid_payments,
                     (SELECT COALESCE(SUM(
-                            CASE WHEN paid.provider = 'platega' THEN ROUND((paid.amount_rub - paid.discount_rub) * 0.92)
-                                 ELSE paid.amount_rub - paid.discount_rub END
+                            paid.amount_rub - paid.discount_rub
                         ), 0)
                         FROM payments paid
                         JOIN regular_users ru ON ru.id = paid.user_id
@@ -220,15 +219,14 @@ class AdminRepository:
                           AND paid.provider IN ('platega', 'yookassa'))
                         AS revenue_rub,
                     (SELECT COALESCE(SUM(
-                            ROUND((paid.amount_rub - paid.discount_rub) * 0.92)
+                            paid.amount_rub - paid.discount_rub
                         ), 0)
                         FROM payments paid
                         JOIN regular_users ru ON ru.id = paid.user_id
                         WHERE paid.status = 'paid'
                           AND paid.provider = 'platega') AS platega_revenue_rub,
                     (SELECT COALESCE(SUM(
-                            CASE WHEN paid.provider = 'platega' THEN ROUND((paid.amount_rub - paid.discount_rub) * 0.92)
-                                 ELSE paid.amount_rub - paid.discount_rub END
+                            paid.amount_rub - paid.discount_rub
                         ), 0)
                         FROM payments paid
                         JOIN regular_users ru ON ru.id = paid.user_id

@@ -1,0 +1,22 @@
+[Unit]
+Description=Close CEA VPN whitelist ingress before network startup
+DefaultDependencies=no
+After=local-fs.target ufw.service
+Before=network-pre.target network.target docker.service
+Wants=network-pre.target ufw.service
+
+[Service]
+Type=oneshot
+User=root
+Group=root
+UMask=0077
+ExecStart=/opt/ceavpn/qualify-whitelist-ingress.sh boot-firewall-close
+RemainAfterExit=yes
+
+NoNewPrivileges=true
+ProtectHome=read-only
+ProtectSystem=strict
+ReadWritePaths=/root /run /etc/ufw /lib/ufw /var/lib/ufw /var/www/ceavpn-whitelist
+
+[Install]
+WantedBy=multi-user.target
