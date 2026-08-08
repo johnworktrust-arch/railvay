@@ -512,22 +512,30 @@ async def telegram_status(request: web.Request) -> web.Response:
     settings = request.app["settings"]
     timeout = ClientTimeout(total=6)
 
-    async def telegram_call(method: str) -> dict:
-        url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/{method}"
+    async def telegram_call(token: str, method: str) -> dict:
+        if not token:
+            return {}
+        url = f"https://api.telegram.org/bot{token}/{method}"
         async with ClientSession(timeout=timeout) as session:
             async with session.get(url) as response:
                 payload = await response.json(content_type=None)
                 return payload if isinstance(payload, dict) else {}
 
     try:
-        me = await telegram_call("getMe")
-        webhook = await telegram_call("getWebhookInfo")
+        me = await telegram_call(settings.telegram_bot_token, "getMe")
+        webhook = await telegram_call(settings.telegram_bot_token, "getWebhookInfo")
+        vpn_me = await telegram_call(settings.vpn_telegram_bot_token, "getMe")
+        vpn_webhook = await telegram_call(settings.vpn_telegram_bot_token, "getWebhookInfo")
     except Exception as exc:  # pragma: no cover - diagnostic endpoint
         return web.json_response({"ok": False, "error": str(exc)}, status=502)
 
     me_result = me.get("result") if isinstance(me.get("result"), dict) else {}
     webhook_result = (
         webhook.get("result") if isinstance(webhook.get("result"), dict) else {}
+    )
+    vpn_me_result = vpn_me.get("result") if isinstance(vpn_me.get("result"), dict) else {}
+    vpn_webhook_result = (
+        vpn_webhook.get("result") if isinstance(vpn_webhook.get("result"), dict) else {}
     )
     return web.json_response(
         {
@@ -543,6 +551,18 @@ async def telegram_status(request: web.Request) -> web.Response:
                 "last_error_date": webhook_result.get("last_error_date"),
                 "last_error_message": webhook_result.get("last_error_message"),
                 "allowed_updates": webhook_result.get("allowed_updates"),
+            },
+            "vpn_bot": {
+                "id": vpn_me_result.get("id"),
+                "username": vpn_me_result.get("username"),
+                "first_name": vpn_me_result.get("first_name"),
+            },
+            "vpn_webhook": {
+                "url": vpn_webhook_result.get("url"),
+                "pending_update_count": vpn_webhook_result.get("pending_update_count"),
+                "last_error_date": vpn_webhook_result.get("last_error_date"),
+                "last_error_message": vpn_webhook_result.get("last_error_message"),
+                "allowed_updates": vpn_webhook_result.get("allowed_updates"),
             },
             "diagnostics": diagnostics_snapshot(),
         }
@@ -744,7 +764,6 @@ async def run_webhook(
             handle_in_background=True,
             secret_token=vpn_webhook_secret or None,
         ).register(app, path=vpn_webhook_path)
-        setup_application(app, vpn_dispatcher, bot=vpn_bot)
 
     await bot.set_webhook(
         webhook_url,
