@@ -372,62 +372,89 @@ class VpnService:
                 "Оплата временно недоступна: не настроен адрес приложения."
             )
 
-        with self.db.transaction() as conn:
-            self._require_not_abuse_blocked(conn, user_id)
-            live = self.subscriptions.get_live_for_user(conn, user_id)
-            is_paid = (
-                live is not None
-                and (
-                    str(live.get("billing_kind")) == "paid"
-                    or live.get("plan_id") is not None
-                    or str(live.get("kind")) not in ("", "trial")
+        for _attempt in range(2):
+            request_external_id = (
+                f"platega_request_{secrets.token_urlsafe(18)}"
+            )
+            with self.db.transaction() as conn:
+                self._require_not_abuse_blocked(conn, user_id)
+                live = self.subscriptions.get_live_for_user(conn, user_id)
+                is_paid = (
+                    live is not None
+                    and (
+                        str(live.get("billing_kind")) == "paid"
+                        or live.get("plan_id") is not None
+                        or str(live.get("kind")) not in ("", "trial")
+                    )
                 )
-            )
-            if not is_paid:
-                raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
-            plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
-            payment, created = self.payments.create_or_get_pending_platega(
-                conn,
-                user_id=user_id,
-                plan_id=plan_id,
-                amount_rub=price,
-                duration_days=0,
-                payment_method=PLATEGA_PAYMENT_METHOD,
-                request_external_id=f"platega_request_{secrets.token_urlsafe(18)}",
-            )
-            self._require_checkout_ready_server(conn)
+                if not is_paid:
+                    raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
+                plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
+                payment, created = self.payments.create_or_get_pending_platega(
+                    conn,
+                    user_id=user_id,
+                    plan_id=plan_id,
+                    amount_rub=price,
+                    duration_days=0,
+                    payment_method=PLATEGA_PAYMENT_METHOD,
+                    request_external_id=request_external_id,
+                )
+                if created or not payment.get("payment_url"):
+                    self._require_checkout_ready_server(conn)
 
-        if payment.get("payment_url"):
-            return payment, False
+            if payment.get("payment_url"):
+                if not self._platega_payment_link_expired(payment):
+                    return payment, created
+                outcome = self._refresh_expired_platega_payment(
+                    client=client,
+                    payment=payment,
+                    user_id=user_id,
+                )
+                if outcome.status == "paid":
+                    assert outcome.payment is not None
+                    return outcome.payment, False
+                continue
 
-        payment_id = int(payment["id"])
-        try:
-            remote = client.create_payment(
-                amount_rub=price,
-                description=f"CEA VPN — +{count} доп. устр.",
-                return_url=self._public_url(self.platega_return_path),
-                failed_url=self._public_url(self.platega_failed_path),
-                payload=f"vpn_payment:{payment_id}",
-                user_id=user_id,
-                user_name=user_name,
-            )
-        except PlategaError as exc:
-            raise BusinessRuleError(
-                "Платёжный сервис сейчас недоступен. Попробуйте ещё раз через минуту."
-            ) from exc
+            try:
+                remote = client.create_payment(
+                    amount_rub=price,
+                    description=f"CEA VPN — +{count} доп. устр.",
+                    return_url=self._public_url(self.platega_return_path),
+                    failed_url=self._public_url(self.platega_failed_path),
+                    payload=f"vpn_payment:{int(payment['id'])}",
+                    user_id=user_id,
+                    user_name=user_name,
+                )
+            except PlategaError as exc:
+                raise BusinessRuleError(
+                    "Платёжный сервис сейчас недоступен. Попробуйте ещё раз через минуту."
+                ) from exc
 
-        expires_at = self._platega_expires_at(remote.expires_in)
-        with self.db.transaction() as conn:
-            attached = self.payments.attach_platega_transaction(
-                conn,
-                payment_id=payment_id,
-                user_id=user_id,
-                expected_external_id=str(payment["external_id"]),
-                external_id=remote.transaction_id,
-                payment_url=remote.payment_url,
-                expires_at=expires_at,
-            )
-        return attached, created
+            expires_at = self._platega_expires_at(remote.expires_in)
+            try:
+                with self.db.transaction() as conn:
+                    attached = self.payments.attach_platega_transaction(
+                        conn,
+                        payment_id=int(payment["id"]),
+                        user_id=user_id,
+                        expected_external_id=str(payment["external_id"]),
+                        external_id=remote.transaction_id,
+                        payment_url=remote.payment_url,
+                        expires_at=expires_at,
+                    )
+                return attached, created
+            except (RuntimeError, ValueError):
+                with self.db.transaction() as conn:
+                    current = self.payments.get_for_user(
+                        conn, int(payment["id"]), user_id
+                    )
+                    if current and current.get("payment_url"):
+                        return current, False
+                raise
+
+        raise BusinessRuleError(
+            "Не удалось обновить ссылку на оплату. Попробуйте ещё раз."
+        )
 
     def create_extra_devices_admin_demo_payment(
         self,
