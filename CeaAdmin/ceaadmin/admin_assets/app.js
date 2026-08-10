@@ -122,6 +122,7 @@ function setView(view) {
     users: "Пользователи",
     "vpn-overview": "Обзор VPN",
     "vpn-users": "VPN-пользователи",
+    "vpn-promocodes": "Промокоды VPN",
   };
   byId("page-title").textContent = titles[view] || "Обзор";
   if (view === "overview") {
@@ -132,6 +133,7 @@ function setView(view) {
     loadVpnStats().catch((error) => showToast(error.message, true));
   }
   if (view === "vpn-users") loadVpnUsers();
+  if (view === "vpn-promocodes") loadVpnPromocodes();
 }
 
 function setMaintenance(active) {
@@ -892,6 +894,163 @@ byId("maintenance-toggle").addEventListener("click", async () => {
     toggle.disabled = false;
   }
 });
+
+async function loadVpnPromocodes() {
+  const body = byId("vpn-promocodes-body");
+  if (!body) return;
+  body.innerHTML = '<tr><td colspan="7" class="loading-cell">Загрузка…</td></tr>';
+  try {
+    const data = await api("/api/vpn/promocodes");
+    renderVpnPromocodes(data.promocodes || []);
+  } catch (error) {
+    showToast(error.message, true);
+    body.innerHTML = '<tr><td colspan="7" class="empty-cell">Ошибка загрузки данных</td></tr>';
+  }
+}
+
+function promocodeStatusBadge(p) {
+  if (!p.is_active) {
+    return '<span class="status-badge is-failed">Выключен</span>';
+  }
+  if (p.expires_at && new Date(p.expires_at).getTime() < Date.now()) {
+    return '<span class="status-badge is-failed">Истёк</span>';
+  }
+  return '<span class="status-badge is-active">Активен</span>';
+}
+
+function promocodeRewardLabel(p) {
+  if (p.reward_type === "days") {
+    return `+${p.reward_value} дн. подписки`;
+  }
+  if (p.reward_type === "devices") {
+    return `+${p.reward_value} доп. устр.`;
+  }
+  if (p.reward_type === "plan") {
+    return `Тариф (${p.reward_value} дн.)`;
+  }
+  return `${p.reward_type}: ${p.reward_value}`;
+}
+
+function renderVpnPromocodes(promocodes) {
+  const body = byId("vpn-promocodes-body");
+  if (!body) return;
+  if (!promocodes.length) {
+    body.innerHTML = '<tr><td colspan="7" class="empty-cell">Промокоды не найдены</td></tr>';
+    return;
+  }
+  body.innerHTML = promocodes
+    .map((p) => {
+      const targetLabel = p.target_user_id ? `User #${p.target_user_id}` : "Все пользователи";
+      const usesLabel = p.max_uses ? `${p.used_count} / ${p.max_uses}` : `${p.used_count} / ∞`;
+      const expiresLabel = p.expires_at ? asDateOnly(p.expires_at) : "Бессрочно";
+      const toggleText = p.is_active ? "Выключить" : "Включить";
+      return `
+        <tr data-promo-id="${p.id}">
+          <td><strong>${escapeHtml(p.code)}</strong></td>
+          <td>${escapeHtml(promocodeRewardLabel(p))}</td>
+          <td>${escapeHtml(targetLabel)}</td>
+          <td>${escapeHtml(usesLabel)}</td>
+          <td>${escapeHtml(expiresLabel)}</td>
+          <td>${promocodeStatusBadge(p)}</td>
+          <td>
+            <div style="display: flex; gap: 0.5rem;">
+              <button class="button secondary btn-toggle-promo" data-id="${p.id}" data-active="${p.is_active ? 'false' : 'true'}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">${toggleText}</button>
+              <button class="button secondary btn-delete-promo" data-id="${p.id}" data-code="${escapeHtml(p.code)}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; color: var(--color-danger, #e53935);">Удалить</button>
+            </div>
+          </td>
+        </tr>
+      `;
+    })
+    .join("");
+}
+
+const openCreatePromoBtn = byId("open-create-promocode-btn");
+if (openCreatePromoBtn) {
+  openCreatePromoBtn.addEventListener("click", () => {
+    byId("create-promocode-panel").hidden = false;
+  });
+}
+const cancelCreatePromoBtn = byId("cancel-create-promocode-btn");
+if (cancelCreatePromoBtn) {
+  cancelCreatePromoBtn.addEventListener("click", () => {
+    byId("create-promocode-panel").hidden = true;
+    byId("create-promocode-form").reset();
+  });
+}
+const promoTargetType = byId("promo-target-type");
+if (promoTargetType) {
+  promoTargetType.addEventListener("change", (e) => {
+    byId("promo-user-id-wrapper").hidden = e.target.value !== "user";
+  });
+}
+const createPromoForm = byId("create-promocode-form");
+if (createPromoForm) {
+  createPromoForm.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const code = byId("promo-code").value.trim();
+    const reward_type = byId("promo-reward-type").value;
+    const reward_value = Number(byId("promo-reward-value").value);
+    const target_type = byId("promo-target-type").value;
+    const target_user_id = target_type === "user" ? byId("promo-target-user-id").value : null;
+    const max_uses = byId("promo-max-uses").value ? Number(byId("promo-max-uses").value) : null;
+    const expires_at = byId("promo-expires-at").value || null;
+
+    try {
+      await api("/api/vpn/promocodes", {
+        method: "POST",
+        body: JSON.stringify({
+          code,
+          reward_type,
+          reward_value,
+          target_user_id,
+          max_uses,
+          expires_at,
+          is_active: true,
+        }),
+      });
+      showToast(`Промокод «${code.toUpperCase()}» успешно создан!`);
+      byId("create-promocode-panel").hidden = true;
+      byId("create-promocode-form").reset();
+      loadVpnPromocodes();
+    } catch (error) {
+      showToast(error.message, true);
+    }
+  });
+}
+const vpnPromosBody = byId("vpn-promocodes-body");
+if (vpnPromosBody) {
+  vpnPromosBody.addEventListener("click", async (e) => {
+    const toggleBtn = e.target.closest(".btn-toggle-promo");
+    if (toggleBtn) {
+      const id = toggleBtn.dataset.id;
+      const is_active = toggleBtn.dataset.active === "true";
+      try {
+        await api(`/api/vpn/promocodes/${id}/toggle`, {
+          method: "POST",
+          body: JSON.stringify({ is_active }),
+        });
+        showToast(is_active ? "Промокод включен" : "Промокод выключен");
+        loadVpnPromocodes();
+      } catch (error) {
+        showToast(error.message, true);
+      }
+      return;
+    }
+    const deleteBtn = e.target.closest(".btn-delete-promo");
+    if (deleteBtn) {
+      const id = deleteBtn.dataset.id;
+      const code = deleteBtn.dataset.code;
+      if (!confirm(`Вы действительно хотите удалить промокод «${code}»?`)) return;
+      try {
+        await api(`/api/vpn/promocodes/${id}`, { method: "DELETE" });
+        showToast(`Промокод «${code}» удалён`);
+        loadVpnPromocodes();
+      } catch (error) {
+        showToast(error.message, true);
+      }
+    }
+  });
+}
 
 setProduct("ai");
 refreshAll();

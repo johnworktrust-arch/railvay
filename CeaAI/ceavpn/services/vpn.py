@@ -11,7 +11,9 @@ from typing import Any, Dict, Mapping
 from urllib.parse import urlsplit
 
 from ceavpn.database import Database
+from ceavpn.repositories.base import row_to_dict
 from ceavpn.repositories.vpn_abuse import VpnAbuseRepository
+from ceavpn.repositories.vpn_promocodes import VpnPromocodeRepository
 from ceavpn.repositories.vpn_payments import VpnPaymentRepository
 from ceavpn.repositories.vpn_plans import VpnPlanRepository
 from ceavpn.repositories.vpn_provisioning_jobs import VpnProvisioningJobRepository
@@ -169,6 +171,7 @@ class VpnService:
         self.trials = VpnTrialClaimRepository()
         self.abuse = VpnAbuseRepository()
         self.jobs = VpnProvisioningJobRepository()
+        self.promocodes = VpnPromocodeRepository()
 
     def claim_trial(
         self,
@@ -224,6 +227,126 @@ class VpnService:
                 base_idempotency_key=f"vpn:create:{subscription['id']}",
             )
             return VpnTrialOutcome(subscription=subscription, created=True)
+
+    def redeem_promocode(
+        self,
+        *,
+        user_id: int,
+        code: str,
+    ) -> tuple[Dict[str, Any], str]:
+        code_clean = code.strip().upper()
+        if not code_clean:
+            raise BusinessRuleError("Введите промокод.")
+
+        with self.db.transaction() as conn:
+            self._require_not_abuse_blocked(conn, user_id)
+            user_row = row_to_dict(conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone())
+            telegram_id = int(user_row["telegram_id"]) if user_row and user_row.get("telegram_id") is not None else None
+
+            promocode = self.promocodes.get_by_code(conn, code_clean)
+            if promocode is None:
+                raise BusinessRuleError("Промокод не найден. Проверьте правильность ввода.")
+
+            if not bool(promocode.get("is_active")):
+                raise BusinessRuleError("Этот промокод сейчас неактивен.")
+
+            now_iso = utcnow().isoformat()
+            starts_at = promocode.get("starts_at")
+            if starts_at and str(starts_at) > now_iso:
+                raise BusinessRuleError("Промокод ещё не действителен.")
+
+            expires_at = promocode.get("expires_at")
+            if expires_at and str(expires_at) < now_iso:
+                raise BusinessRuleError("Срок действия промокода истёк.")
+
+            target_user_id = promocode.get("target_user_id")
+            if target_user_id is not None:
+                target_user_id_int = int(target_user_id)
+                if user_id != target_user_id_int and (telegram_id is None or telegram_id != target_user_id_int):
+                    raise BusinessRuleError("Этот промокод предназначен для другого пользователя.")
+
+            max_uses = promocode.get("max_uses")
+            used_count = int(promocode.get("used_count") or 0)
+            if max_uses is not None and used_count >= int(max_uses):
+                raise BusinessRuleError("Превышено максимальное количество активаций этого промокода.")
+
+            promocode_id = int(promocode["id"])
+            if self.promocodes.has_user_redeemed(conn, promocode_id=promocode_id, user_id=user_id):
+                raise BusinessRuleError("Вы уже активировали этот промокод.")
+
+            reward_type = str(promocode["reward_type"])
+            reward_value = int(promocode.get("reward_value") or 0)
+
+            live = self.subscriptions.get_live_for_user(conn, user_id)
+
+            if reward_type in ("days", "plan"):
+                duration_days = reward_value if reward_value > 0 else 30
+                duration = timedelta(days=duration_days)
+                now = utcnow()
+                if live is not None:
+                    current_end = self._datetime(live["ends_at"])
+                    ends_at = max(now, current_end) + duration
+                    subscription = self.subscriptions.update_period(
+                        conn,
+                        subscription_id=int(live["id"]),
+                        plan_id=int(live["plan_id"]) if live.get("plan_id") is not None else 1,
+                        kind=str(live["kind"]),
+                        starts_at=self._iso_value(live["starts_at"]),
+                        ends_at=ends_at.isoformat(),
+                        status="active" if live["status"] == "active" else "provisioning",
+                    )
+                    operation = "update"
+                else:
+                    server = self.servers.get_by_code(conn, self.server_code)
+                    if server is None or not bool(server["is_active"]):
+                        raise BusinessRuleError("Сервер сейчас готовится. Попробуйте применить промокод чуть позже.")
+                    plan = self.plans.get_by_code(conn, "vpn-1m")
+                    plan_id = int(plan["id"]) if plan else 1
+                    subscription = self.subscriptions.create_provisioning(
+                        conn,
+                        user_id=user_id,
+                        server_id=int(server["id"]),
+                        plan_id=plan_id,
+                        kind="paid",
+                        provider_username=f"u_{secrets.token_hex(12)}",
+                        starts_at=now.isoformat(),
+                        ends_at=(now + duration).isoformat(),
+                    )
+                    operation = "create"
+
+                self._enqueue_for_active_servers(
+                    conn,
+                    subscription=subscription,
+                    operation=operation,
+                    base_idempotency_key=f"vpn:promo:{promocode_id}:{user_id}:{operation}",
+                )
+                reward_summary = f"+{duration_days} дн. подписки"
+
+            elif reward_type == "devices":
+                count = reward_value if reward_value > 0 else 1
+                if live is None:
+                    raise BusinessRuleError("Для добавления доп. устройств требуется активная подписка.")
+                self.subscriptions.add_extra_devices(conn, subscription_id=int(live["id"]), count=count)
+                subscription = self.subscriptions.get_by_id(conn, int(live["id"]))
+                self._enqueue_job_or_raise(
+                    conn,
+                    subscription_id=int(live["id"]),
+                    server_id=int(live["server_id"]),
+                    operation="update",
+                    idempotency_key=f"vpn:promo_extra_dev:{promocode_id}:{user_id}",
+                )
+                reward_summary = f"+{count} доп. устр."
+            else:
+                raise BusinessRuleError("Неизвестный тип награды в промокоде.")
+
+            redemption = self.promocodes.record_redemption(
+                conn,
+                promocode_id=promocode_id,
+                user_id=user_id,
+                reward_summary=reward_summary,
+            )
+
+            return redemption, reward_summary
 
     def create_admin_demo_payment(
         self,

@@ -501,6 +501,73 @@ def create_admin_app(
         )
         return _json_response({"ok": True, "maintenance_active": result})
 
+    async def vpn_promocodes_list(_request: web.Request) -> web.Response:
+        promocodes = await asyncio.to_thread(app[VPN_ADMIN_KEY].list_promocodes)
+        return _json_response({"ok": True, "promocodes": promocodes})
+
+    async def vpn_promocode_create(request: web.Request) -> web.Response:
+        _require_operator(request)
+        payload = await _read_json(request)
+        code = str(payload.get("code") or "").strip()
+        reward_type = str(payload.get("reward_type") or "days").strip()
+        try:
+            reward_value = int(payload.get("reward_value") or 0)
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Введите числовое значение награды")
+
+        target_user_id = payload.get("target_user_id")
+        if target_user_id is not None and str(target_user_id).strip() != "":
+            try:
+                target_user_id = int(target_user_id)
+            except (TypeError, ValueError):
+                raise web.HTTPBadRequest(text="ID пользователя должен быть числом")
+        else:
+            target_user_id = None
+
+        max_uses = payload.get("max_uses")
+        if max_uses is not None and str(max_uses).strip() != "":
+            try:
+                max_uses = int(max_uses)
+            except (TypeError, ValueError):
+                raise web.HTTPBadRequest(text="Макс. использования должно быть числом")
+        else:
+            max_uses = None
+
+        expires_at = str(payload.get("expires_at") or "").strip() or None
+
+        created = await asyncio.to_thread(
+            app[VPN_ADMIN_KEY].create_promocode,
+            code=code,
+            reward_type=reward_type,
+            reward_value=reward_value,
+            target_user_id=target_user_id,
+            max_uses=max_uses,
+            expires_at=expires_at,
+            is_active=bool(payload.get("is_active", True)),
+        )
+        return _json_response({"ok": True, "promocode": created})
+
+    async def vpn_promocode_toggle(request: web.Request) -> web.Response:
+        _require_operator(request)
+        promocode_id = int(request.match_info["id"])
+        payload = await _read_json(request)
+        is_active = bool(payload.get("is_active"))
+        updated = await asyncio.to_thread(
+            app[VPN_ADMIN_KEY].toggle_promocode,
+            promocode_id=promocode_id,
+            is_active=is_active,
+        )
+        return _json_response({"ok": True, "promocode": updated})
+
+    async def vpn_promocode_delete(request: web.Request) -> web.Response:
+        _require_operator(request)
+        promocode_id = int(request.match_info["id"])
+        await asyncio.to_thread(
+            app[VPN_ADMIN_KEY].delete_promocode,
+            promocode_id=promocode_id,
+        )
+        return _json_response({"ok": True})
+
     app.router.add_get("/healthz", healthz)
     app.router.add_get("/login", login)
     app.router.add_post("/login", login)
@@ -518,6 +585,10 @@ def create_admin_app(
         "/api/vpn/users/{user_id:\\d+}/abuse-blocked",
         set_vpn_abuse_blocked,
     )
+    app.router.add_get("/api/vpn/promocodes", vpn_promocodes_list)
+    app.router.add_post("/api/vpn/promocodes", vpn_promocode_create)
+    app.router.add_post("/api/vpn/promocodes/{id:\\d+}/toggle", vpn_promocode_toggle)
+    app.router.add_delete("/api/vpn/promocodes/{id:\\d+}", vpn_promocode_delete)
     app.router.add_post("/api/users/{user_id:\\d+}/blocked", set_blocked)
     app.router.add_post("/api/users/{user_id:\\d+}/credit", credit)
     app.router.add_post("/api/maintenance", maintenance)

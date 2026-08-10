@@ -13,6 +13,8 @@ from zoneinfo import ZoneInfo
 from aiogram import F, Router
 from aiogram.enums import ChatMemberStatus
 from aiogram.filters import Command, CommandStart
+from aiogram.fsm.context import FSMContext
+from aiogram.fsm.state import State, StatesGroup
 from aiogram.types import (
     CallbackQuery,
     CopyTextButton,
@@ -22,6 +24,10 @@ from aiogram.types import (
     Message,
     PreCheckoutQuery,
 )
+
+
+class VpnPromoState(StatesGroup):
+    waiting_for_code = State()
 
 from ceavpn.config import Settings
 from ceavpn.services.app import AppServices
@@ -749,7 +755,8 @@ def create_vpn_router(services: AppServices) -> Router:
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:about")
-    async def about(callback: CallbackQuery) -> None:
+    async def about(callback: CallbackQuery, state: FSMContext) -> None:
+        await state.clear()
         if callback.message:
             await _screen(
                 callback.message,
@@ -763,8 +770,61 @@ def create_vpn_router(services: AppServices) -> Router:
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:promo")
-    async def promo(callback: CallbackQuery) -> None:
-        await callback.answer("Промокоды будут подключены на следующем этапе.", show_alert=True)
+    async def promo(callback: CallbackQuery, state: FSMContext) -> None:
+        await state.set_state(VpnPromoState.waiting_for_code)
+        if callback.message:
+            await _screen(
+                callback.message,
+                "🎟 <b>Введите промокод одним сообщением:</b>",
+                InlineKeyboardMarkup(inline_keyboard=[_back("vpn:about")]),
+            )
+        await callback.answer()
+
+    @router.message(VpnPromoState.waiting_for_code)
+    async def process_promo_code(message: Message, state: FSMContext) -> None:
+        await state.clear()
+        code = (message.text or "").strip()
+        if not code:
+            await message.answer(
+                "❌ <b>Введите валидный промокод текстом.</b>",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎟 Попробовать ещё раз", callback_data="vpn:promo")],
+                    _back("vpn:about"),
+                ]),
+                parse_mode="HTML",
+            )
+            return
+
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        try:
+            _, reward_summary = await asyncio.to_thread(
+                services.vpn.redeem_promocode,
+                user_id=int(user["id"]),
+                code=code,
+            )
+        except BusinessRuleError as exc:
+            await message.answer(
+                f"❌ <b>Не удалось применить промокод:</b>\n{escape(str(exc))}",
+                reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                    [InlineKeyboardButton(text="🎟 Попробовать ещё раз", callback_data="vpn:promo")],
+                    _back("vpn:about"),
+                ]),
+                parse_mode="HTML",
+            )
+            return
+
+        current = services.vpn.get_current_subscription(int(user["id"]))
+        kb_buttons = []
+        if current and current.get("subscription_url"):
+            kb_buttons.append([InlineKeyboardButton(text="🚀 Мое подключение", callback_data="vpn:subscription")])
+        kb_buttons.append(_back("vpn:about"))
+
+        await message.answer(
+            f"🎉 <b>Промокод «{escape(code.upper())}» успешно активирован!</b>\n\n"
+            f"Вам начислено: <b>{escape(reward_summary)}</b>",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons),
+            parse_mode="HTML",
+        )
 
     @router.callback_query(F.data == "vpn:subscription")
     async def subscription(callback: CallbackQuery) -> None:

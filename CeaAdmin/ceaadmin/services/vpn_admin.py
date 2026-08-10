@@ -12,7 +12,8 @@ from ceaadmin.repositories.vpn_admin import VpnAdminRepository
 from ceaadmin.repositories.vpn_provisioning_jobs import VpnProvisioningJobRepository
 from ceaadmin.repositories.vpn_servers import VpnServerRepository
 from ceaadmin.repositories.vpn_subscriptions import VpnSubscriptionRepository
-from ceaadmin.services.exceptions import NotFoundError
+from ceaadmin.repositories.vpn_promocodes import VpnPromocodeRepository
+from ceaadmin.services.exceptions import NotFoundError, ValidationError
 
 
 class VpnAdminService:
@@ -24,6 +25,7 @@ class VpnAdminService:
         self.subscriptions = VpnSubscriptionRepository()
         self.jobs = VpnProvisioningJobRepository()
         self.servers = VpnServerRepository()
+        self.promocodes = VpnPromocodeRepository()
 
     def _times(self) -> tuple[str, str, str]:
         now = datetime.now(timezone.utc)
@@ -219,3 +221,61 @@ class VpnAdminService:
             )
             created_count += int(created)
         return created_count
+
+    def list_promocodes(self) -> List[Dict[str, Any]]:
+        with self.db.transaction() as conn:
+            return self.promocodes.list_all(conn)
+
+    def create_promocode(
+        self,
+        *,
+        code: str,
+        reward_type: str,
+        reward_value: int,
+        target_user_id: int | None = None,
+        max_uses: int | None = None,
+        starts_at: str | None = None,
+        expires_at: str | None = None,
+        is_active: bool = True,
+    ) -> Dict[str, Any]:
+        code_clean = code.strip().upper()
+        if not code_clean:
+            raise ValidationError("Введите код промокода")
+        if reward_type not in {"days", "devices", "plan"}:
+            raise ValidationError("Некорректный тип награды")
+        if reward_value <= 0:
+            raise ValidationError("Значение награды должно быть больше 0")
+        with self.db.transaction() as conn:
+            existing = self.promocodes.get_by_code(conn, code_clean)
+            if existing is not None:
+                raise ValidationError(f"Промокод с кодом «{code_clean}» уже существует")
+            return self.promocodes.create(
+                conn,
+                code=code_clean,
+                reward_type=reward_type,
+                reward_value=reward_value,
+                target_user_id=target_user_id,
+                max_uses=max_uses,
+                starts_at=starts_at,
+                expires_at=expires_at,
+                is_active=is_active,
+            )
+
+    def toggle_promocode(self, promocode_id: int, is_active: bool) -> Dict[str, Any]:
+        with self.db.transaction() as conn:
+            promocode = self.promocodes.get_by_id(conn, promocode_id)
+            if promocode is None:
+                raise NotFoundError("Промокод не найден")
+            updated = self.promocodes.toggle_active(
+                conn, promocode_id=promocode_id, is_active=is_active
+            )
+            if updated is None:
+                raise NotFoundError("Не удалось обновить промокод")
+            return updated
+
+    def delete_promocode(self, promocode_id: int) -> bool:
+        with self.db.transaction() as conn:
+            promocode = self.promocodes.get_by_id(conn, promocode_id)
+            if promocode is None:
+                raise NotFoundError("Промокод не найден")
+            return self.promocodes.delete_promocode(conn, promocode_id)
