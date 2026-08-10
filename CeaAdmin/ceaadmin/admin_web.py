@@ -654,7 +654,8 @@ def main() -> None:
     parser.add_argument("--host", default=settings.admin_web_host)
     parser.add_argument("--port", type=int, default=default_port)
     args = parser.parse_args()
-    asyncio.run(run_admin_web(host=args.host, port=args.port))
+    final_port = int(env_port) if env_port else args.port
+    asyncio.run(run_admin_web(host=args.host, port=final_port))
 
 
 if __name__ == "__main__":
