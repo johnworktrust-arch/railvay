@@ -200,6 +200,8 @@ async def admin_middleware(
     ):
         if request.path.startswith("/api/"):
             return _json_response({"error": "authentication required"}, status=401)
+        if request.path == "/":
+            return login_page()
         return _redirect("/login")
 
     if request.path.startswith("/api/"):
