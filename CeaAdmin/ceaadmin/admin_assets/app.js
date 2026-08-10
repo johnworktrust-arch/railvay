@@ -357,7 +357,7 @@ function vpnStatusBadge(user) {
     return '<span class="badge provisioning">Подключается</span>';
   }
 
-  // Active subscription
+  // Active subscription (ends_at > now)
   if (user.vpn_is_active) {
     if (user.vpn_billing_kind === "paid" || user.vpn_has_paid) {
       return '<span class="badge paid">Платный</span>';
@@ -365,15 +365,25 @@ function vpnStatusBadge(user) {
     return '<span class="badge trial">Пробный</span>';
   }
 
-  // Inactive subscription
+  // Inactive / Expired subscription (ends_at <= now)
   if (user.vpn_has_paid) {
     return '<span class="badge expired">Истекла</span>';
   }
   if (user.vpn_has_trial) {
-    return '<span class="badge disabled">Отключена</span>';
+    return '<span class="badge disabled">Пробный истёк</span>';
   }
 
   return '<span class="badge none">Не подключен</span>';
+}
+
+function vpnTariffLabel(user) {
+  if (user.vpn_plan_name) {
+    return user.vpn_plan_name;
+  }
+  if (user.vpn_has_trial) {
+    return user.vpn_is_active ? "3 дня бесплатно" : "Пробный (истёк)";
+  }
+  return "—";
 }
 
 function vpnUsersMarkup(users) {
@@ -390,7 +400,7 @@ function vpnUsersMarkup(users) {
         </div>
       </td>
       <td>${vpnStatusBadge(user)}</td>
-      <td>${escapeHtml(user.vpn_plan_name || (user.vpn_has_trial ? "3 дня бесплатно" : "—"))}</td>
+      <td>${escapeHtml(vpnTariffLabel(user))}</td>
       <td>${escapeHtml(formatMoney.format(user.vpn_paid_amount_rub || 0))}</td>
       <td>${escapeHtml(asDate(user.vpn_starts_at))}</td>
       <td>${escapeHtml(asDate(user.vpn_ends_at))}</td>
@@ -563,8 +573,23 @@ function vpnDrawerMarkup(user) {
     disabled: "Отключена",
     error: "Ошибка",
   };
-  const planName = subscription.plan_name
-    || (subscription.kind === "trial" ? "3 дня бесплатно" : "—");
+  const isTrialActive = Boolean(
+    subscription.ends_at && new Date(subscription.ends_at).getTime() > Date.now()
+  );
+  let planName = subscription.plan_name;
+  if (!planName) {
+    if (trial.id || subscription.kind === "trial") {
+      planName = isTrialActive ? "3 дня бесплатно" : "Пробный период (истёк)";
+    } else {
+      planName = "—";
+    }
+  }
+  let statusText = statusLabels[subscription.status] || subscription.status || "Нет подписки";
+  if ((subscription.kind === "trial" || (!subscription.plan_name && trial.id)) && !isTrialActive) {
+    statusText = "Пробный период истёк";
+  } else if (subscription.ends_at && new Date(subscription.ends_at).getTime() <= Date.now() && subscription.status !== "error") {
+    statusText = "Истекла";
+  }
   const paid = `${payments.paid_count || 0} · ${formatMoney.format(payments.paid_amount_rub || 0)}`;
   const ban = user.vpn_ban || {};
   const isBlocked = Boolean(ban.id || subscription.is_blocked);
@@ -590,7 +615,7 @@ function vpnDrawerMarkup(user) {
     </div>
     <div class="detail-grid">
       ${detail("Тариф", planName)}
-      ${detail("Статус", statusLabels[subscription.status] || subscription.status || "Нет подписки")}
+      ${detail("Статус", statusText)}
       ${detail("Начало", asDate(subscription.starts_at))}
       ${detail("Окончание", asDate(subscription.ends_at))}
       ${detail("Оплачено", paid)}
