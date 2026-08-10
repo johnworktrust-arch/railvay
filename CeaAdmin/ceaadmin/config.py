@@ -401,7 +401,7 @@ def load_settings() -> Settings:
         admin_database_url=read("ADMIN_DATABASE_URL").strip(),
         vpn_database_url=read("VPN_DATABASE_URL").strip(),
         admin_web_host=read("ADMIN_WEB_HOST", "127.0.0.1").strip(),
-        admin_web_port=read_int("ADMIN_WEB_PORT", 8090),
+        admin_web_port=read_int("PORT", read_int("ADMIN_WEB_PORT", 8090)),
         admin_web_password=read("ADMIN_WEB_PASSWORD"),
         admin_web_session_secret=read("ADMIN_WEB_SESSION_SECRET"),
         public_offer_url=read("PUBLIC_OFFER_URL", public_offer_default),
