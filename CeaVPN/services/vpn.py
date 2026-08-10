@@ -336,6 +336,12 @@ class VpnService:
                     idempotency_key=f"vpn:promo_extra_dev:{promocode_id}:{user_id}",
                 )
                 reward_summary = f"+{count} доп. устр."
+            elif reward_type == "discount_percent":
+                percent = reward_value if reward_value > 0 else 10
+                reward_summary = f"Скидка {percent}% на покупку"
+            elif reward_type == "discount_fixed":
+                rubles = reward_value if reward_value > 0 else 50
+                reward_summary = f"Скидка {rubles} ₽ на покупку"
             else:
                 raise BusinessRuleError("Неизвестный тип награды в промокоде.")
 
@@ -404,11 +410,21 @@ class VpnService:
                 plan = self.plans.get_by_code(conn, plan_code)
                 if plan is None or not bool(plan["is_active"]):
                     raise BusinessRuleError("Тариф не найден.")
+                amount_rub = int(plan["price_rub"])
+                discount = self.promocodes.get_unapplied_discount_for_user(conn, user_id)
+                if discount:
+                    if discount["reward_type"] == "discount_percent":
+                        pct = int(discount["reward_value"])
+                        amount_rub = max(1, int(round(amount_rub * (100 - pct) / 100)))
+                    elif discount["reward_type"] == "discount_fixed":
+                        val = int(discount["reward_value"])
+                        amount_rub = max(1, amount_rub - val)
+
                 payment, created = self.payments.create_or_get_pending_platega(
                     conn,
                     user_id=user_id,
                     plan_id=int(plan["id"]),
-                    amount_rub=int(plan["price_rub"]),
+                    amount_rub=amount_rub,
                     duration_days=int(plan["duration_days"]),
                     payment_method=PLATEGA_PAYMENT_METHOD,
                     request_external_id=request_external_id,
@@ -1577,6 +1593,9 @@ class VpnService:
             if locked_user is None:
                 raise RuntimeError("VPN payment user is missing")
         now = utcnow()
+        discount = self.promocodes.get_unapplied_discount_for_user(conn, user_id)
+        if discount:
+            self.promocodes.mark_redemption_used(conn, int(discount["redemption_id"]))
         duration_days = int(payment["duration_days"])
         live = self.subscriptions.get_live_for_user(conn, user_id)
 

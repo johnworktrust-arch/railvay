@@ -920,13 +920,19 @@ function promocodeStatusBadge(p) {
 
 function promocodeRewardLabel(p) {
   if (p.reward_type === "days") {
-    return `+${p.reward_value} дн. подписки`;
+    return `<span class="promo-reward-badge days">🎁 +${p.reward_value} дн. подписки</span>`;
   }
   if (p.reward_type === "devices") {
-    return `+${p.reward_value} доп. устр.`;
+    return `<span class="promo-reward-badge devices">📱 +${p.reward_value} доп. устр.</span>`;
+  }
+  if (p.reward_type === "discount_percent") {
+    return `<span class="promo-reward-badge discount">🏷 Скидка ${p.reward_value}%</span>`;
+  }
+  if (p.reward_type === "discount_fixed") {
+    return `<span class="promo-reward-badge discount">💰 Скидка ${p.reward_value} ₽</span>`;
   }
   if (p.reward_type === "plan") {
-    return `Тариф (${p.reward_value} дн.)`;
+    return `<span class="promo-reward-badge days">🎁 Тариф (${p.reward_value} дн.)</span>`;
   }
   return `${p.reward_type}: ${p.reward_value}`;
 }
@@ -946,8 +952,8 @@ function renderVpnPromocodes(promocodes) {
       const toggleText = p.is_active ? "Выключить" : "Включить";
       return `
         <tr data-promo-id="${p.id}">
-          <td><strong>${escapeHtml(p.code)}</strong></td>
-          <td>${escapeHtml(promocodeRewardLabel(p))}</td>
+          <td><span class="promo-code-badge">${escapeHtml(p.code)}</span></td>
+          <td>${promocodeRewardLabel(p)}</td>
           <td>${escapeHtml(targetLabel)}</td>
           <td>${escapeHtml(usesLabel)}</td>
           <td>${escapeHtml(expiresLabel)}</td>
@@ -955,7 +961,7 @@ function renderVpnPromocodes(promocodes) {
           <td>
             <div style="display: flex; gap: 0.5rem;">
               <button class="button secondary btn-toggle-promo" data-id="${p.id}" data-active="${p.is_active ? 'false' : 'true'}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem;">${toggleText}</button>
-              <button class="button secondary btn-delete-promo" data-id="${p.id}" data-code="${escapeHtml(p.code)}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; color: var(--color-danger, #e53935);">Удалить</button>
+              <button class="button secondary btn-delete-promo" data-id="${p.id}" data-code="${escapeHtml(p.code)}" style="padding: 0.25rem 0.5rem; font-size: 0.8rem; color: var(--red, #e53935);">Удалить</button>
             </div>
           </td>
         </tr>

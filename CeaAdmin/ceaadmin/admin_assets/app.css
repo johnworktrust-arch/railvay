@@ -1278,3 +1278,96 @@ tbody tr:last-child td {
     grid-template-columns: 1fr;
   }
 }
+
+/* Promocodes Section Styles */
+.promo-panel {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+}
+
+.promo-form-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.promo-input-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.promo-input-group label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.promo-input-group .input {
+  height: 42px;
+  padding: 0 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: 8px;
+  font-size: 14px;
+  background: var(--surface-subtle);
+  color: var(--text);
+  transition: all 0.2s ease;
+}
+
+.promo-input-group .input:focus {
+  outline: none;
+  border-color: var(--blue);
+  background: #ffffff;
+  box-shadow: 0 0 0 3px var(--blue-soft);
+}
+
+.promo-code-badge {
+  display: inline-block;
+  font-family: monospace;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 4px 10px;
+  background: var(--blue-soft);
+  color: var(--blue);
+  border-radius: 6px;
+  letter-spacing: 1px;
+}
+
+.promo-reward-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 6px;
+}
+
+.promo-reward-badge.days {
+  background: var(--green-soft);
+  color: var(--green);
+}
+
+.promo-reward-badge.devices {
+  background: var(--blue-soft);
+  color: var(--blue);
+}
+
+.promo-reward-badge.discount {
+  background: var(--amber-soft);
+  color: var(--amber);
+}
+
+.promo-actions-row {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 12px;
+  margin-top: 8px;
+}

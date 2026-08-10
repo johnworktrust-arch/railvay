@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS vpn_promocodes (
     id BIGSERIAL PRIMARY KEY,
-    code TEXT NOT NULL UNIQUE,
-    reward_type TEXT NOT NULL CHECK (reward_type IN ('days', 'devices', 'plan')),
+    code VARCHAR(64) NOT NULL UNIQUE,
+    reward_type VARCHAR(32) NOT NULL CHECK (reward_type IN ('days', 'devices', 'plan', 'discount_percent', 'discount_fixed')),
     reward_value INTEGER NOT NULL DEFAULT 0,
     target_user_id BIGINT NULL,
     max_uses INTEGER NULL,
@@ -9,8 +9,8 @@ CREATE TABLE IF NOT EXISTS vpn_promocodes (
     starts_at TIMESTAMPTZ NULL,
     expires_at TIMESTAMPTZ NULL,
     is_active BOOLEAN NOT NULL DEFAULT TRUE,
-    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP
+    created_at TIMESTAMPTZ NOT NULL,
+    updated_at TIMESTAMPTZ NOT NULL
 );
 
 CREATE TABLE IF NOT EXISTS vpn_promocode_redemptions (
@@ -18,7 +18,8 @@ CREATE TABLE IF NOT EXISTS vpn_promocode_redemptions (
     promocode_id BIGINT NOT NULL REFERENCES vpn_promocodes(id) ON DELETE CASCADE,
     user_id BIGINT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reward_summary TEXT NOT NULL DEFAULT '',
-    redeemed_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    is_used BOOLEAN NOT NULL DEFAULT FALSE,
+    redeemed_at TIMESTAMPTZ NOT NULL,
     UNIQUE(promocode_id, user_id)
 );
 

@@ -241,7 +241,7 @@ class VpnAdminService:
         code_clean = code.strip().upper()
         if not code_clean:
             raise ValidationError("Введите код промокода")
-        if reward_type not in {"days", "devices", "plan"}:
+        if reward_type not in {"days", "devices", "plan", "discount_percent", "discount_fixed"}:
             raise ValidationError("Некорректный тип награды")
         if reward_value <= 0:
             raise ValidationError("Значение награды должно быть больше 0")

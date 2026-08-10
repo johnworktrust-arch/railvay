@@ -1,7 +1,7 @@
 CREATE TABLE IF NOT EXISTS vpn_promocodes (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     code TEXT NOT NULL UNIQUE,
-    reward_type TEXT NOT NULL CHECK (reward_type IN ('days', 'devices', 'plan')),
+    reward_type TEXT NOT NULL CHECK (reward_type IN ('days', 'devices', 'plan', 'discount_percent', 'discount_fixed')),
     reward_value INTEGER NOT NULL DEFAULT 0,
     target_user_id INTEGER NULL,
     max_uses INTEGER NULL,
@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS vpn_promocode_redemptions (
     promocode_id INTEGER NOT NULL REFERENCES vpn_promocodes(id) ON DELETE CASCADE,
     user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
     reward_summary TEXT NOT NULL DEFAULT '',
+    is_used INTEGER NOT NULL DEFAULT 0,
     redeemed_at TEXT NOT NULL,
     UNIQUE(promocode_id, user_id)
 );

@@ -366,79 +366,81 @@
       </section>
 
       <section class="view" id="vpn-promocodes-view">
-          <div class="panel">
-            <div class="panel-heading">
-              <div>
-                <h2>Управление промокодами</h2>
-                <p>Создание подарочных и персональных промокодов</p>
-              </div>
-              <button class="button primary" id="open-create-promocode-btn" type="button">+ Создать промокод</button>
+        <div class="panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Управление промокодами</h2>
+              <p>Подарочные дни, доп. устройства и скидки на подписку</p>
             </div>
-
-            <div class="panel" id="create-promocode-panel" style="margin-top: 1rem;" hidden>
-              <h3>Создание нового промокода</h3>
-              <form id="create-promocode-form" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-top: 1rem;">
-                <div>
-                  <label style="display:block; font-size: 0.85rem; margin-bottom: 0.3rem;">Название / Код (например: GIFT30)</label>
-                  <input type="text" class="input" id="promo-code" placeholder="GIFT30" required style="width:100%;">
-                </div>
-                <div>
-                  <label style="display:block; font-size: 0.85rem; margin-bottom: 0.3rem;">Тип подарка</label>
-                  <select class="input" id="promo-reward-type" style="width:100%;">
-                    <option value="days">Дни подписки (бонус)</option>
-                    <option value="devices">Доп. устройства</option>
-                  </select>
-                </div>
-                <div>
-                  <label style="display:block; font-size: 0.85rem; margin-bottom: 0.3rem;">Значение (дней / устройств)</label>
-                  <input type="number" class="input" id="promo-reward-value" placeholder="30" value="30" min="1" required style="width:100%;">
-                </div>
-                <div>
-                  <label style="display:block; font-size: 0.85rem; margin-bottom: 0.3rem;">Доступность</label>
-                  <select class="input" id="promo-target-type" style="width:100%;">
-                    <option value="all">Для всех пользователей</option>
-                    <option value="user">Для одного пользователя (по ID)</option>
-                  </select>
-                </div>
-                <div id="promo-user-id-wrapper" hidden>
-                  <label style="display:block; font-size: 0.85rem; margin-bottom: 0.3rem;">Telegram ID / User ID</label>
-                  <input type="number" class="input" id="promo-target-user-id" placeholder="12345678" style="width:100%;">
-                </div>
-                <div>
-                  <label style="display:block; font-size: 0.85rem; margin-bottom: 0.3rem;">Макс. активаций (необязательно)</label>
-                  <input type="number" class="input" id="promo-max-uses" placeholder="Не ограничено" min="1" style="width:100%;">
-                </div>
-                <div>
-                  <label style="display:block; font-size: 0.85rem; margin-bottom: 0.3rem;">Срок действия до (необязательно)</label>
-                  <input type="date" class="input" id="promo-expires-at" style="width:100%;">
-                </div>
-                <div style="grid-column: 1 / -1; display: flex; gap: 0.5rem; justify-content: flex-end; margin-top: 0.5rem;">
-                  <button class="button secondary" type="button" id="cancel-create-promocode-btn">Отмена</button>
-                  <button class="button primary" type="submit">Сохранить промокод</button>
-                </div>
-              </form>
-            </div>
-
-            <div class="table-container" style="margin-top: 1rem;">
-              <table class="vpn-users-table">
-                <thead>
-                  <tr>
-                    <th>Промокод</th>
-                    <th>Награда</th>
-                    <th>Для кого</th>
-                    <th>Использовано</th>
-                    <th>Срок действия</th>
-                    <th>Статус</th>
-                    <th>Действия</th>
-                  </tr>
-                </thead>
-                <tbody id="vpn-promocodes-body">
-                  <tr><td colspan="7" class="loading-cell">Загрузка…</td></tr>
-                </tbody>
-              </table>
-            </div>
+            <button class="button primary" id="open-create-promocode-btn" type="button">✨ Создать промокод</button>
           </div>
-        </section>
+
+          <div class="promo-panel" id="create-promocode-panel" style="margin-top: 1.25rem;" hidden>
+            <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; font-weight: 700;">Создание нового промокода</h3>
+            <form id="create-promocode-form" class="promo-form-grid">
+              <div class="promo-input-group">
+                <label for="promo-code">Название / Код (например: SAVE20)</label>
+                <input type="text" class="input" id="promo-code" placeholder="SAVE20" required autocomplete="off">
+              </div>
+              <div class="promo-input-group">
+                <label for="promo-reward-type">Тип промокода</label>
+                <select class="input" id="promo-reward-type">
+                  <option value="days">🎁 Дни подписки (бонус)</option>
+                  <option value="devices">📱 Доп. устройства</option>
+                  <option value="discount_percent">🏷 Скидка в процентах %</option>
+                  <option value="discount_fixed">💰 Скидка в рублях ₽</option>
+                </select>
+              </div>
+              <div class="promo-input-group">
+                <label for="promo-reward-value" id="promo-reward-value-label">Значение (дней / устройств / % / ₽)</label>
+                <input type="number" class="input" id="promo-reward-value" placeholder="20" value="20" min="1" required>
+              </div>
+              <div class="promo-input-group">
+                <label for="promo-target-type">Кому доступен</label>
+                <select class="input" id="promo-target-type">
+                  <option value="all">🌐 Для всех пользователей</option>
+                  <option value="user">👤 Для одного пользователя (по ID)</option>
+                </select>
+              </div>
+              <div class="promo-input-group" id="promo-user-id-wrapper" hidden>
+                <label for="promo-target-user-id">Telegram ID / User ID</label>
+                <input type="number" class="input" id="promo-target-user-id" placeholder="12345678">
+              </div>
+              <div class="promo-input-group">
+                <label for="promo-max-uses">Макс. активаций</label>
+                <input type="number" class="input" id="promo-max-uses" placeholder="Не ограничено" min="1">
+              </div>
+              <div class="promo-input-group">
+                <label for="promo-expires-at">Срок действия до</label>
+                <input type="date" class="input" id="promo-expires-at">
+              </div>
+              <div class="promo-actions-row">
+                <button class="button secondary" type="button" id="cancel-create-promocode-btn">Отмена</button>
+                <button class="button primary" type="submit">Сохранить промокод</button>
+              </div>
+            </form>
+          </div>
+
+          <div class="table-container" style="margin-top: 1.25rem;">
+            <table class="vpn-users-table">
+              <thead>
+                <tr>
+                  <th>Промокод</th>
+                  <th>Тип награды</th>
+                  <th>Доступность</th>
+                  <th>Активаций</th>
+                  <th>Срок действия</th>
+                  <th>Статус</th>
+                  <th>Действия</th>
+                </tr>
+              </thead>
+              <tbody id="vpn-promocodes-body">
+                <tr><td colspan="7" class="loading-cell">Загрузка…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
       </section>
     </main>
   </div>

@@ -138,3 +138,26 @@ class VpnPromocodeRepository:
             "DELETE FROM vpn_promocodes WHERE id = ?", (promocode_id,)
         )
         return cursor.rowcount > 0
+
+    def get_unapplied_discount_for_user(
+        self, conn: sqlite3.Connection, user_id: int
+    ) -> Dict[str, Any] | None:
+        row = conn.execute(
+            """
+            SELECT r.id AS redemption_id, p.reward_type, p.reward_value, p.code
+            FROM vpn_promocode_redemptions r
+            JOIN vpn_promocodes p ON r.promocode_id = p.id
+            WHERE r.user_id = ? AND (r.is_used = 0 OR r.is_used IS NULL)
+              AND p.reward_type IN ('discount_percent', 'discount_fixed')
+            ORDER BY r.id DESC
+            LIMIT 1
+            """,
+            (user_id,),
+        ).fetchone()
+        return row_to_dict(row)
+
+    def mark_redemption_used(self, conn: sqlite3.Connection, redemption_id: int) -> None:
+        conn.execute(
+            "UPDATE vpn_promocode_redemptions SET is_used = 1 WHERE id = ?",
+            (redemption_id,),
+        )
