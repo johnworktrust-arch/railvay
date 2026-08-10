@@ -35,10 +35,10 @@ from ceavpn.vpn_subscription_delivery import (
 
 # (name, display_price_rub, stars_price) — stars_price kept for future use
 TARIFFS = {
-    "1": ("1 месяц", 199, 169),
-    "3": ("3 месяца", 499, 419),
-    "6": ("6 месяцев", 899, 759),
-    "12": ("1 год", 1390, 1190),
+    "1": ("1 месяц", 179, 139),
+    "3": ("3 месяца", 469, 389),
+    "6": ("6 месяцев", 780, 639),
+    "12": ("1 год", 1280, 989),
 }
 
 VPN_PLAN_CODES = {

@@ -1,154 +1,15 @@
 from __future__ import annotations
 
-from ceaadmin.config import load_settings
-from ceaadmin.database import Database
-from ceaadmin.repositories.model_prices import ModelPriceRepository
-from ceaadmin.repositories.plans import PlanRepository
-from ceaadmin.repositories.vpn_plans import VpnPlanRepository
-from ceaadmin.repositories.vpn_servers import VpnServerRepository
-
-PLANS = [
-    {
-        "code": "start",
-        "name": "Старт",
-        "price_rub": 299,
-        "duration_days": 30,
-        "coins_amount": 25,
-        "features": {
-            "description": "Для знакомства с Cea AI.",
-        },
-    },
-    {
-        "code": "basic",
-        "name": "Базовый",
-        "price_rub": 699,
-        "duration_days": 30,
-        "coins_amount": 60,
-        "features": {
-            "description": "Для регулярного использования.",
-        },
-    },
-    {
-        "code": "pro",
-        "name": "Про",
-        "price_rub": 1490,
-        "duration_days": 30,
-        "coins_amount": 130,
-        "features": {
-            "description": "Для активной работы с AI-инструментами.",
-        },
-    },
-]
-
-MODEL_PRICES = [
-    {
-        "provider": "deepseek",
-        "model_key": "deepseek-v4-flash",
-        "display_name": "DeepSeek V4 Flash",
-        "generation_type": "text",
-        "coins_cost": 1,
-        "config": {
-            "api_model": "deepseek-v4-flash",
-            "thinking_type": "disabled",
-            "max_input_characters": 6000,
-            "max_output_tokens": 2000,
-            "fallback_cost_usd": 0.001,
-            "input_cost_per_million_usd": 0.14,
-            "cached_input_cost_per_million_usd": 0.0028,
-            "output_cost_per_million_usd": 0.28,
-            "ui_description": (
-                "Быстрая и экономная нейросетка для повседневных вопросов, "
-                "идей, объяснений и черновиков."
-            ),
-        },
-    },
-    {
-        "provider": "openai",
-        "model_key": "gpt-4o-mini",
-        "display_name": "ChatGPT GPT-5.6",
-        "generation_type": "text",
-        "coins_cost": 3,
-        "config": {
-            "api_model": "gpt-5.5",
-            "reasoning_effort": "low",
-            "max_input_characters": 6000,
-            "max_output_tokens": 1500,
-            "fallback_cost_usd": 0.06,
-            "input_cost_per_million_usd": 5.0,
-            "cached_input_cost_per_million_usd": 0.5,
-            "output_cost_per_million_usd": 30.0,
-            "ui_description": (
-                "Сильная универсальная модель для сложных запросов, текстов, "
-                "аналитики и аккуратных ответов."
-            ),
-        },
-    },
-    {
-        "provider": "openai",
-        "model_key": "gpt-image-2-medium",
-        "display_name": "GPT Image 2",
-        "generation_type": "image",
-        "coins_cost": 3,
-        "config": {
-            "api_model": "gpt-image-2",
-            "quality": "medium",
-            "size": "1024x1024",
-            "output_format": "png",
-            "fallback_cost_usd": 0.053,
-            "text_input_cost_per_million_usd": 5.0,
-            "image_input_cost_per_million_usd": 8.0,
-            "image_output_cost_per_million_usd": 30.0,
-            "ui_description": (
-                "Генерирует изображения по описанию: от быстрых визуальных "
-                "идей до готовых иллюстраций."
-            ),
-        },
-    },
-    {
-        "provider": "kling",
-        "model_key": "kling-3",
-        "display_name": "Kling 3.0",
-        "generation_type": "video",
-        "coins_cost": 25,
-        "config": {
-            "api_model": "kling-v3",
-            "mode": "std",
-            "sound": "off",
-            "aspect_ratio": "16:9",
-            "resource_unit_cost_usd": 0.098,
-            "resource_units_per_second": 0.6,
-            "duration_seconds": 10,
-            "ui_description": (
-                "Создаёт короткие AI-видео по вашему описанию для роликов, "
-                "идей и визуальных сцен."
-            ),
-        },
-    },
-    {
-        "provider": "openai",
-        "model_key": "tts-1",
-        "display_name": "OpenAI TTS",
-        "generation_type": "tts",
-        "coins_cost": 3,
-        "config": {
-            "api_model": "tts-1",
-            "voice": "alloy",
-            "response_format": "mp3",
-            "cost_per_million_characters_usd": 15.0,
-            "duration_seconds": 15,
-            "ui_description": (
-                "Превращает текст в озвучку: удобно для роликов, сообщений "
-                "и быстрых голосовых заготовок."
-            ),
-        },
-    },
-]
+from ceavpn.config import load_settings
+from ceavpn.database import Database
+from ceavpn.repositories.vpn_plans import VpnPlanRepository
+from ceavpn.repositories.vpn_servers import VpnServerRepository
 
 VPN_PLANS = [
-    ("vpn-1m", "1 месяц", 30, 199, 169),
-    ("vpn-3m", "3 месяца", 90, 499, 419),
-    ("vpn-6m", "6 месяцев", 180, 899, 759),
-    ("vpn-12m", "1 год", 365, 1390, 1190),
+    ("vpn-1m", "1 месяц", 30, 179, 139),
+    ("vpn-3m", "3 месяца", 90, 469, 389),
+    ("vpn-6m", "6 месяцев", 180, 780, 639),
+    ("vpn-12m", "1 год", 365, 1280, 989),
 ]
 
 VPN_ADDITIONAL_SERVERS = (
@@ -186,15 +47,9 @@ VPN_ADDITIONAL_SERVERS = (
 def seed_reference_data(db: Database) -> None:
     settings = load_settings()
     per_worker_secrets = dict(settings.vpn_worker_secrets)
-    plan_repo = PlanRepository()
-    model_repo = ModelPriceRepository()
     vpn_plan_repo = VpnPlanRepository()
     vpn_server_repo = VpnServerRepository()
     with db.transaction() as conn:
-        for plan in PLANS:
-            plan_repo.upsert(conn, **plan)
-        for model in MODEL_PRICES:
-            model_repo.upsert(conn, **model)
         for code, name, duration_days, price_rub, price_stars in VPN_PLANS:
             vpn_plan_repo.upsert(
                 conn,
@@ -253,14 +108,6 @@ def seed_reference_data(db: Database) -> None:
             )
             reserved_codes.add(server.code)
             reserved_workers.add(server.worker_id)
-        conn.execute(
-            """
-            UPDATE model_prices
-            SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP
-            WHERE generation_type = 'tts'
-              AND NOT (provider = 'openai' AND model_key = 'tts-1')
-            """
-        )
 
 
 def main() -> None:
@@ -269,7 +116,7 @@ def main() -> None:
     db.migrate()
     seed_reference_data(db)
     db.close()
-    print("CeaAdmin Database migrated and seeded.")
+    print("CeaVPN Database migrated and seeded.")
 
 
 if __name__ == "__main__":

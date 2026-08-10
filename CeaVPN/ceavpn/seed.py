@@ -6,10 +6,10 @@ from ceavpn.repositories.vpn_plans import VpnPlanRepository
 from ceavpn.repositories.vpn_servers import VpnServerRepository
 
 VPN_PLANS = [
-    ("vpn-1m", "1 месяц", 30, 199, 169),
-    ("vpn-3m", "3 месяца", 90, 499, 419),
-    ("vpn-6m", "6 месяцев", 180, 899, 759),
-    ("vpn-12m", "1 год", 365, 1390, 1190),
+    ("vpn-1m", "1 месяц", 30, 179, 139),
+    ("vpn-3m", "3 месяца", 90, 469, 389),
+    ("vpn-6m", "6 месяцев", 180, 780, 639),
+    ("vpn-12m", "1 год", 365, 1280, 989),
 ]
 
 VPN_ADDITIONAL_SERVERS = (
