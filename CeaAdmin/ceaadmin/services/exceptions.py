@@ -25,3 +25,7 @@ class InsufficientCoinsError(BusinessRuleError):
 
 class GenerationProviderFailedError(BusinessRuleError):
     pass
+
+
+class ValidationError(BusinessRuleError):
+    pass
