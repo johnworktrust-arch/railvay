@@ -14,6 +14,7 @@ from ceaadmin.admin_web import (
 )
 from ceaadmin.config import Settings
 from ceaadmin.database import Database
+from ceaadmin.repositories.plans import PlanRepository
 from ceaadmin.repositories.vpn_servers import VpnServerRepository
 from ceaadmin.seed import seed_reference_data
 from ceaadmin.services.app import build_services
@@ -25,6 +26,16 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         self.db = Database("sqlite:///:memory:")
         self.db.migrate()
         seed_reference_data(self.db)
+        with self.db.transaction() as conn:
+            PlanRepository().upsert(
+                conn,
+                code="start",
+                name="Start",
+                price_rub=299,
+                duration_days=30,
+                coins_amount=100,
+                features={},
+            )
         self.settings = Settings(
             telegram_bot_token="test",
             database_url="sqlite:///:memory:",
@@ -180,6 +191,48 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(maintenance_response.status, 200)
         maintenance = await maintenance_response.json()
         self.assertTrue(maintenance["maintenance_active"])
+
+    async def test_message_can_be_sent_to_multiple_selected_users_with_button(self) -> None:
+        with patch(
+            "ceaadmin.admin_web._send_telegram_message",
+            return_value=True,
+        ) as send:
+            response = await self.client.post(
+                "/api/messages",
+                headers=self.headers,
+                json={
+                    "bot": "ai",
+                    "user_ids": [self.trial_user["id"], self.paid_user["id"]],
+                    "text": "Важное обновление",
+                    "button_text": "Открыть",
+                    "button_url": "https://example.test/news",
+                },
+            )
+        self.assertEqual(response.status, 200)
+        result = await response.json()
+        self.assertEqual(result["sent"], 2)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(send.call_count, 2)
+
+    async def test_message_requires_complete_button_and_selected_users(self) -> None:
+        response = await self.client.post(
+            "/api/messages",
+            headers=self.headers,
+            json={"bot": "ai", "user_ids": [], "text": "Тест"},
+        )
+        self.assertEqual(response.status, 400)
+
+        response = await self.client.post(
+            "/api/messages",
+            headers=self.headers,
+            json={
+                "bot": "ai",
+                "user_ids": [self.trial_user["id"]],
+                "text": "Тест",
+                "button_text": "Открыть",
+            },
+        )
+        self.assertEqual(response.status, 400)
 
     async def test_vpn_section_reports_subscriptions_servers_and_users(self) -> None:
         stats_response = await self.client.get(

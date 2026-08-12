@@ -1371,3 +1371,22 @@ tbody tr:last-child td {
   gap: 12px;
   margin-top: 8px;
 }
+
+.message-panel { max-width: 920px; }
+.message-form { display: grid; gap: 18px; }
+.message-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
+.recipient-picker { position: relative; }
+.recipient-results { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0; max-height: 230px; overflow: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 14px 30px rgba(15, 23, 42, .16); padding: 6px; }
+.recipient-result { display: block; width: 100%; border: 0; border-radius: 7px; background: transparent; color: var(--text); padding: 10px; text-align: left; cursor: pointer; }
+.recipient-result:hover { background: var(--surface-subtle); }
+.recipient-chips { display: flex; flex-wrap: wrap; gap: 8px; min-height: 34px; }
+.recipient-chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--blue); border-radius: 999px; background: var(--blue-soft); color: var(--blue); padding: 6px 10px; cursor: pointer; font: inherit; font-size: 13px; }
+.recipient-chip span { font-size: 17px; line-height: 12px; }
+.message-textarea { min-height: 150px; height: auto !important; padding: 12px 14px !important; resize: vertical; font: inherit; }
+.form-hint { color: var(--muted); font-size: 13px; }
+.message-send-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
+
+@media (max-width: 680px) {
+  .message-grid { grid-template-columns: 1fr; }
+  .message-send-row { align-items: stretch; flex-direction: column; }
+}

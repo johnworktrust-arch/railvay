@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
 
-from aiohttp import web
+from aiohttp import ClientSession, ClientTimeout, web
 
 from ceaadmin.config import Settings, load_settings
 from ceaadmin.database import Database
@@ -26,6 +26,10 @@ from ceaadmin.services.vpn_admin import VpnAdminService
 ASSETS_DIR = Path(__file__).resolve().parent / "admin_assets"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_REQUEST_BYTES = 8 * 1024
+MAX_BROADCAST_RECIPIENTS = 100
+MAX_BROADCAST_TEXT_LENGTH = 4096
+MAX_BUTTON_TEXT_LENGTH = 64
+TELEGRAM_SEND_TIMEOUT = ClientTimeout(total=12)
 AUTH_COOKIE_NAME = "cea_admin_session"
 AUTH_SESSION_SECONDS = 7 * 24 * 60 * 60
 PUBLIC_PATHS = {"/healthz", "/login", "/assets/login.css"}
@@ -156,6 +160,28 @@ def _require_operator(request: web.Request) -> Dict[str, Any]:
             text="Управление недоступно: администратор не найден в этой базе."
         )
     return operator
+
+
+async def _send_telegram_message(
+    *,
+    token: str,
+    telegram_id: int,
+    text: str,
+    button_text: str,
+    button_url: str,
+) -> bool:
+    payload: dict[str, Any] = {"chat_id": telegram_id, "text": text}
+    if button_text:
+        payload["reply_markup"] = {
+            "inline_keyboard": [[{"text": button_text, "url": button_url}]]
+        }
+    async with ClientSession(timeout=TELEGRAM_SEND_TIMEOUT) as session:
+        async with session.post(
+            f"https://api.telegram.org/bot{token}/sendMessage",
+            json=payload,
+        ) as response:
+            result = await response.json(content_type=None)
+    return response.status == 200 and bool(result.get("ok"))
 
 
 @web.middleware
@@ -571,6 +597,118 @@ def create_admin_app(
         )
         return _json_response({"ok": True})
 
+    async def message_recipients(request: web.Request) -> web.Response:
+        bot_kind = request.query.get("bot", "ai")
+        query = request.query.get("q", "").strip()
+        if len(query) < 2:
+            return _json_response({"users": []})
+        source = services.admin if bot_kind == "ai" else app[VPN_ADMIN_KEY]
+        data = await asyncio.to_thread(
+            source.list_web_users if bot_kind == "ai" else source.list_users,
+            page=1,
+            page_size=10,
+            query=query,
+            segment="all",
+        )
+        return _json_response(
+            {
+                "users": [
+                    {
+                        "id": int(user["id"]),
+                        "telegram_id": int(user["telegram_id"]),
+                        "username": user.get("username") or "",
+                        "first_name": user.get("first_name") or "",
+                        "last_name": user.get("last_name") or "",
+                    }
+                    for user in data["users"]
+                ]
+            }
+        )
+
+    async def send_message(request: web.Request) -> web.Response:
+        operator = _require_operator(request)
+        payload = await _read_json(request)
+        bot_kind = str(payload.get("bot") or "ai")
+        if bot_kind not in {"ai", "vpn"}:
+            raise web.HTTPBadRequest(text="Выберите бота для отправки")
+        text = str(payload.get("text") or "").strip()
+        button_text = str(payload.get("button_text") or "").strip()
+        button_url = str(payload.get("button_url") or "").strip()
+        raw_ids = payload.get("user_ids")
+        if not isinstance(raw_ids, list):
+            raise web.HTTPBadRequest(text="Выберите получателей")
+        try:
+            user_ids = list(dict.fromkeys(int(value) for value in raw_ids))
+        except (TypeError, ValueError):
+            raise web.HTTPBadRequest(text="Некорректный список получателей")
+        if not text or len(text) > MAX_BROADCAST_TEXT_LENGTH:
+            raise web.HTTPBadRequest(text="Текст сообщения — от 1 до 4096 символов")
+        if not user_ids or len(user_ids) > MAX_BROADCAST_RECIPIENTS:
+            raise web.HTTPBadRequest(
+                text=f"Выберите от 1 до {MAX_BROADCAST_RECIPIENTS} получателей"
+            )
+        if bool(button_text) != bool(button_url):
+            raise web.HTTPBadRequest(text="Для кнопки нужны и текст, и ссылка")
+        if button_text and len(button_text) > MAX_BUTTON_TEXT_LENGTH:
+            raise web.HTTPBadRequest(text="Текст кнопки — до 64 символов")
+        parsed_url = urlparse(button_url)
+        if button_url and (
+            parsed_url.scheme not in {"https", "http"}
+            or not parsed_url.netloc
+            or parsed_url.username
+            or parsed_url.password
+        ):
+            raise web.HTTPBadRequest(text="Укажите корректную ссылку кнопки")
+
+        source_db = db if bot_kind == "ai" else app[VPN_ADMIN_KEY].db
+        with source_db.transaction() as conn:
+            placeholders = ", ".join("?" for _ in user_ids)
+            rows = conn.execute(
+                f"SELECT id, telegram_id FROM users WHERE id IN ({placeholders})",
+                tuple(user_ids),
+            ).fetchall()
+        recipients = [dict(row) for row in rows]
+        if len(recipients) != len(user_ids):
+            raise web.HTTPBadRequest(text="Некоторые выбранные пользователи не найдены")
+        bot_token = (
+            settings.telegram_bot_token
+            if bot_kind == "ai"
+            else settings.vpn_telegram_bot_token
+        )
+        if not bot_token:
+            raise web.HTTPBadRequest(text="Токен выбранного бота не настроен")
+
+        results = await asyncio.gather(
+            *(
+                _send_telegram_message(
+                    token=bot_token,
+                    telegram_id=int(recipient["telegram_id"]),
+                    text=text,
+                    button_text=button_text,
+                    button_url=button_url,
+                )
+                for recipient in recipients
+            ),
+            return_exceptions=True,
+        )
+        sent = sum(result is True for result in results)
+        failed = len(recipients) - sent
+        with db.transaction() as conn:
+            services.admin.admins.log_action(
+                conn,
+                admin_user_id=int(operator["user_id"]),
+                target_user_id=None,
+                action="telegram_message_send",
+                payload={
+                    "bot": bot_kind,
+                    "recipient_count": len(recipients),
+                    "sent": sent,
+                    "failed": failed,
+                    "has_button": bool(button_text),
+                },
+            )
+        return _json_response({"ok": True, "sent": sent, "failed": failed})
+
     app.router.add_get("/healthz", healthz)
     app.router.add_get("/login", login)
     app.router.add_post("/login", login)
@@ -592,6 +730,8 @@ def create_admin_app(
     app.router.add_post("/api/vpn/promocodes", vpn_promocode_create)
     app.router.add_post("/api/vpn/promocodes/{id:\\d+}/toggle", vpn_promocode_toggle)
     app.router.add_delete("/api/vpn/promocodes/{id:\\d+}", vpn_promocode_delete)
+    app.router.add_get("/api/message-recipients", message_recipients)
+    app.router.add_post("/api/messages", send_message)
     app.router.add_post("/api/users/{user_id:\\d+}/blocked", set_blocked)
     app.router.add_post("/api/users/{user_id:\\d+}/credit", credit)
     app.router.add_post("/api/maintenance", maintenance)

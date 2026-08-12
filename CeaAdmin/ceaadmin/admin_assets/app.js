@@ -14,6 +14,7 @@ const state = {
   vpnPages: 1,
   selectedUserId: null,
   selectedUserKind: null,
+  messageRecipients: [],
   canManage: false,
   maintenance: false,
   adminUsers: 0,
@@ -123,6 +124,7 @@ function setView(view) {
     "vpn-overview": "Обзор VPN",
     "vpn-users": "VPN-пользователи",
     "vpn-promocodes": "Промокоды VPN",
+    messages: "Сообщения",
   };
   byId("page-title").textContent = titles[view] || "Обзор";
   if (view === "overview") {
@@ -134,6 +136,7 @@ function setView(view) {
   }
   if (view === "vpn-users") loadVpnUsers();
   if (view === "vpn-promocodes") loadVpnPromocodes();
+  if (view === "messages") renderMessageRecipients();
 }
 
 function setMaintenance(active) {
@@ -775,6 +778,58 @@ function bindDrawerActions(user) {
   }
 }
 
+function recipientLabel(user) {
+  const name = userName(user);
+  return `${name}${user.username ? ` · @${user.username}` : ""} · TG ${user.telegram_id}`;
+}
+
+function renderMessageRecipients() {
+  const chips = byId("recipient-chips");
+  const count = byId("message-count");
+  count.textContent = `Выбрано: ${state.messageRecipients.length}`;
+  if (!state.messageRecipients.length) {
+    chips.innerHTML = '<span class="empty-list">Получатели ещё не выбраны</span>';
+    return;
+  }
+  chips.innerHTML = state.messageRecipients.map((user) => `
+    <button type="button" class="recipient-chip" data-recipient-id="${Number(user.id)}">
+      ${escapeHtml(recipientLabel(user))}<span aria-hidden="true">×</span>
+    </button>
+  `).join("");
+}
+
+function addMessageRecipient(user) {
+  if (state.messageRecipients.some((item) => Number(item.id) === Number(user.id))) return;
+  state.messageRecipients.push(user);
+  byId("recipient-search").value = "";
+  byId("recipient-results").hidden = true;
+  renderMessageRecipients();
+}
+
+let recipientSearchTimer;
+async function searchMessageRecipients() {
+  const query = byId("recipient-search").value.trim();
+  const results = byId("recipient-results");
+  if (query.length < 2) {
+    results.hidden = true;
+    return;
+  }
+  try {
+    const bot = byId("message-bot").value;
+    const data = await api(`/api/message-recipients?bot=${encodeURIComponent(bot)}&q=${encodeURIComponent(query)}`);
+    const users = (data.users || []).filter(
+      (user) => !state.messageRecipients.some((item) => Number(item.id) === Number(user.id)),
+    );
+    results.innerHTML = users.length
+      ? users.map((user) => `<button type="button" class="recipient-result" data-recipient='${escapeHtml(JSON.stringify(user))}'>${escapeHtml(recipientLabel(user))}</button>`).join("")
+      : '<div class="empty-list">Пользователи не найдены</div>';
+    results.hidden = false;
+  } catch (error) {
+    results.hidden = true;
+    showToast(error.message, true);
+  }
+}
+
 async function refreshAll() {
   const button = byId("refresh-button");
   button.disabled = true;
@@ -917,6 +972,67 @@ byId("maintenance-toggle").addEventListener("click", async () => {
     showToast(error.message, true);
   } finally {
     toggle.disabled = false;
+  }
+});
+
+byId("recipient-search").addEventListener("input", () => {
+  clearTimeout(recipientSearchTimer);
+  recipientSearchTimer = setTimeout(searchMessageRecipients, 250);
+});
+byId("message-bot").addEventListener("change", () => {
+  state.messageRecipients = [];
+  byId("recipient-search").value = "";
+  byId("recipient-results").hidden = true;
+  renderMessageRecipients();
+});
+byId("recipient-results").addEventListener("click", (event) => {
+  const item = event.target.closest("[data-recipient]");
+  if (!item) return;
+  addMessageRecipient(JSON.parse(item.dataset.recipient));
+});
+byId("recipient-chips").addEventListener("click", (event) => {
+  const item = event.target.closest("[data-recipient-id]");
+  if (!item) return;
+  state.messageRecipients = state.messageRecipients.filter(
+    (user) => Number(user.id) !== Number(item.dataset.recipientId),
+  );
+  renderMessageRecipients();
+});
+byId("message-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!state.canManage) {
+    showToast("У вас нет прав для отправки сообщений", true);
+    return;
+  }
+  if (!state.messageRecipients.length) {
+    showToast("Выберите хотя бы одного получателя", true);
+    return;
+  }
+  const submit = byId("message-submit");
+  const text = byId("message-text").value.trim();
+  const button_text = byId("message-button-text").value.trim();
+  const button_url = byId("message-button-url").value.trim();
+  if (!window.confirm(`Отправить сообщение ${state.messageRecipients.length} получателям?`)) return;
+  submit.disabled = true;
+  try {
+    const result = await api("/api/messages", {
+      method: "POST",
+      body: JSON.stringify({
+        bot: byId("message-bot").value,
+        user_ids: state.messageRecipients.map((user) => Number(user.id)),
+        text,
+        button_text,
+        button_url,
+      }),
+    });
+    showToast(result.failed ? `Отправлено: ${result.sent}. Не доставлено: ${result.failed}` : `Отправлено: ${result.sent}`);
+    byId("message-form").reset();
+    state.messageRecipients = [];
+    renderMessageRecipients();
+  } catch (error) {
+    showToast(error.message, true);
+  } finally {
+    submit.disabled = false;
   }
 });
 

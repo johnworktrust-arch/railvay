@@ -39,6 +39,10 @@
             <span aria-hidden="true">◎</span>
             Пользователи
           </button>
+          <button class="nav-item" type="button" data-view="messages">
+            <span aria-hidden="true">✉</span>
+            Сообщения
+          </button>
         </div>
         <div class="nav-group" data-product-nav="vpn" hidden>
           <button class="nav-item" type="button" data-view="vpn-overview">
@@ -234,6 +238,55 @@
             <span id="pagination-label">Страница 1</span>
             <button class="button secondary" id="next-page" type="button">Вперёд →</button>
           </div>
+        </section>
+      </section>
+
+      <section class="view" id="messages-view">
+        <section class="panel message-panel">
+          <div class="panel-heading">
+            <div>
+              <h2>Сообщение пользователям</h2>
+              <p>Выберите одного или нескольких получателей и отправьте сообщение от нужного бота.</p>
+            </div>
+          </div>
+          <form id="message-form" class="message-form">
+            <div class="message-grid">
+              <div class="promo-input-group">
+                <label for="message-bot">От имени бота</label>
+                <select class="input" id="message-bot">
+                  <option value="ai">Cea AI</option>
+                  <option value="vpn">CEA VPN</option>
+                </select>
+              </div>
+              <div class="promo-input-group recipient-picker">
+                <label for="recipient-search">Получатели</label>
+                <input class="input" id="recipient-search" type="search" placeholder="Найдите по имени, @username или Telegram ID" autocomplete="off">
+                <div class="recipient-results" id="recipient-results" hidden></div>
+              </div>
+            </div>
+            <div class="recipient-chips" id="recipient-chips">
+              <span class="empty-list">Получатели ещё не выбраны</span>
+            </div>
+            <div class="promo-input-group">
+              <label for="message-text">Текст сообщения</label>
+              <textarea class="input message-textarea" id="message-text" maxlength="4096" placeholder="Напишите сообщение…" required></textarea>
+              <span class="form-hint">До 4096 символов. Текст будет отправлен без форматирования.</span>
+            </div>
+            <div class="message-grid">
+              <div class="promo-input-group">
+                <label for="message-button-text">Текст кнопки (необязательно)</label>
+                <input class="input" id="message-button-text" maxlength="64" placeholder="Например: Открыть тарифы">
+              </div>
+              <div class="promo-input-group">
+                <label for="message-button-url">Ссылка кнопки (необязательно)</label>
+                <input class="input" id="message-button-url" type="url" placeholder="https://…">
+              </div>
+            </div>
+            <div class="message-send-row">
+              <span id="message-count" class="form-hint">Выбрано: 0</span>
+              <button class="button primary" id="message-submit" type="submit">Отправить сообщение</button>
+            </div>
+          </form>
         </section>
       </section>
 
