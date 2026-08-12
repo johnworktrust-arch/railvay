@@ -17,6 +17,7 @@ from aiohttp.test_utils import TestClient, TestServer
 from ceavpn.config import Settings
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
 from ceavpn.vpn_subscription_delivery import (
+    _landing_html,
     delivery_subscription_url,
     merge_subscription_profiles,
     parse_extra_profiles,
@@ -80,6 +81,14 @@ QUALIFICATION_FINGERPRINT = _qualification_fingerprint()
 
 
 class VpnSubscriptionDeliveryTest(unittest.TestCase):
+    def test_happ_landing_requires_an_explicit_button_press(self) -> None:
+        html = _landing_html("https://bot.example.test/sub/token", client="connect")
+
+        self.assertIn("Открыть Happ", html)
+        self.assertNotIn("http-equiv=\"refresh\"", html)
+        self.assertNotIn("window.location", html)
+        self.assertIn("background:#fff", html)
+
     def test_builds_opaque_railway_subscription_url(self) -> None:
         settings = Settings(
             telegram_bot_token="token",

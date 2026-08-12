@@ -656,27 +656,30 @@ def _landing_html(subscription_url: str, *, client: str) -> str:
     encoded_url = quote(subscription_url, safe="")
     if client == "v2box":
         deep_link = f"v2box://install-sub?url={encoded_url}&name=CEA%20VPN"
-        title = "Открываем V2Box"
+        title = "Подключение через V2Box"
     else:
         deep_link = f"happ://add/{subscription_url}"
-        title = "Открываем Happ"
+        title = "Подключение через Happ"
     safe_link = escape(deep_link, quote=True)
     return (
         "<!doctype html><html lang=\"ru\"><head><meta charset=\"utf-8\">"
         "<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">"
-        f"<meta http-equiv=\"refresh\" content=\"0;url={safe_link}\">"
         f"<title>{title}</title><style>"
         "body{margin:0;min-height:100vh;display:grid;place-items:center;"
-        "font-family:system-ui,sans-serif;background:#0b1020;color:#f8fafc;"
-        "padding:24px}main{max-width:520px;padding:28px;border:1px solid #27314b;"
-        "border-radius:22px;background:#121a2d;text-align:center}"
-        "a{display:inline-block;margin-top:12px;padding:14px 20px;border-radius:13px;"
-        "background:#6d5dfc;color:white;text-decoration:none;font-weight:750}"
-        "</style></head><body><main>"
-        f"<h1>{title}…</h1><p>Если приложение не открылось автоматически, "
-        f"нажмите кнопку ниже.</p><a href=\"{safe_link}\">{title}</a>"
-        f"</main><script>window.location.replace({json.dumps(deep_link)});"
-        "</script></body></html>"
+        "font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;"
+        "background:#fff;color:#171717;padding:24px;box-sizing:border-box}"
+        "main{width:min(100%,460px);padding:36px 32px;border:1px solid #e8e8e8;"
+        "border-radius:20px;background:#fff;text-align:center;box-shadow:0 12px 35px "
+        "rgba(0,0,0,.06)}h1{font-size:25px;line-height:1.25;margin:0 0 12px;}"
+        "p{margin:0;color:#666;line-height:1.55}a{display:inline-block;margin-top:24px;"
+        "padding:14px 20px;border-radius:12px;background:#111;color:#fff;"
+        "text-decoration:none;font-weight:700}small{display:block;margin-top:16px;color:#999;"
+        "line-height:1.45}</style></head><body><main>"
+        f"<h1>{title}</h1><p>Вы остаётесь на этой странице. Когда будете готовы, "
+        "нажмите кнопку — подписка откроется в приложении.</p>"
+        f"<a href=\"{safe_link}\">Открыть {('V2Box' if client == 'v2box' else 'Happ')}</a>"
+        "<small>Если приложение не установлено, сначала установите его, затем вернитесь сюда.</small>"
+        "</main></body></html>"
     )
 
 
@@ -858,8 +861,6 @@ def register_vpn_subscription_delivery_routes(
             raise web.HTTPNotFound()
         subscription_url = delivery_subscription_url(subscription, settings)
         client = request.match_info["client"]
-        if client == "connect":
-            client = "happ"
         return web.Response(
             text=_landing_html(subscription_url, client=client),
             content_type="text/html",

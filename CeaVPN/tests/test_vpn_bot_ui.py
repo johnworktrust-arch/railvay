@@ -175,6 +175,8 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertIn("ID: 1625313155", text)
         self.assertIn("Тариф: 30 дней", text)
         self.assertIn("Лимит устройств: 2", text)
+        self.assertIn("🔗 <b>VPN-ссылка:</b>", text)
+        self.assertIn(f"<code>{subscription_url}</code>", text)
         self.assertNotIn("Локации:", text)
         self.assertNotIn("Нидерланды", text)
         self.assertNotIn("США", text)

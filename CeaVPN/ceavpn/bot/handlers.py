@@ -684,6 +684,11 @@ def subscription_screen(
         f"📅 Срок действия: {escape(ends_at)} (МСК)"
         "</blockquote>"
     )
+    subscription_link_block = (
+        f"🔗 <b>VPN-ссылка:</b>\n<code>{escape(subscription_url)}</code>"
+        if subscription_url
+        else ""
+    )
     footer_text = "💡 Нажмите «Подключить VPN» — откроется персональная инструкция для вашего устройства."
 
     rows: list[list[InlineKeyboardButton]] = []
@@ -707,6 +712,7 @@ def subscription_screen(
         f"👤 <b>Моя подписка:</b>\n\n"
         f"{user_info_block}\n\n"
         f"{sub_info_block}\n\n"
+        f"{subscription_link_block}\n\n"
         f"{footer_text}",
         InlineKeyboardMarkup(inline_keyboard=rows),
     )
