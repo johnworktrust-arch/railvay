@@ -509,6 +509,7 @@ def _crypto_webhook_path(settings: Settings) -> str:
 
 
 async def telegram_status(request: web.Request) -> web.Response:
+    _require_diagnostics_access(request)
     settings = request.app["settings"]
     timeout = ClientTimeout(total=6)
 
@@ -571,6 +572,7 @@ async def telegram_status(request: web.Request) -> web.Response:
 
 async def debug_user(request: web.Request) -> web.Response:
     """Debug endpoint: /debug/user?tg_id=12345"""
+    _require_diagnostics_access(request)
     services: AppServices = request.app["services"]
     tg_id_str = request.rel_url.query.get("tg_id", "")
     if not tg_id_str:
@@ -597,6 +599,15 @@ async def debug_user(request: web.Request) -> web.Response:
         "subscription": sub,
         "vpn_plans": plans,
     })
+
+
+def _require_diagnostics_access(request: web.Request) -> None:
+    """Hide operational diagnostics unless an explicit secret is configured."""
+    expected = str(request.app["settings"].diagnostics_token or "")
+    supplied = request.headers.get("X-CEA-Diagnostics-Token", "")
+    if not expected or not hmac.compare_digest(expected, supplied):
+        # Return 404 so these endpoints are not discoverable on the public app.
+        raise web.HTTPNotFound()
 
 
 async def run_webhook(

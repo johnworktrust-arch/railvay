@@ -110,6 +110,7 @@ class Settings:
     app_base_url: str = ""
     telegram_webhook_path: str = "/telegram/webhook"
     telegram_webhook_secret: str = ""
+    diagnostics_token: str = ""
     vpn_telegram_webhook_path: str = "/telegram/vpn/webhook"
     vpn_telegram_webhook_secret: str = ""
     vpn_bot_username: str = ""
@@ -374,11 +375,9 @@ def load_settings() -> Settings:
     public_offer_default = (
         f"{app_base_url}/public-offer" if app_base_url else DEFAULT_PUBLIC_OFFER_URL
     )
-    privacy_policy_default = (
-        f"{app_base_url}/privacy-policy"
-        if app_base_url
-        else DEFAULT_PRIVACY_POLICY_URL
-    )
+    # The application does not serve a local privacy-policy page.  Keep the
+    # documented public URL unless an explicit PRIVACY_POLICY_URL is supplied.
+    privacy_policy_default = DEFAULT_PRIVACY_POLICY_URL
     return Settings(
         telegram_bot_token=read("TELEGRAM_BOT_TOKEN"),
         vpn_telegram_bot_token=read("VPN_TELEGRAM_BOT_TOKEN"),
@@ -391,6 +390,7 @@ def load_settings() -> Settings:
         app_base_url=app_base_url,
         telegram_webhook_path=read("TELEGRAM_WEBHOOK_PATH", "/telegram/webhook"),
         telegram_webhook_secret=read("TELEGRAM_WEBHOOK_SECRET"),
+        diagnostics_token=read("DIAGNOSTICS_TOKEN"),
         vpn_telegram_webhook_path=read(
             "VPN_TELEGRAM_WEBHOOK_PATH", "/telegram/vpn/webhook"
         ),

@@ -365,7 +365,9 @@ https://your-service.up.railway.app/telegram/status
 https://your-service.up.railway.app/payments/yookassa/return
 ```
 
-В `/telegram/status` видно, какой webhook реально установлен в Telegram и есть ли последняя ошибка доставки.
+Для закрытой диагностики webhook задайте `DIAGNOSTICS_TOKEN` и передавайте его
+в заголовке `X-CEA-Diagnostics-Token` при запросе к `/telegram/status`.
+Без токена маршруты `/telegram/status` и `/debug/user` намеренно возвращают 404.
 
 ### Реальная оплата через YooKassa
 

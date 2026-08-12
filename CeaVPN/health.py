@@ -2,13 +2,14 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 from aiohttp import web
 
 from ceavpn.config import Settings
 from ceavpn.database import Database
 
 HEALTH_HOST = "0.0.0.0"
-HEALTH_PORT = 8080
+DEFAULT_HEALTH_PORT = 8080
 
 
 async def _handle_health_request(request: web.Request) -> web.Response:
@@ -23,7 +24,8 @@ async def start_health_server(*, settings: Settings, db: Database) -> web.Server
 
     runner = web.AppRunner(app)
     await runner.setup()
-    site = web.TCPSite(runner, host=HEALTH_HOST, port=HEALTH_PORT)
+    port = int(os.getenv("PORT", str(DEFAULT_HEALTH_PORT)))
+    site = web.TCPSite(runner, host=HEALTH_HOST, port=port)
     await site.start()
-    logging.info("Health server started on %s:%s/healthz", HEALTH_HOST, HEALTH_PORT)
+    logging.info("Health server started on %s:%s/healthz", HEALTH_HOST, port)
     return runner

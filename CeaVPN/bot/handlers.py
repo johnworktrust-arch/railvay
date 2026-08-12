@@ -345,7 +345,7 @@ def extra_devices_payment_keyboard(count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def payment_keyboard(code: str) -> InlineKeyboardMarkup:
+def payment_keyboard(code: str, agreement_url: str = "") -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -360,6 +360,15 @@ def payment_keyboard(code: str) -> InlineKeyboardMarkup:
             )
         ],
     ]
+    if agreement_url.strip():
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="📄 Пользовательское соглашение",
+                    url=agreement_url,
+                )
+            ]
+        )
     rows.append(_back("vpn:plans"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -1157,7 +1166,9 @@ def create_vpn_router(services: AppServices) -> Router:
                 "Доступно: <b>2 устройства</b>\n"
                 f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                 "💡 Выберите способ оплаты:",
-                payment_keyboard(code),
+                payment_keyboard(
+                    code, getattr(services.settings, "vpn_user_agreement_url", "")
+                ),
             )
         await callback.answer()
 
@@ -1231,7 +1242,9 @@ def create_vpn_router(services: AppServices) -> Router:
                     f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                     "ℹ️ Способы оплаты обновились. "
                     "Выберите оплату через Platega или Звёзды.",
-                    payment_keyboard(code),
+                    payment_keyboard(
+                        code, getattr(services.settings, "vpn_user_agreement_url", "")
+                    ),
                 )
             await callback.answer("Выберите новый способ оплаты.", show_alert=True)
             return
