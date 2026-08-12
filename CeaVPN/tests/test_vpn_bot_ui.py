@@ -12,6 +12,7 @@ from ceavpn.bot.handlers import (
     trial_expired_screen,
     trial_expiry_reminder_screen,
     v2box_landing_url,
+    plans_keyboard,
 )
 
 
@@ -46,7 +47,13 @@ class VpnBotUiTest(unittest.TestCase):
                 for button in row
             )
         )
-        self.assertEqual(used.inline_keyboard[0][0].text, "Подключить VPN 🚀")
+        self.assertEqual(used.inline_keyboard[0][0].text, "Оплатить подписку 🚀")
+
+    def test_tariff_buttons_show_unapplied_discount_in_rubles_and_stars(self) -> None:
+        keyboard = plans_keyboard(
+            discount={"reward_type": "discount_percent", "reward_value": 30}
+        )
+        self.assertEqual(keyboard.inline_keyboard[0][0].text, "1 месяц — 125₽ / 97 ⭐️")
 
     def test_user_with_existing_subscription_has_used_trial(self) -> None:
         from ceavpn.database import Database

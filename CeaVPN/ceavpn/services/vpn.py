@@ -1002,6 +1002,10 @@ class VpnService:
             )
             return payment
 
+    def get_unapplied_discount(self, user_id: int) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            return self.promocodes.get_unapplied_discount_for_user(conn, user_id)
+
     def confirm_stars_payment(
         self,
         *,

@@ -187,10 +187,8 @@ class VpnAboutKeyboardTest(unittest.TestCase):
             "vpn:main",
         )
 
-    def test_payment_selection_repeats_agreement_link_before_checkout(self) -> None:
-        keyboard = payment_keyboard(
-            "1", "https://vpn.example.test/vpn/user-agreement"
-        )
+    def test_payment_selection_does_not_repeat_agreement_link_before_checkout(self) -> None:
+        keyboard = payment_keyboard("1")
         buttons = [button for row in keyboard.inline_keyboard for button in row]
 
         agreement_buttons = [
@@ -198,11 +196,7 @@ class VpnAboutKeyboardTest(unittest.TestCase):
             for button in buttons
             if button.text == "📄 Пользовательское соглашение"
         ]
-        self.assertEqual(len(agreement_buttons), 1)
-        self.assertEqual(
-            agreement_buttons[0].url,
-            "https://vpn.example.test/vpn/user-agreement",
-        )
+        self.assertEqual(agreement_buttons, [])
 
 
 class VpnUserAgreementHttpTest(unittest.IsolatedAsyncioTestCase):

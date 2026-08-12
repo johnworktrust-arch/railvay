@@ -276,7 +276,11 @@ def main_keyboard(
             ]
         )
     rows.extend([
-        [InlineKeyboardButton(text="Подключить VPN 🚀", callback_data="vpn:plans", style="primary")],
+        [InlineKeyboardButton(
+            text="Подключить VPN 🚀" if trial_available else "Оплатить подписку 🚀",
+            callback_data="vpn:plans",
+            style="primary",
+        )],
         [InlineKeyboardButton(text="👤 Моя подписка", callback_data="vpn:subscription")],
         [InlineKeyboardButton(text="🥷 Заработать", callback_data="vpn:earn")],
         [
@@ -291,11 +295,31 @@ EXTRA_DEVICE_PRICES = {1: 50, 2: 60, 3: 70, 4: 80, 5: 90}
 EXTRA_DEVICE_STARS = {1: 30, 2: 40, 3: 50, 4: 60, 5: 70}
 
 
-def plans_keyboard(has_active_paid_subscription: bool = False) -> InlineKeyboardMarkup:
+def _discounted_prices(
+    price_rub: int, price_stars: int, discount: Dict[str, Any] | None
+) -> tuple[int, int]:
+    if not discount:
+        return price_rub, price_stars
+    if discount["reward_type"] == "discount_percent":
+        multiplier = max(1, 100 - int(discount["reward_value"])) / 100
+        return max(1, round(price_rub * multiplier)), max(1, round(price_stars * multiplier))
+    if discount["reward_type"] == "discount_fixed":
+        discounted_rub = max(1, price_rub - int(discount["reward_value"]))
+        return discounted_rub, max(1, round(price_stars * discounted_rub / price_rub))
+    return price_rub, price_stars
+
+
+def plans_keyboard(
+    has_active_paid_subscription: bool = False,
+    discount: Dict[str, Any] | None = None,
+) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
-                text=f"{name} — {price_rub}₽ / {price_stars} ⭐️",
+                text=(
+                    f"{name} — {_discounted_prices(price_rub, price_stars, discount)[0]}₽ "
+                    f"/ {_discounted_prices(price_rub, price_stars, discount)[1]} ⭐️"
+                ),
                 callback_data=f"vpn:tariff:{code}",
             )
         ]
@@ -345,7 +369,7 @@ def extra_devices_payment_keyboard(count: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def payment_keyboard(code: str, agreement_url: str = "") -> InlineKeyboardMarkup:
+def payment_keyboard(code: str) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -360,15 +384,6 @@ def payment_keyboard(code: str, agreement_url: str = "") -> InlineKeyboardMarkup
             )
         ],
     ]
-    if agreement_url.strip():
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="📄 Пользовательское соглашение",
-                    url=agreement_url,
-                )
-            ]
-        )
     rows.append(_back("vpn:plans"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
@@ -761,12 +776,16 @@ def create_vpn_router(services: AppServices) -> Router:
                 or str(active_sub.get("kind")) not in ("", "trial")
             )
         )
+        discount = services.vpn.get_unapplied_discount(user_id)
         await _screen(
             message,
             "<b>Подключить VPN 🚀</b>\n\n"
             "Любой тариф предназначен для <b>2 устройств.</b>\n\n"
             "ℹ️ Выберите срок подписки",
-            plans_keyboard(has_active_paid_subscription=has_active_paid),
+            plans_keyboard(
+                has_active_paid_subscription=has_active_paid,
+                discount=discount,
+            ),
         )
 
     async def show_subscription(message: Message, *, user: Dict[str, Any]) -> None:
@@ -1187,6 +1206,13 @@ def create_vpn_router(services: AppServices) -> Router:
             await callback.answer("Тариф не найден.", show_alert=True)
             return
         name, price_rub, price_stars = tariff_data
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        discount = await asyncio.to_thread(
+            services.vpn.get_unapplied_discount, int(user["id"])
+        )
+        price_rub, price_stars = _discounted_prices(
+            price_rub, price_stars, discount
+        )
         if callback.message:
             await _screen(
                 callback.message,
@@ -1195,9 +1221,7 @@ def create_vpn_router(services: AppServices) -> Router:
                 "Доступно: <b>2 устройства</b>\n"
                 f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                 "💡 Выберите способ оплаты:",
-                payment_keyboard(
-                    code, getattr(services.settings, "vpn_user_agreement_url", "")
-                ),
+                payment_keyboard(code),
             )
         await callback.answer()
 
@@ -1213,8 +1237,14 @@ def create_vpn_router(services: AppServices) -> Router:
         if tariff_data is None or plan_code is None:
             await callback.answer("Тариф не найден.", show_alert=True)
             return
-        name, price_rub, price_stars = tariff_data
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        name, base_price_rub, base_price_stars = tariff_data
+        discount = await asyncio.to_thread(
+            services.vpn.get_unapplied_discount, int(user["id"])
+        )
+        price_rub, price_stars = _discounted_prices(
+            base_price_rub, base_price_stars, discount
+        )
 
         if method == "stars":
             try:
@@ -1271,9 +1301,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     f"К оплате: <b>{price_rub}₽ / {price_stars} ⭐</b>\n\n"
                     "ℹ️ Способы оплаты обновились. "
                     "Выберите оплату через Platega или Звёзды.",
-                    payment_keyboard(
-                        code, getattr(services.settings, "vpn_user_agreement_url", "")
-                    ),
+                    payment_keyboard(code),
                 )
             await callback.answer("Выберите новый способ оплаты.", show_alert=True)
             return
