@@ -365,9 +365,9 @@ def create_admin_app(
             "__DATABASE_LABEL__",
             html.escape(app[DATABASE_LABEL_KEY], quote=True),
         ).replace(
-            "__VPN_TARIFFS_URL__",
+            "__VPN_BOT_DEEP_LINK_BASE__",
             html.escape(
-                f"https://t.me/{settings.vpn_bot_username}?start=plans"
+                f"https://t.me/{settings.vpn_bot_username}?start="
                 if settings.vpn_bot_username
                 else "",
                 quote=True,

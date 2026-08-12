@@ -991,15 +991,24 @@ byId("recipient-chips").addEventListener("click", (event) => {
 byId("message-button-action").addEventListener("change", (event) => {
   const url = byId("message-button-url");
   const text = byId("message-button-text");
-  const isTariffs = event.target.value === "tariffs";
-  if (isTariffs) {
-    url.value = url.dataset.tariffsUrl;
-    url.readOnly = true;
-    if (!text.value.trim()) text.value = "Открыть тарифы";
-  } else {
-    url.readOnly = false;
+  const action = event.target.value;
+  const buttonTitles = {
+    main: "Открыть VPN",
+    plans: "Открыть тарифы",
+    subscription: "Моя подписка",
+    about: "О сервисе",
+  };
+  if (!action) {
     url.value = "";
+    text.value = "";
+    text.disabled = true;
+    url.disabled = true;
+    return;
   }
+  text.disabled = false;
+  url.disabled = false;
+  url.value = `${url.dataset.deepLinkBase}${action}`;
+  if (!text.value.trim()) text.value = buttonTitles[action];
 });
 byId("message-form").addEventListener("submit", async (event) => {
   event.preventDefault();

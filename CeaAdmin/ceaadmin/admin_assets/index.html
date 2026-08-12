@@ -267,17 +267,20 @@
               <div class="promo-input-group">
                 <label for="message-button-action">Действие кнопки</label>
                 <select class="input" id="message-button-action">
-                  <option value="custom">Своя ссылка</option>
-                  <option value="tariffs">Открыть тарифы VPN</option>
+                  <option value="">Не добавлять кнопку</option>
+                  <option value="main">Главное меню VPN</option>
+                  <option value="plans">Тарифы VPN</option>
+                  <option value="subscription">Моя подписка</option>
+                  <option value="about">О сервисе, правила и поддержка</option>
                 </select>
               </div>
               <div class="promo-input-group">
                 <label for="message-button-text">Текст кнопки (необязательно)</label>
-                <input class="input" id="message-button-text" maxlength="64" placeholder="Например: Открыть тарифы">
+                <input class="input" id="message-button-text" maxlength="64" placeholder="Например: Открыть тарифы" disabled>
               </div>
               <div class="promo-input-group">
                 <label for="message-button-url">Ссылка кнопки (необязательно)</label>
-                <input class="input" id="message-button-url" type="url" placeholder="https://…" data-tariffs-url="__VPN_TARIFFS_URL__">
+                <input class="input" id="message-button-url" type="url" placeholder="Выберите действие кнопки" data-deep-link-base="__VPN_BOT_DEEP_LINK_BASE__" readonly disabled>
               </div>
             </div>
             <div class="message-send-row">

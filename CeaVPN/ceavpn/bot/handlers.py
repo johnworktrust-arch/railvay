@@ -769,6 +769,30 @@ def create_vpn_router(services: AppServices) -> Router:
             plans_keyboard(has_active_paid_subscription=has_active_paid),
         )
 
+    async def show_subscription(message: Message, *, user: Dict[str, Any]) -> None:
+        user_id = int(user["id"])
+        current = services.vpn.get_current_subscription(user_id)
+        referral_stats = services.referrals.stats(user_id)
+        trial_available = not services.vpn.has_used_trial(user_id)
+        text, kb = render_subscription(
+            current,
+            user=user,
+            balance_kopecks=referral_stats.balance_kopecks,
+            trial_available=trial_available,
+        )
+        await _screen(message, text, kb)
+
+    async def show_about(message: Message) -> None:
+        await _screen(
+            message,
+            "🛡 <b>О сервисе</b>\n\n"
+            "CEA VPN — простой VPN для стабильного и защищённого подключения.\n\n"
+            "Документы доступны по кнопкам ниже.\n\n"
+            f"Канал — {escape(services.settings.vpn_channel_url)}\n"
+            f"Поддержка — @{escape(services.settings.vpn_support_username)}",
+            about_keyboard(services.settings),
+        )
+
     @router.message(CommandStart())
     async def start(message: Message) -> None:
         existing = services.users.get_by_telegram_id(message.from_user.id)
@@ -779,6 +803,12 @@ def create_vpn_router(services: AppServices) -> Router:
         start_payload = (message.text or "").partition(" ")[2].strip().lower()
         if start_payload == "plans":
             await show_plans(message, user_id=int(user["id"]))
+            return
+        if start_payload == "subscription":
+            await show_subscription(message, user=user)
+            return
+        if start_payload == "about":
+            await show_about(message)
             return
         await show_main(message, user_id=int(user["id"]))
 
@@ -798,15 +828,7 @@ def create_vpn_router(services: AppServices) -> Router:
     async def about(callback: CallbackQuery, state: FSMContext) -> None:
         await state.clear()
         if callback.message:
-            await _screen(
-                callback.message,
-                "🛡 <b>О сервисе</b>\n\n"
-                "CEA VPN — простой VPN для стабильного и защищённого подключения.\n\n"
-                "Документы доступны по кнопкам ниже.\n\n"
-                f"Канал — {escape(services.settings.vpn_channel_url)}\n"
-                f"Поддержка — @{escape(services.settings.vpn_support_username)}",
-                about_keyboard(services.settings),
-            )
+            await show_about(callback.message)
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:promo")
@@ -869,17 +891,8 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "vpn:subscription")
     async def subscription(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
-        current = services.vpn.get_current_subscription(int(user["id"]))
-        referral_stats = services.referrals.stats(int(user["id"]))
-        trial_available = not services.vpn.has_used_trial(int(user["id"]))
         if callback.message:
-            text, kb = render_subscription(
-                current,
-                user=user,
-                balance_kopecks=referral_stats.balance_kopecks,
-                trial_available=trial_available,
-            )
-            await _screen(callback.message, text, kb)
+            await show_subscription(callback.message, user=user)
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:trial")
