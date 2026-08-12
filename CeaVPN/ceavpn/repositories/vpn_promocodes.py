@@ -40,7 +40,7 @@ class VpnPromocodeRepository:
                 max_uses,
                 starts_at,
                 expires_at,
-                1 if is_active else 0,
+                bool(is_active),
                 now,
                 now,
             ),
@@ -129,7 +129,7 @@ class VpnPromocodeRepository:
             SET is_active = ?, updated_at = ?
             WHERE id = ?
             """,
-            (1 if is_active else 0, now, promocode_id),
+            (bool(is_active), now, promocode_id),
         )
         return self.get_by_id(conn, promocode_id)
 
