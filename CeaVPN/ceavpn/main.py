@@ -48,6 +48,7 @@ from ceavpn.vpn_subscription_delivery import (
     delivery_base_url,
     delivery_subscription_url,
     register_vpn_subscription_delivery_routes,
+    with_delivery_subscription,
 )
 from ceavpn.vpn_user_agreement import render_vpn_user_agreement_html
 
