@@ -252,6 +252,46 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(result["users"]), 1)
         self.assertEqual(result["users"][0]["id"], self.trial_user["id"])
 
+    async def test_vpn_promocode_validates_discount_and_resolves_telegram_target(self) -> None:
+        invalid = await self.client.post(
+            "/api/vpn/promocodes",
+            headers=self.headers,
+            json={
+                "code": "TOO-MUCH",
+                "reward_type": "discount_percent",
+                "reward_value": 100,
+            },
+        )
+        self.assertEqual(invalid.status, 400)
+
+        created_response = await self.client.post(
+            "/api/vpn/promocodes",
+            headers=self.headers,
+            json={
+                "code": "VPN-TEST",
+                "reward_type": "days",
+                "reward_value": 7,
+                "target_user_id": self.trial_user["telegram_id"],
+                "expires_at": "2030-01-02",
+            },
+        )
+        self.assertEqual(created_response.status, 200)
+        promocode = (await created_response.json())["promocode"]
+        self.assertEqual(promocode["target_user_id"], self.trial_user["id"])
+        self.assertTrue(str(promocode["expires_at"]).startswith("2030-01-02T23:59:59"))
+
+        missing_target = await self.client.post(
+            "/api/vpn/promocodes",
+            headers=self.headers,
+            json={
+                "code": "UNKNOWN-USER",
+                "reward_type": "days",
+                "reward_value": 7,
+                "target_user_id": 999999999,
+            },
+        )
+        self.assertEqual(missing_target.status, 400)
+
     async def test_vpn_section_reports_subscriptions_servers_and_users(self) -> None:
         stats_response = await self.client.get(
             "/api/vpn/stats",

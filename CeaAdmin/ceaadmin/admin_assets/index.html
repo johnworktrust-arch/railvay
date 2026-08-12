@@ -430,8 +430,9 @@
             <h3 style="margin: 0 0 0.5rem 0; font-size: 1.1rem; font-weight: 700;">Создание нового промокода</h3>
             <form id="create-promocode-form" class="promo-form-grid">
               <div class="promo-input-group">
-                <label for="promo-code">Название / Код (например: SAVE20)</label>
-                <input type="text" class="input" id="promo-code" placeholder="SAVE20" required autocomplete="off">
+                <label for="promo-code">Код промокода</label>
+                <input type="text" class="input" id="promo-code" placeholder="SAVE20" minlength="3" maxlength="64" pattern="[A-Za-z0-9_-]+" required autocomplete="off">
+                <span class="form-hint">Латинские буквы, цифры, дефис и подчёркивание.</span>
               </div>
               <div class="promo-input-group">
                 <label for="promo-reward-type">Тип промокода</label>
@@ -454,8 +455,9 @@
                 </select>
               </div>
               <div class="promo-input-group" id="promo-user-id-wrapper" hidden>
-                <label for="promo-target-user-id">Telegram ID / User ID</label>
-                <input type="number" class="input" id="promo-target-user-id" placeholder="12345678">
+                <label for="promo-target-user-id">Telegram ID пользователя</label>
+                <input type="number" class="input" id="promo-target-user-id" placeholder="Например: 12345678">
+                <span class="form-hint">Промокод сможет активировать только этот VPN-пользователь.</span>
               </div>
               <div class="promo-input-group">
                 <label for="promo-max-uses">Макс. активаций</label>

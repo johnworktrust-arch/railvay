@@ -1140,6 +1140,20 @@ if (promoTargetType) {
     byId("promo-user-id-wrapper").hidden = e.target.value !== "user";
   });
 }
+const promoRewardType = byId("promo-reward-type");
+if (promoRewardType) {
+  promoRewardType.addEventListener("change", (e) => {
+    const value = byId("promo-reward-value");
+    const labels = {
+      days: "Количество дней подписки",
+      devices: "Количество дополнительных устройств",
+      discount_percent: "Размер скидки, %",
+      discount_fixed: "Размер скидки, ₽",
+    };
+    byId("promo-reward-value-label").textContent = labels[e.target.value];
+    value.max = e.target.value === "discount_percent" ? "99" : "";
+  });
+}
 const createPromoForm = byId("create-promocode-form");
 if (createPromoForm) {
   createPromoForm.addEventListener("submit", async (e) => {

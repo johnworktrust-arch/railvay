@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from datetime import date, datetime, time as datetime_time, timezone
 import hashlib
 import hmac
 import html
@@ -558,6 +559,10 @@ def create_admin_app(
                 target_user_id = int(target_user_id)
             except (TypeError, ValueError):
                 raise web.HTTPBadRequest(text="ID пользователя должен быть числом")
+            target_user_id = await asyncio.to_thread(
+                app[VPN_ADMIN_KEY].resolve_promocode_target,
+                target_user_id,
+            )
         else:
             target_user_id = None
 
@@ -570,7 +575,18 @@ def create_admin_app(
         else:
             max_uses = None
 
-        expires_at = str(payload.get("expires_at") or "").strip() or None
+        expires_value = str(payload.get("expires_at") or "").strip()
+        if expires_value:
+            try:
+                expires_at = datetime.combine(
+                    date.fromisoformat(expires_value),
+                    datetime_time.max,
+                    tzinfo=timezone.utc,
+                ).isoformat()
+            except ValueError:
+                raise web.HTTPBadRequest(text="Укажите корректную дату окончания")
+        else:
+            expires_at = None
 
         created = await asyncio.to_thread(
             app[VPN_ADMIN_KEY].create_promocode,

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import re
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
@@ -239,12 +240,18 @@ class VpnAdminService:
         is_active: bool = True,
     ) -> Dict[str, Any]:
         code_clean = code.strip().upper()
-        if not code_clean:
-            raise ValidationError("Введите код промокода")
+        if not re.fullmatch(r"[A-Z0-9_-]{3,64}", code_clean):
+            raise ValidationError(
+                "Код: от 3 до 64 символов — латинские буквы, цифры, _ или -"
+            )
         if reward_type not in {"days", "devices", "plan", "discount_percent", "discount_fixed"}:
             raise ValidationError("Некорректный тип награды")
         if reward_value <= 0:
             raise ValidationError("Значение награды должно быть больше 0")
+        if reward_type == "discount_percent" and reward_value > 99:
+            raise ValidationError("Скидка в процентах должна быть от 1 до 99")
+        if max_uses is not None and max_uses <= 0:
+            raise ValidationError("Максимум активаций должен быть больше 0")
         with self.db.transaction() as conn:
             existing = self.promocodes.get_by_code(conn, code_clean)
             if existing is not None:
@@ -260,6 +267,21 @@ class VpnAdminService:
                 expires_at=expires_at,
                 is_active=is_active,
             )
+
+    def resolve_promocode_target(self, value: int) -> int:
+        with self.db.transaction() as conn:
+            row = conn.execute(
+                """
+                SELECT id FROM users
+                WHERE telegram_id = ? OR id = ?
+                ORDER BY CASE WHEN telegram_id = ? THEN 0 ELSE 1 END
+                LIMIT 1
+                """,
+                (value, value, value),
+            ).fetchone()
+        if row is None:
+            raise ValidationError("VPN-пользователь с таким Telegram ID не найден")
+        return int(row["id"])
 
     def toggle_promocode(self, promocode_id: int, is_active: bool) -> Dict[str, Any]:
         with self.db.transaction() as conn:
