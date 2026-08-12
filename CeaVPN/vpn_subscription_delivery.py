@@ -202,7 +202,15 @@ def qualification_profile_fingerprint(profile: Mapping[str, Any]) -> str:
 
 
 def delivery_base_url(settings: Settings) -> str:
-    return (settings.vpn_delivery_base_url or settings.app_base_url).rstrip("/")
+    base_url = (settings.vpn_delivery_base_url or settings.app_base_url).rstrip("/")
+    # The Railway delivery endpoint is optional.  Do not expose it in client
+    # links unless signing is actually enabled: otherwise the UI must fall
+    # back to the reachable VPS subscription host.
+    if not base_url.startswith("https://"):
+        return ""
+    if len(settings.vpn_delivery_signing_secret.encode("utf-8")) < 32:
+        return ""
+    return base_url
 
 
 def _signature(
