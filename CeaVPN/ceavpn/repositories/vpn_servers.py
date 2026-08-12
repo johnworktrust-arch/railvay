@@ -121,9 +121,9 @@ class VpnServerRepository:
         code: str,
         healthy_after: str,
     ) -> Dict[str, Any] | None:
-        """Return a server only when its outbound worker polled recently."""
+        """Return a server for checkout, prioritizing recently polled servers."""
 
-        return row_to_dict(
+        server = row_to_dict(
             conn.execute(
                 """
                 SELECT *
@@ -137,6 +137,19 @@ class VpnServerRepository:
                   AND last_health_at >= ?
                 """,
                 (code, healthy_after),
+            ).fetchone()
+        )
+        if server is not None:
+            return server
+        return row_to_dict(
+            conn.execute(
+                """
+                SELECT *
+                FROM vpn_servers
+                WHERE code = ?
+                  AND is_active = TRUE
+                """,
+                (code,),
             ).fetchone()
         )
 
