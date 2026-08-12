@@ -636,8 +636,17 @@ def subscription_screen(
         )
 
     kind = str(subscription.get("kind") or "")
+    billing_kind = str(subscription.get("billing_kind") or "")
     raw_plan_name = str(subscription.get("plan_name") or "")
-    if kind == "trial" or raw_plan_name in {"3 бесплатных дня", "Пробная подписка"}:
+    is_paid = (
+        billing_kind == "paid"
+        or subscription.get("plan_id") is not None
+        or kind not in {"", "trial"}
+    )
+    if not is_paid and (
+        kind == "trial"
+        or raw_plan_name in {"3 бесплатных дня", "Пробная подписка"}
+    ):
         plan_name = "Пробная подписка"
     else:
         plan_name = raw_plan_name or "30 дней"

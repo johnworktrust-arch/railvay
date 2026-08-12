@@ -174,6 +174,25 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertNotIn("Финляндия", text)
         self.assertIn("23 августа 2026 года, 22:35 (МСК)", text)
 
+    def test_paid_extension_of_trial_shows_the_paid_plan(self) -> None:
+        text, _ = subscription_screen(
+            {
+                "status": "active",
+                "kind": "trial",
+                "billing_kind": "paid",
+                "plan_id": 1,
+                "plan_name": "1 месяц",
+                "plan_max_devices": 2,
+                "ends_at": datetime(2026, 9, 1, tzinfo=timezone.utc),
+                "subscription_url": "https://sub.example.test:8443/sub/token",
+            },
+            support_username="cea_help",
+            subscription_base_url="https://sub.example.test:8443",
+        )
+
+        self.assertIn("Тариф: 1 месяц", text)
+        self.assertNotIn("Тариф: Пробная подписка", text)
+
     def test_connect_landing_url_uses_the_same_strict_origin_check(self) -> None:
         self.assertEqual(
             connect_landing_url(
