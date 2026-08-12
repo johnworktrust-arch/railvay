@@ -598,13 +598,11 @@ def create_admin_app(
         return _json_response({"ok": True})
 
     async def message_recipients(request: web.Request) -> web.Response:
-        bot_kind = request.query.get("bot", "ai")
         query = request.query.get("q", "").strip()
         if len(query) < 2:
             return _json_response({"users": []})
-        source = services.admin if bot_kind == "ai" else app[VPN_ADMIN_KEY]
         data = await asyncio.to_thread(
-            source.list_web_users if bot_kind == "ai" else source.list_users,
+            app[VPN_ADMIN_KEY].list_users,
             page=1,
             page_size=10,
             query=query,
@@ -628,9 +626,6 @@ def create_admin_app(
     async def send_message(request: web.Request) -> web.Response:
         operator = _require_operator(request)
         payload = await _read_json(request)
-        bot_kind = str(payload.get("bot") or "ai")
-        if bot_kind not in {"ai", "vpn"}:
-            raise web.HTTPBadRequest(text="Выберите бота для отправки")
         text = str(payload.get("text") or "").strip()
         button_text = str(payload.get("button_text") or "").strip()
         button_url = str(payload.get("button_url") or "").strip()
@@ -660,23 +655,37 @@ def create_admin_app(
         ):
             raise web.HTTPBadRequest(text="Укажите корректную ссылку кнопки")
 
-        source_db = db if bot_kind == "ai" else app[VPN_ADMIN_KEY].db
+        source_db = app[VPN_ADMIN_KEY].db
         with source_db.transaction() as conn:
             placeholders = ", ".join("?" for _ in user_ids)
             rows = conn.execute(
-                f"SELECT id, telegram_id FROM users WHERE id IN ({placeholders})",
+                f"""
+                SELECT u.id, u.telegram_id
+                FROM users u
+                WHERE u.id IN ({placeholders})
+                  AND (
+                    EXISTS (
+                        SELECT 1 FROM vpn_subscriptions subscription
+                        WHERE subscription.user_id = u.id
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM vpn_payments payment
+                        WHERE payment.user_id = u.id
+                    )
+                    OR EXISTS (
+                        SELECT 1 FROM vpn_trial_claims trial
+                        WHERE trial.user_id = u.id
+                    )
+                  )
+                """,
                 tuple(user_ids),
             ).fetchall()
         recipients = [dict(row) for row in rows]
         if len(recipients) != len(user_ids):
             raise web.HTTPBadRequest(text="Некоторые выбранные пользователи не найдены")
-        bot_token = (
-            settings.telegram_bot_token
-            if bot_kind == "ai"
-            else settings.vpn_telegram_bot_token
-        )
+        bot_token = settings.vpn_telegram_bot_token
         if not bot_token:
-            raise web.HTTPBadRequest(text="Токен выбранного бота не настроен")
+            raise web.HTTPBadRequest(text="Токен VPN-бота не настроен")
 
         results = await asyncio.gather(
             *(
@@ -700,7 +709,7 @@ def create_admin_app(
                 target_user_id=None,
                 action="telegram_message_send",
                 payload={
-                    "bot": bot_kind,
+                    "bot": "vpn",
                     "recipient_count": len(recipients),
                     "sent": sent,
                     "failed": failed,
@@ -730,8 +739,8 @@ def create_admin_app(
     app.router.add_post("/api/vpn/promocodes", vpn_promocode_create)
     app.router.add_post("/api/vpn/promocodes/{id:\\d+}/toggle", vpn_promocode_toggle)
     app.router.add_delete("/api/vpn/promocodes/{id:\\d+}", vpn_promocode_delete)
-    app.router.add_get("/api/message-recipients", message_recipients)
-    app.router.add_post("/api/messages", send_message)
+    app.router.add_get("/api/vpn/message-recipients", message_recipients)
+    app.router.add_post("/api/vpn/messages", send_message)
     app.router.add_post("/api/users/{user_id:\\d+}/blocked", set_blocked)
     app.router.add_post("/api/users/{user_id:\\d+}/credit", credit)
     app.router.add_post("/api/maintenance", maintenance)

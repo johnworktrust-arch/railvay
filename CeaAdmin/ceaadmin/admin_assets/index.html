@@ -39,10 +39,6 @@
             <span aria-hidden="true">◎</span>
             Пользователи
           </button>
-          <button class="nav-item" type="button" data-view="messages">
-            <span aria-hidden="true">✉</span>
-            Сообщения
-          </button>
         </div>
         <div class="nav-group" data-product-nav="vpn" hidden>
           <button class="nav-item" type="button" data-view="vpn-overview">
@@ -56,6 +52,10 @@
           <button class="nav-item" type="button" data-view="vpn-promocodes">
             <span aria-hidden="true">🎟</span>
             Промокоды
+          </button>
+          <button class="nav-item" type="button" data-view="messages">
+            <span aria-hidden="true">✉</span>
+            Сообщения
           </button>
         </div>
       </nav>
@@ -245,24 +245,15 @@
         <section class="panel message-panel">
           <div class="panel-heading">
             <div>
-              <h2>Сообщение пользователям</h2>
-              <p>Выберите одного или нескольких получателей и отправьте сообщение от нужного бота.</p>
+              <h2>Сообщение VPN-пользователям</h2>
+              <p>Выберите одного или нескольких пользователей VPN и отправьте им сообщение от VPN-бота.</p>
             </div>
           </div>
           <form id="message-form" class="message-form">
-            <div class="message-grid">
-              <div class="promo-input-group">
-                <label for="message-bot">От имени бота</label>
-                <select class="input" id="message-bot">
-                  <option value="ai">Cea AI</option>
-                  <option value="vpn">CEA VPN</option>
-                </select>
-              </div>
-              <div class="promo-input-group recipient-picker">
-                <label for="recipient-search">Получатели</label>
-                <input class="input" id="recipient-search" type="search" placeholder="Найдите по имени, @username или Telegram ID" autocomplete="off">
-                <div class="recipient-results" id="recipient-results" hidden></div>
-              </div>
+            <div class="promo-input-group recipient-picker">
+              <label for="recipient-search">Получатели</label>
+              <input class="input" id="recipient-search" type="search" placeholder="Найдите по имени, @username или Telegram ID" autocomplete="off">
+              <div class="recipient-results" id="recipient-results" hidden></div>
             </div>
             <div class="recipient-chips" id="recipient-chips">
               <span class="empty-list">Получатели ещё не выбраны</span>

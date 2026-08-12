@@ -41,6 +41,7 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
             database_url="sqlite:///:memory:",
             app_env="test",
             mock_payment_base_url="https://mock-payments.test/pay",
+            vpn_telegram_bot_token="vpn-test",
             admin_telegram_ids=(9001,),
             vpn_subscription_base_url="https://sub.example.test:8443",
         )
@@ -193,16 +194,24 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(maintenance["maintenance_active"])
 
     async def test_message_can_be_sent_to_multiple_selected_users_with_button(self) -> None:
+        vpn_user = self.client.server.app[SERVICES_KEY].users.ensure_telegram_user(
+            telegram_id=9401,
+            username="vpn-message",
+            first_name="VPN Message",
+        )
+        self.client.server.app[SERVICES_KEY].vpn.claim_trial(
+            user_id=vpn_user["id"],
+            channel="@ceafamily",
+        )
         with patch(
             "ceaadmin.admin_web._send_telegram_message",
             return_value=True,
         ) as send:
             response = await self.client.post(
-                "/api/messages",
+                "/api/vpn/messages",
                 headers=self.headers,
                 json={
-                    "bot": "ai",
-                    "user_ids": [self.trial_user["id"], self.paid_user["id"]],
+                    "user_ids": [self.trial_user["id"], vpn_user["id"]],
                     "text": "Важное обновление",
                     "button_text": "Открыть",
                     "button_url": "https://example.test/news",
@@ -216,17 +225,16 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
 
     async def test_message_requires_complete_button_and_selected_users(self) -> None:
         response = await self.client.post(
-            "/api/messages",
+            "/api/vpn/messages",
             headers=self.headers,
-            json={"bot": "ai", "user_ids": [], "text": "Тест"},
+            json={"user_ids": [], "text": "Тест"},
         )
         self.assertEqual(response.status, 400)
 
         response = await self.client.post(
-            "/api/messages",
+            "/api/vpn/messages",
             headers=self.headers,
             json={
-                "bot": "ai",
                 "user_ids": [self.trial_user["id"]],
                 "text": "Тест",
                 "button_text": "Открыть",

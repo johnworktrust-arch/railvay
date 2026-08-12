@@ -815,8 +815,7 @@ async function searchMessageRecipients() {
     return;
   }
   try {
-    const bot = byId("message-bot").value;
-    const data = await api(`/api/message-recipients?bot=${encodeURIComponent(bot)}&q=${encodeURIComponent(query)}`);
+    const data = await api(`/api/vpn/message-recipients?q=${encodeURIComponent(query)}`);
     const users = (data.users || []).filter(
       (user) => !state.messageRecipients.some((item) => Number(item.id) === Number(user.id)),
     );
@@ -979,12 +978,6 @@ byId("recipient-search").addEventListener("input", () => {
   clearTimeout(recipientSearchTimer);
   recipientSearchTimer = setTimeout(searchMessageRecipients, 250);
 });
-byId("message-bot").addEventListener("change", () => {
-  state.messageRecipients = [];
-  byId("recipient-search").value = "";
-  byId("recipient-results").hidden = true;
-  renderMessageRecipients();
-});
 byId("recipient-results").addEventListener("click", (event) => {
   const item = event.target.closest("[data-recipient]");
   if (!item) return;
@@ -1015,10 +1008,9 @@ byId("message-form").addEventListener("submit", async (event) => {
   if (!window.confirm(`Отправить сообщение ${state.messageRecipients.length} получателям?`)) return;
   submit.disabled = true;
   try {
-    const result = await api("/api/messages", {
+    const result = await api("/api/vpn/messages", {
       method: "POST",
       body: JSON.stringify({
-        bot: byId("message-bot").value,
         user_ids: state.messageRecipients.map((user) => Number(user.id)),
         text,
         button_text,
