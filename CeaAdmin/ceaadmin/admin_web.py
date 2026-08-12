@@ -599,12 +599,10 @@ def create_admin_app(
 
     async def message_recipients(request: web.Request) -> web.Response:
         query = request.query.get("q", "").strip()
-        if len(query) < 2:
-            return _json_response({"users": []})
         data = await asyncio.to_thread(
             app[VPN_ADMIN_KEY].list_users,
             page=1,
-            page_size=10,
+            page_size=100,
             query=query,
             segment="all",
         )

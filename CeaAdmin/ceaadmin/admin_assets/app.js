@@ -810,10 +810,6 @@ let recipientSearchTimer;
 async function searchMessageRecipients() {
   const query = byId("recipient-search").value.trim();
   const results = byId("recipient-results");
-  if (query.length < 2) {
-    results.hidden = true;
-    return;
-  }
   try {
     const data = await api(`/api/vpn/message-recipients?q=${encodeURIComponent(query)}`);
     const users = (data.users || []).filter(
@@ -978,6 +974,7 @@ byId("recipient-search").addEventListener("input", () => {
   clearTimeout(recipientSearchTimer);
   recipientSearchTimer = setTimeout(searchMessageRecipients, 250);
 });
+byId("recipient-search").addEventListener("focus", searchMessageRecipients);
 byId("recipient-results").addEventListener("click", (event) => {
   const item = event.target.closest("[data-recipient]");
   if (!item) return;

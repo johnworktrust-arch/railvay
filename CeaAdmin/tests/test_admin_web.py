@@ -242,6 +242,16 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status, 400)
 
+    async def test_vpn_message_recipients_returns_selectable_list(self) -> None:
+        response = await self.client.get(
+            "/api/vpn/message-recipients",
+            headers=self.headers,
+        )
+        self.assertEqual(response.status, 200)
+        result = await response.json()
+        self.assertEqual(len(result["users"]), 1)
+        self.assertEqual(result["users"][0]["id"], self.trial_user["id"])
+
     async def test_vpn_section_reports_subscriptions_servers_and_users(self) -> None:
         stats_response = await self.client.get(
             "/api/vpn/stats",
