@@ -147,7 +147,7 @@ class VpnPromocodeRepository:
             SELECT r.id AS redemption_id, p.reward_type, p.reward_value, p.code
             FROM vpn_promocode_redemptions r
             JOIN vpn_promocodes p ON r.promocode_id = p.id
-            WHERE r.user_id = ? AND (r.is_used = 0 OR r.is_used IS NULL)
+            WHERE r.user_id = ? AND (r.is_used = FALSE OR r.is_used IS NULL)
               AND p.reward_type IN ('discount_percent', 'discount_fixed')
             ORDER BY r.id DESC
             LIMIT 1
@@ -158,6 +158,6 @@ class VpnPromocodeRepository:
 
     def mark_redemption_used(self, conn: sqlite3.Connection, redemption_id: int) -> None:
         conn.execute(
-            "UPDATE vpn_promocode_redemptions SET is_used = 1 WHERE id = ?",
+            "UPDATE vpn_promocode_redemptions SET is_used = TRUE WHERE id = ?",
             (redemption_id,),
         )
