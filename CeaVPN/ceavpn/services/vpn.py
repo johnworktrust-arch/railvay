@@ -709,6 +709,7 @@ class VpnService:
         batch_size: int = _PLATEGA_RECONCILIATION_BATCH_SIZE,
         failed_recheck_window: timedelta = _PLATEGA_FAILED_RECHECK_WINDOW,
         paid_dispute_horizon: timedelta = _PLATEGA_PAID_DISPUTE_HORIZON,
+        confirmed_outcomes: list[VpnPaymentStatusOutcome] | None = None,
     ) -> int:
         """Reconcile a bounded, rotating slice of attached Platega orders.
 
@@ -721,6 +722,8 @@ class VpnService:
         catches chargebacks whose callback was missed without unbounded polling.
 
         Returns the number of local payment/subscription state transitions.
+        When supplied, ``confirmed_outcomes`` receives newly paid outcomes for
+        notification by the application layer.
         """
 
         if self.payment_provider != PLATEGA_PROVIDER:
@@ -802,6 +805,8 @@ class VpnService:
                 )
                 if outcome.processed:
                     transitioned += 1
+                    if outcome.confirmed and confirmed_outcomes is not None:
+                        confirmed_outcomes.append(outcome)
                 if (
                     original_status == "pending"
                     and outcome.status == "pending"

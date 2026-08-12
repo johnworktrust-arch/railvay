@@ -53,6 +53,7 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
             vpn=SimpleNamespace(
                 uses_platega=True,
                 create_platega_payment=create_payment,
+                get_unapplied_discount=Mock(return_value=None),
             )
         )
         payment = _handler(create_vpn_router(services), "payment")
@@ -90,17 +91,19 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
             vpn=SimpleNamespace(
                 uses_platega=True,
                 create_platega_payment=create_payment,
+                get_unapplied_discount=Mock(return_value=None),
             )
         )
         payment = _handler(create_vpn_router(services), "payment")
         callback = _callback("vpn:payment:1:platega")
 
-        to_thread = AsyncMock(return_value=(order, True))
+        to_thread = AsyncMock(side_effect=[None, (order, True)])
         with patch("ceavpn.bot.handlers.asyncio.to_thread", to_thread):
             await payment(callback)
 
         create_payment.assert_not_called()
-        to_thread.assert_awaited_once_with(
+        self.assertEqual(to_thread.await_count, 2)
+        to_thread.assert_awaited_with(
             create_payment,
             user_id=42,
             plan_code="vpn-1m",
@@ -151,12 +154,13 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
         services = _services(
             vpn=SimpleNamespace(
                 create_stars_payment=create_stars_payment,
+                get_unapplied_discount=Mock(return_value=None),
             )
         )
         payment = _handler(create_vpn_router(services), "payment")
         callback = _callback("vpn:payment:1:stars")
 
-        to_thread = AsyncMock(return_value={"id": 88})
+        to_thread = AsyncMock(side_effect=[None, {"id": 88}])
         with patch("ceavpn.bot.handlers.asyncio.to_thread", to_thread):
             await payment(callback)
 

@@ -192,12 +192,22 @@ async def vpn_maintenance_loop(
     interval_seconds = int(os.getenv("VPN_MAINTENANCE_INTERVAL_SECONDS", "60"))
     while True:
         try:
+            confirmed_payments = []
             reconciled = await asyncio.to_thread(
-                services.vpn.reconcile_platega_payments
+                services.vpn.reconcile_platega_payments,
+                confirmed_outcomes=confirmed_payments,
             )
+            for outcome in confirmed_payments:
+                await notify_vpn_payment_success(
+                    bot=vpn_bot,
+                    services=services,
+                    settings=services.settings,
+                    outcome=outcome,
+                )
             if reconciled:
                 logging.info(
-                    "Reconciled %s Platega VPN payment(s)", reconciled
+                    "Reconciled %s Platega VPN payment(s)",
+                    reconciled,
                 )
         except Exception:
             logging.exception("Platega VPN reconciliation loop failed")
@@ -404,11 +414,67 @@ def _secure_header_matches(expected: str, received: str) -> bool:
     )
 
 
+async def notify_vpn_payment_success(
+    *,
+    bot: Bot | None,
+    services: AppServices,
+    settings: Settings,
+    outcome,
+) -> None:
+    """Send the payment confirmation and the current subscription screen.
+
+    ``processed`` is true only for the first successful transition, which
+    keeps Platega callback retries and reconciliation polling idempotent.
+    """
+    if (
+        bot is None
+        or not outcome.processed
+        or not outcome.confirmed
+        or outcome.payment is None
+        or outcome.subscription is None
+    ):
+        return
+
+    user = services.users.get_by_id(int(outcome.payment["user_id"]))
+    if user is None:
+        logging.warning("VPN payment notification skipped: user not found")
+        return
+
+    telegram_id = int(user["telegram_id"])
+    subscription = with_delivery_subscription(dict(outcome.subscription), settings)
+    subscription = subscription or dict(outcome.subscription)
+    text, keyboard = subscription_screen(
+        subscription,
+        support_username=settings.vpn_support_username,
+        subscription_base_url=(
+            delivery_base_url(settings) or settings.vpn_subscription_base_url
+        ),
+        user=user,
+    )
+    try:
+        await bot.send_message(
+            chat_id=telegram_id,
+            text="✅ <b>Оплата прошла успешно</b>",
+            parse_mode="HTML",
+        )
+        await bot.send_message(
+            chat_id=telegram_id,
+            text=text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+        )
+    except TelegramForbiddenError:
+        logging.info("VPN payment notification skipped: Telegram chat unavailable")
+    except Exception:
+        logging.exception("Could not notify Telegram user about VPN payment")
+
+
 def register_vpn_platega_routes(
     app: web.Application,
     *,
     settings: Settings,
     services: AppServices,
+    bot: Bot | None = None,
 ) -> None:
     webhook_path = _normalize_path(settings.vpn_platega_webhook_path)
     return_path = _normalize_path(settings.vpn_platega_return_path)
@@ -465,7 +531,7 @@ def register_vpn_platega_routes(
             )
 
         try:
-            await asyncio.to_thread(
+            outcome = await asyncio.to_thread(
                 services.vpn.handle_platega_callback,
                 headers=request.headers,
                 payload=payload,
@@ -494,6 +560,12 @@ def register_vpn_platega_routes(
                 status=503,
                 headers={"Retry-After": "300"},
             )
+        await notify_vpn_payment_success(
+            bot=bot,
+            services=services,
+            settings=settings,
+            outcome=outcome,
+        )
         return web.json_response({"ok": True})
 
     app.router.add_post(webhook_path, vpn_platega_webhook)
@@ -653,7 +725,12 @@ async def run_webhook(
     app.router.add_get("/telegram/status", telegram_status)
     app.router.add_get("/debug/user", debug_user)
     register_platega_routes(app, settings=settings, services=services, bot=bot)
-    register_vpn_platega_routes(app, settings=settings, services=services)
+    register_vpn_platega_routes(
+        app,
+        settings=settings,
+        services=services,
+        bot=vpn_bot,
+    )
 
     notified_subscription_ids: set[int] = set()
 

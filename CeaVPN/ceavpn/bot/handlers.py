@@ -1150,7 +1150,6 @@ def create_vpn_router(services: AppServices) -> Router:
 
             kb = InlineKeyboardMarkup(inline_keyboard=[
                 [InlineKeyboardButton(text="💳 Оплатить картой / СБП", url=payment_url)],
-                [InlineKeyboardButton(text="✅ Проверить оплату", callback_data=f"vpn:check:{order['id']}")],
                 _back("vpn:add_devices"),
             ])
             order_code = f"CEA-H{int(order['id']):05X}"
@@ -1161,7 +1160,7 @@ def create_vpn_router(services: AppServices) -> Router:
                     f"Услуга: <b>Доп. устройства (+{cnt} шт.)</b>\n"
                     "Оплата: <b>Карта / СБП</b>\n"
                     f"Сумма: <b>{price}₽</b>\n\n"
-                    "ℹ️ Оплатите заказ и нажмите проверку оплаты\n\n"
+                    "ℹ️ Оплатите заказ — подтверждение придёт автоматически.\n\n"
                     "После оплаты дополнительные устройства добавятся к вашей подписке автоматически.",
                     kb,
                 )
@@ -1338,13 +1337,6 @@ def create_vpn_router(services: AppServices) -> Router:
                                 url=payment_url,
                             )
                         ],
-                        [
-                            InlineKeyboardButton(
-                                text="✅ Проверить оплату",
-                                callback_data=f"vpn:check:{order['id']}",
-                                style="success",
-                            )
-                        ],
                         _back(f"vpn:tariff:{code}"),
                     ]
                 )
@@ -1355,9 +1347,8 @@ def create_vpn_router(services: AppServices) -> Router:
                     "Доступно: <b>до 1 устройства</b>\n"
                     "Оплата: <b>Карта / СБП</b>\n"
                     f"Сумма: <b>{int(order['amount_rub'])}₽</b>\n\n"
-                    "ℹ️ Оплатите заказ и нажмите проверку оплаты\n\n"
-                    "Нажмите «Оплатить картой / СБП». После оплаты подписка выдастся автоматически.\n\n"
-                    "Если оплата уже прошла, но экран не обновился — нажмите «Проверить оплату».",
+                    "ℹ️ Нажмите «Оплатить картой / СБП». После оплаты бот сам "
+                    "пришлёт подтверждение и экран «Моя подписка».",
                     kb,
                 )
             await callback.answer()
