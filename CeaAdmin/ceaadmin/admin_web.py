@@ -365,6 +365,14 @@ def create_admin_app(
             "__DATABASE_LABEL__",
             html.escape(app[DATABASE_LABEL_KEY], quote=True),
         ).replace(
+            "__VPN_TARIFFS_URL__",
+            html.escape(
+                f"https://t.me/{settings.vpn_bot_username}?start=plans"
+                if settings.vpn_bot_username
+                else "",
+                quote=True,
+            ),
+        ).replace(
             "__REMOTE_CONTROLS__",
             (
                 '<form action="/logout" method="post">'

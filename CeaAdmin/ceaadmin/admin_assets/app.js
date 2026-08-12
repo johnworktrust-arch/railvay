@@ -988,6 +988,19 @@ byId("recipient-chips").addEventListener("click", (event) => {
   );
   renderMessageRecipients();
 });
+byId("message-button-action").addEventListener("change", (event) => {
+  const url = byId("message-button-url");
+  const text = byId("message-button-text");
+  const isTariffs = event.target.value === "tariffs";
+  if (isTariffs) {
+    url.value = url.dataset.tariffsUrl;
+    url.readOnly = true;
+    if (!text.value.trim()) text.value = "Открыть тарифы";
+  } else {
+    url.readOnly = false;
+    url.value = "";
+  }
+});
 byId("message-form").addEventListener("submit", async (event) => {
   event.preventDefault();
   if (!state.canManage) {

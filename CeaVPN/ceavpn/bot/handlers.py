@@ -751,6 +751,24 @@ def create_vpn_router(services: AppServices) -> Router:
             ),
         )
 
+    async def show_plans(message: Message, *, user_id: int) -> None:
+        active_sub = services.vpn.get_current_subscription(user_id)
+        has_active_paid = (
+            active_sub is not None
+            and (
+                str(active_sub.get("billing_kind")) == "paid"
+                or active_sub.get("plan_id") is not None
+                or str(active_sub.get("kind")) not in ("", "trial")
+            )
+        )
+        await _screen(
+            message,
+            "<b>Подключить VPN 🚀</b>\n\n"
+            "Любой тариф предназначен для <b>2 устройств.</b>\n\n"
+            "ℹ️ Выберите срок подписки",
+            plans_keyboard(has_active_paid_subscription=has_active_paid),
+        )
+
     @router.message(CommandStart())
     async def start(message: Message) -> None:
         existing = services.users.get_by_telegram_id(message.from_user.id)
@@ -758,6 +776,10 @@ def create_vpn_router(services: AppServices) -> Router:
         services.referrals.apply_start_referral(
             user_id=user["id"], start_text=message.text, user_was_registered=existing is not None
         )
+        start_payload = (message.text or "").partition(" ")[2].strip().lower()
+        if start_payload == "plans":
+            await show_plans(message, user_id=int(user["id"]))
+            return
         await show_main(message, user_id=int(user["id"]))
 
     @router.message(Command("menu"))
@@ -957,23 +979,8 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.callback_query(F.data == "vpn:plans")
     async def plans(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
-        active_sub = services.vpn.get_current_subscription(user["id"])
-        has_active_paid = (
-            active_sub is not None
-            and (
-                str(active_sub.get("billing_kind")) == "paid"
-                or active_sub.get("plan_id") is not None
-                or str(active_sub.get("kind")) not in ("", "trial")
-            )
-        )
         if callback.message:
-            await _screen(
-                callback.message,
-                "<b>Подключить VPN 🚀</b>\n\n"
-                "Любой тариф предназначен для <b>2 устройств.</b>\n\n"
-                "ℹ️ Выберите срок подписки",
-                plans_keyboard(has_active_paid_subscription=has_active_paid),
-            )
+            await show_plans(callback.message, user_id=int(user["id"]))
         await callback.answer()
 
     @router.callback_query(F.data == "vpn:add_devices")

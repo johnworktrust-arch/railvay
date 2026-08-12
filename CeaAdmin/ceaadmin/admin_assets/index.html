@@ -265,12 +265,19 @@
             </div>
             <div class="message-grid">
               <div class="promo-input-group">
+                <label for="message-button-action">Действие кнопки</label>
+                <select class="input" id="message-button-action">
+                  <option value="custom">Своя ссылка</option>
+                  <option value="tariffs">Открыть тарифы VPN</option>
+                </select>
+              </div>
+              <div class="promo-input-group">
                 <label for="message-button-text">Текст кнопки (необязательно)</label>
                 <input class="input" id="message-button-text" maxlength="64" placeholder="Например: Открыть тарифы">
               </div>
               <div class="promo-input-group">
                 <label for="message-button-url">Ссылка кнопки (необязательно)</label>
-                <input class="input" id="message-button-url" type="url" placeholder="https://…">
+                <input class="input" id="message-button-url" type="url" placeholder="https://…" data-tariffs-url="__VPN_TARIFFS_URL__">
               </div>
             </div>
             <div class="message-send-row">
