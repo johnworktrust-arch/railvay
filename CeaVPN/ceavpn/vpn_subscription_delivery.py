@@ -97,6 +97,45 @@ FORWARDED_HEADERS = (
     "subscription-userinfo",
     "support-url",
 )
+HAPP_COLOR_PROFILE = json.dumps(
+    {
+        "backgroundImageType": "dark",
+        "backgroundGradientColorIntensity": 1,
+        "backgroundGradientRotationAngle": 0,
+        "backgroundColors": [
+            "#2A1A12FF",
+            "#1A1518FF",
+            "#101117FF",
+            "#07090DFF",
+            "#04060AFF",
+        ],
+        "elipseColors": ["#FF9A4577", "#FF9A4544", "#FF9A4522"],
+        "buttonImageType": "light",
+        "buttonColor": "#FF9A45FF",
+        "buttonTextColor": "#FFFFFFFF",
+        "buttonTimerColor": "#FFFFFFFF",
+        "powerIconColor": "#FFFFFFFF",
+        "topBarButtonsColor": "#FFFFFFFF",
+        "additionalOptionsButtonColor": "#AAB0BCFF",
+        "settingsControlsTintColor": "#FF9A45FF",
+        "subsHeaderColor": "#1E222DFF",
+        "subHeaderButtonColor": "#FF9A45FF",
+        "disclosureHeaderTextColor": "#FFFFFFFF",
+        "disclosureSubHeaderTextColor": "#AAB0BCFF",
+        "disclosureProgressViewColor": "#FF9A45FF",
+        "subscriptionInfoBackgroundColor": "#1B1F29FF",
+        "subscriptionInfoTextColor": "#FFFFFFFF",
+        "subscriptionTrafficBackgroundColor": "#262B36AA",
+        "supportIconColor": "#FF9A45FF",
+        "profileWebPageIconColor": "#FF9A45FF",
+        "serverRowBackgroundColor": "#11141D99",
+        "selectedServerRowColor": "#FF9A4533",
+        "serverRowTitleTextColor": "#FFFFFFFF",
+        "serverRowSubTitleTextColor": "#AAB0BCFF",
+        "serverRowChevronColor": "#FF9A45FF",
+    },
+    separators=(",", ":"),
+)
 
 
 def _profile_string(
@@ -846,6 +885,7 @@ def register_vpn_subscription_delivery_routes(
                 "Cache-Control": "no-store",
                 "X-Content-Type-Options": "nosniff",
                 "routing-enable": "0",
+                "color-profile": HAPP_COLOR_PROFILE,
             }
         )
         return web.Response(
