@@ -278,10 +278,7 @@
                 <label for="message-button-text">Текст кнопки (необязательно)</label>
                 <input class="input" id="message-button-text" maxlength="64" placeholder="Например: Открыть тарифы" disabled>
               </div>
-              <div class="promo-input-group">
-                <label for="message-button-url">Ссылка кнопки (необязательно)</label>
-                <input class="input" id="message-button-url" type="url" placeholder="Выберите действие кнопки" data-deep-link-base="__VPN_BOT_DEEP_LINK_BASE__" readonly disabled>
-              </div>
+              <input id="message-button-url" type="hidden" data-deep-link-base="__VPN_BOT_DEEP_LINK_BASE__">
             </div>
             <div class="message-send-row">
               <span id="message-count" class="form-hint">Выбрано: 0</span>

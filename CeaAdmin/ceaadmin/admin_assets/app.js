@@ -1002,11 +1002,9 @@ byId("message-button-action").addEventListener("change", (event) => {
     url.value = "";
     text.value = "";
     text.disabled = true;
-    url.disabled = true;
     return;
   }
   text.disabled = false;
-  url.disabled = false;
   url.value = `${url.dataset.deepLinkBase}${action}`;
   if (!text.value.trim()) text.value = buttonTitles[action];
 });
@@ -1038,6 +1036,7 @@ byId("message-form").addEventListener("submit", async (event) => {
     });
     showToast(result.failed ? `Отправлено: ${result.sent}. Не доставлено: ${result.failed}` : `Отправлено: ${result.sent}`);
     byId("message-form").reset();
+    byId("message-button-text").disabled = true;
     state.messageRecipients = [];
     renderMessageRecipients();
   } catch (error) {
