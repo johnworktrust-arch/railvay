@@ -819,7 +819,6 @@ async def run_admin_web(*, host: str, port: int) -> None:
 
 
 def main() -> None:
-    print("CONTAINER ENV PORTS:", {k: v for k, v in os.environ.items() if "PORT" in k or "HOST" in k or "URL" in k})
     settings = load_settings()
     env_port = os.environ.get("PORT")
     default_port = int(env_port) if env_port else settings.admin_web_port
