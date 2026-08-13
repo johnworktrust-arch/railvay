@@ -547,11 +547,21 @@ def expired_subscription_reengagement_screen() -> tuple[str, InlineKeyboardMarku
     )
 
 
-def personal_discount_reengagement_screen(promocode: str) -> tuple[str, InlineKeyboardMarkup]:
+def personal_discount_reengagement_screen(
+    promocode: str,
+    *,
+    subscription_expired: bool = False,
+) -> tuple[str, InlineKeyboardMarkup]:
+    intro = (
+        "Ваша подписка истекла, но пока не продлили подписку. Мы сохранили "
+        "для вас специальное предложение:"
+        if subscription_expired
+        else "Вы заходили в бот, но пока ничего не подключили. Мы сохранили "
+        "для вас специальное предложение:"
+    )
     return (
         "🎁 <b>Персональная скидка от CEA VPN</b>\n\n"
-        "Вы заходили в бот, но пока не подключили подписку. Мы сохранили "
-        "для вас специальное предложение:\n\n"
+        f"{intro}\n\n"
         "<blockquote>"
         f"Промокод: <code>{escape(promocode)}</code>\n"
         "Скидка: 30% на любой тариф"

@@ -203,11 +203,17 @@ async def vpn_maintenance_loop(
             and vpn_bot is not None
         ):
             normal_text, normal_keyboard = expired_subscription_reengagement_screen()
-            discount_text, discount_keyboard = personal_discount_reengagement_screen("CEA30-TEST")
+            inactive_text, inactive_keyboard = personal_discount_reengagement_screen(
+                "CEA30-TEST-NEW"
+            )
+            expired_discount_text, expired_discount_keyboard = personal_discount_reengagement_screen(
+                "CEA30-TEST-EXPIRED", subscription_expired=True
+            )
             for target in services.settings.vpn_admin_demo_telegram_ids:
                 try:
                     await vpn_bot.send_message(chat_id=target, text=normal_text, reply_markup=normal_keyboard, parse_mode="HTML")
-                    await vpn_bot.send_message(chat_id=target, text=discount_text, reply_markup=discount_keyboard, parse_mode="HTML")
+                    await vpn_bot.send_message(chat_id=target, text=inactive_text, reply_markup=inactive_keyboard, parse_mode="HTML")
+                    await vpn_bot.send_message(chat_id=target, text=expired_discount_text, reply_markup=expired_discount_keyboard, parse_mode="HTML")
                 except Exception:
                     logging.exception("Could not send VPN reengagement preview")
             preview_sent = True
