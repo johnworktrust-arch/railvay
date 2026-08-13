@@ -217,6 +217,24 @@ async def vpn_maintenance_loop(
                 except Exception:
                     logging.exception("Could not send VPN reengagement preview")
             preview_sent = True
+        if (
+            os.getenv("VPN_REENGAGEMENT_ENABLED", "").lower()
+            in {"1", "true", "yes"}
+            and vpn_bot is not None
+        ):
+            try:
+                messages = await asyncio.to_thread(services.vpn.claim_due_reengagement_messages)
+                for item in messages:
+                    if item["kind"] == "expired_notice":
+                        text, keyboard = expired_subscription_reengagement_screen()
+                    else:
+                        text, keyboard = personal_discount_reengagement_screen(
+                            str(item["promocode"]),
+                            subscription_expired=item["kind"] == "expired_discount",
+                        )
+                    await vpn_bot.send_message(chat_id=int(item["telegram_id"]), text=text, reply_markup=keyboard, parse_mode="HTML")
+            except Exception:
+                logging.exception("VPN reengagement loop failed")
         try:
             confirmed_payments = []
             reconciled = await asyncio.to_thread(

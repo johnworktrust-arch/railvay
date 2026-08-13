@@ -908,6 +908,19 @@ def create_vpn_router(services: AppServices) -> Router:
             )
         await callback.answer()
 
+    @router.callback_query(F.data.startswith("vpn:promo:activate:"))
+    async def activate_personal_promo(callback: CallbackQuery) -> None:
+        code = callback.data.rsplit(":", 1)[-1]
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        try:
+            await asyncio.to_thread(services.vpn.redeem_promocode, int(user["id"]), code)
+        except BusinessRuleError as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        if callback.message:
+            await show_plans(callback.message, user_id=int(user["id"]))
+        await callback.answer("Скидка применена!")
+
     @router.message(VpnPromoState.waiting_for_code)
     async def process_promo_code(message: Message, state: FSMContext) -> None:
         await state.clear()

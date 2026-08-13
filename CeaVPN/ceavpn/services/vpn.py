@@ -14,6 +14,7 @@ from ceavpn.database import Database
 from ceavpn.repositories.base import row_to_dict
 from ceavpn.repositories.vpn_abuse import VpnAbuseRepository
 from ceavpn.repositories.vpn_promocodes import VpnPromocodeRepository
+from ceavpn.repositories.vpn_reengagement import VpnReengagementRepository
 from ceavpn.repositories.vpn_payments import VpnPaymentRepository
 from ceavpn.repositories.vpn_plans import VpnPlanRepository
 from ceavpn.repositories.vpn_provisioning_jobs import VpnProvisioningJobRepository
@@ -172,6 +173,25 @@ class VpnService:
         self.abuse = VpnAbuseRepository()
         self.jobs = VpnProvisioningJobRepository()
         self.promocodes = VpnPromocodeRepository()
+        self.reengagement = VpnReengagementRepository()
+
+    def claim_due_reengagement_messages(self) -> list[Dict[str, Any]]:
+        now = utcnow()
+        with self.db.transaction() as conn:
+            messages = self.reengagement.claim_due(
+                conn, now=now.isoformat(), day=now.date().isoformat()
+            )
+            for message in messages:
+                if message["kind"] in {"inactive_discount", "expired_discount"}:
+                    suffix = secrets.token_hex(4).upper()
+                    code = f"CEA30-{suffix}"
+                    promo = self.promocodes.create(
+                        conn, code=code, reward_type="discount_percent",
+                        reward_value=30, target_user_id=int(message["user_id"]),
+                        max_uses=1, expires_at=(now + timedelta(days=7)).isoformat(),
+                    )
+                    message["promocode"] = promo["code"]
+            return messages
 
     def claim_trial(
         self,
