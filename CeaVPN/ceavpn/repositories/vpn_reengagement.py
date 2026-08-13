@@ -7,7 +7,7 @@ from ceavpn.repositories.base import rows_to_dicts
 
 
 class VpnReengagementRepository:
-    def claim_due(self, conn: sqlite3.Connection, *, now: str, day: str) -> List[Dict[str, Any]]:
+    def claim_due(self, conn: sqlite3.Connection, *, now: str, discount_due: str, day: str) -> List[Dict[str, Any]]:
         candidates = conn.execute(
             """
             SELECT u.id AS user_id, u.telegram_id, NULL AS subscription_id, 'inactive_discount' AS kind
@@ -23,7 +23,7 @@ class VpnReengagementRepository:
               AND NOT EXISTS (SELECT 1 FROM vpn_subscriptions paid WHERE paid.user_id=s.user_id AND paid.billing_kind='paid' AND paid.ends_at>s.ends_at)
               AND NOT EXISTS (SELECT 1 FROM vpn_reengagement_messages m WHERE m.user_id=s.user_id AND m.kind=CASE WHEN s.ends_at <= ? THEN 'expired_discount' ELSE 'expired_notice' END AND m.campaign_day='')
             """,
-            (now, day, now, now, now),
+            (now, day, discount_due, now, discount_due),
         ).fetchall()
         claimed=[]
         for row in candidates:

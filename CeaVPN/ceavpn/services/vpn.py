@@ -179,7 +179,10 @@ class VpnService:
         now = utcnow()
         with self.db.transaction() as conn:
             messages = self.reengagement.claim_due(
-                conn, now=now.isoformat(), day=now.date().isoformat()
+                conn,
+                now=now.isoformat(),
+                discount_due=(now - timedelta(days=2)).isoformat(),
+                day=now.date().isoformat(),
             )
             for message in messages:
                 if message["kind"] in {"inactive_discount", "expired_discount"}:

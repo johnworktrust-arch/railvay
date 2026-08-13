@@ -913,7 +913,11 @@ def create_vpn_router(services: AppServices) -> Router:
         code = callback.data.rsplit(":", 1)[-1]
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
         try:
-            await asyncio.to_thread(services.vpn.redeem_promocode, int(user["id"]), code)
+            await asyncio.to_thread(
+                services.vpn.redeem_promocode,
+                user_id=int(user["id"]),
+                code=code,
+            )
         except BusinessRuleError as exc:
             await callback.answer(str(exc), show_alert=True)
             return
