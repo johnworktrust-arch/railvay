@@ -553,7 +553,7 @@ def personal_discount_reengagement_screen(
     subscription_expired: bool = False,
 ) -> tuple[str, InlineKeyboardMarkup]:
     intro = (
-        "Ваша подписка истекла, но пока не продлили подписку. Мы сохранили "
+        "Ваша подписка истекла, но пока вы не продлили подписку. Мы сохранили "
         "для вас специальное предложение:"
         if subscription_expired
         else "Вы заходили в бот, но пока ничего не подключили. Мы сохранили "
