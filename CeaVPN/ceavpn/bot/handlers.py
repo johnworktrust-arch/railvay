@@ -537,6 +537,37 @@ def trial_expiry_reminder_screen(
     return text, keyboard
 
 
+def expired_subscription_reengagement_screen() -> tuple[str, InlineKeyboardMarkup]:
+    return (
+        "<b>Ваша подписка истекла ⏳</b>\n\n"
+        "Продлите подписку, чтобы всегда оставаться на связи 👇",
+        InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="vpn:plans")
+        ]]),
+    )
+
+
+def personal_discount_reengagement_screen(promocode: str) -> tuple[str, InlineKeyboardMarkup]:
+    return (
+        "🎁 <b>Персональная скидка от CEA VPN</b>\n\n"
+        "Вы заходили в бот, но пока не подключили подписку. Мы сохранили "
+        "для вас специальное предложение:\n\n"
+        "<blockquote>"
+        f"Промокод: <code>{escape(promocode)}</code>\n"
+        "Скидка: 30% на любой тариф"
+        "</blockquote>\n\n"
+        "Нажмите кнопку ниже — промокод применится автоматически, а в тарифах "
+        "сразу появятся цены со скидкой.",
+        InlineKeyboardMarkup(inline_keyboard=[[
+            InlineKeyboardButton(
+                text="🔥 Забрать скидку 30%",
+                callback_data=f"vpn:promo:activate:{promocode}",
+                style="success",
+            )
+        ]]),
+    )
+
+
 def trial_expired_screen(
     ends_at: Any,
 ) -> tuple[str, InlineKeyboardMarkup]:

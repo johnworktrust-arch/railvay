@@ -36,7 +36,9 @@ from ceavpn.services.vpn import VpnPaymentVerificationError
 from ceavpn.bot.handlers import create_vpn_router as create_router
 from ceavpn.bot.handlers import (
     create_vpn_router,
+    expired_subscription_reengagement_screen,
     happ_subscription_instructions,
+    personal_discount_reengagement_screen,
     subscription_open_button,
     subscription_screen,
     subscription_v2box_button,
@@ -192,7 +194,23 @@ async def vpn_maintenance_loop(
     vpn_bot: Bot | None = None,
 ) -> None:
     interval_seconds = int(os.getenv("VPN_MAINTENANCE_INTERVAL_SECONDS", "60"))
+    preview_sent = False
     while True:
+        if (
+            not preview_sent
+            and os.getenv("VPN_REENGAGEMENT_ADMIN_PREVIEW", "").lower()
+            in {"1", "true", "yes"}
+            and vpn_bot is not None
+        ):
+            normal_text, normal_keyboard = expired_subscription_reengagement_screen()
+            discount_text, discount_keyboard = personal_discount_reengagement_screen("CEA30-TEST")
+            for target in services.settings.vpn_admin_demo_telegram_ids:
+                try:
+                    await vpn_bot.send_message(chat_id=target, text=normal_text, reply_markup=normal_keyboard, parse_mode="HTML")
+                    await vpn_bot.send_message(chat_id=target, text=discount_text, reply_markup=discount_keyboard, parse_mode="HTML")
+                except Exception:
+                    logging.exception("Could not send VPN reengagement preview")
+            preview_sent = True
         try:
             confirmed_payments = []
             reconciled = await asyncio.to_thread(
