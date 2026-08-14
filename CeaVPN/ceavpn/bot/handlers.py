@@ -35,6 +35,7 @@ from ceavpn.services.exceptions import BusinessRuleError
 from ceavpn.services.referrals import format_rubles_from_kopecks
 from ceavpn.vpn_subscription_delivery import (
     delivery_base_url,
+    is_subscription_active,
     with_delivery_subscription,
 )
 
@@ -57,12 +58,33 @@ VPN_PLAN_CODES = {
 LEGACY_PAYMENT_METHODS = frozenset({"sbp", "card", "crypto", "other"})
 
 VPN_MAIN_SCREEN_TEXT = (
-    "Приветствую в <b>CEA VPN</b> 🤗\n\n"
-    "Здесь ты сможешь подключить VPN за пару минут.\n\n"
-    "💎 Безлимитный трафик\n"
-    "🚀 Быстрое подключение\n"
-    "🛡 Стабильное и защищённое соединение"
+    "◉ <b>CEA VPN</b>  ·  центр подключения\n\n"
+    "<blockquote><b>Один аккаунт — интернет на всех ваших устройствах.</b>\n"
+    "Стабильное и защищённое соединение дома, в дороге и в публичных сетях."
+    "</blockquote>\n\n"
+    "🌍 4 страны   ·   ♾ безлимит\n"
+    "📱 до 7 устройств"
 )
+
+
+def main_screen_text(*, trial_available: bool, active_subscription: bool) -> str:
+    if active_subscription:
+        status = (
+            "🟢 <b>Подписка активна</b>\n"
+            "Откройте управление VPN, чтобы подключить новое устройство "
+            "или скопировать личную ссылку."
+        )
+    elif trial_available:
+        status = (
+            "🎁 <b>Начните бесплатно</b>\n"
+            "Активируйте 3 пробных дня — оплата и банковская карта не нужны."
+        )
+    else:
+        status = (
+            "⚪️ <b>VPN сейчас не подключён</b>\n"
+            "Выберите срок подписки — доступ откроется сразу после оплаты."
+        )
+    return f"{VPN_MAIN_SCREEN_TEXT}\n\n{status}"
 
 
 def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
@@ -263,29 +285,69 @@ def main_keyboard(
     *,
     support_username: str,
     trial_available: bool = True,
+    active_subscription: bool = False,
 ) -> InlineKeyboardMarkup:
     rows: list[list[InlineKeyboardButton]] = []
-    if trial_available:
+    if active_subscription:
+        rows.extend(
+            [
+                [
+                    InlineKeyboardButton(
+                        text="🟢 Управление VPN",
+                        callback_data="vpn:subscription",
+                        style="success",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="🔄 Продлить подписку",
+                        callback_data="vpn:plans",
+                    )
+                ],
+            ]
+        )
+    elif trial_available:
         rows.append(
             [
                 InlineKeyboardButton(
-                    text="🎁 3 дня бесплатно",
+                    text="🎁 Попробовать 3 дня бесплатно",
                     callback_data="vpn:trial",
                     style="success",
                 )
             ]
         )
+        rows.append(
+            [
+                InlineKeyboardButton(
+                    text="Тарифы и цены",
+                    callback_data="vpn:plans",
+                    style="primary",
+                )
+            ]
+        )
+    else:
+        rows.extend(
+            [
+                [
+                    InlineKeyboardButton(
+                        text="🚀 Подключить VPN",
+                        callback_data="vpn:plans",
+                        style="primary",
+                    )
+                ],
+                [
+                    InlineKeyboardButton(
+                        text="👤 Моя подписка",
+                        callback_data="vpn:subscription",
+                    )
+                ],
+            ]
+        )
     rows.extend([
-        [InlineKeyboardButton(
-            text="Подключить VPN 🚀" if trial_available else "Оплатить подписку 🚀",
-            callback_data="vpn:plans",
-            style="primary",
-        )],
-        [InlineKeyboardButton(text="👤 Моя подписка", callback_data="vpn:subscription")],
-        [InlineKeyboardButton(text="🥷 Заработать", callback_data="vpn:earn")],
+        [InlineKeyboardButton(text="🎁 Пригласить друга", callback_data="vpn:earn")],
         [
-            InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{support_username}"),
-            InlineKeyboardButton(text="🛡 О сервисе", callback_data="vpn:about"),
+            InlineKeyboardButton(text="💬 Поддержка", url=f"https://t.me/{support_username}"),
+            InlineKeyboardButton(text="О сервисе", callback_data="vpn:about"),
         ],
     ])
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -804,12 +866,18 @@ def create_vpn_router(services: AppServices) -> Router:
 
     async def show_main(message: Message, *, user_id: int) -> None:
         trial_available = not services.vpn.has_used_trial(user_id)
+        current_subscription = services.vpn.get_current_subscription(user_id)
+        active_subscription = is_subscription_active(current_subscription)
         await _screen(
             message,
-            VPN_MAIN_SCREEN_TEXT,
+            main_screen_text(
+                trial_available=trial_available,
+                active_subscription=active_subscription,
+            ),
             main_keyboard(
                 support_username=services.settings.vpn_support_username,
                 trial_available=trial_available,
+                active_subscription=active_subscription,
             ),
         )
 

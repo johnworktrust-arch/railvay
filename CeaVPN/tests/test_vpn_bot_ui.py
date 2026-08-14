@@ -8,6 +8,7 @@ from ceavpn.bot.handlers import (
     connect_landing_url,
     happ_landing_url,
     main_keyboard,
+    main_screen_text,
     subscription_screen,
     trial_expired_screen,
     trial_expiry_reminder_screen,
@@ -39,7 +40,10 @@ class VpnBotUiTest(unittest.TestCase):
             trial_available=False,
         )
 
-        self.assertEqual(available.inline_keyboard[0][0].text, "🎁 3 дня бесплатно")
+        self.assertEqual(
+            available.inline_keyboard[0][0].text,
+            "🎁 Попробовать 3 дня бесплатно",
+        )
         self.assertFalse(
             any(
                 button.callback_data == "vpn:trial"
@@ -47,7 +51,21 @@ class VpnBotUiTest(unittest.TestCase):
                 for button in row
             )
         )
-        self.assertEqual(used.inline_keyboard[0][0].text, "Оплатить подписку 🚀")
+        self.assertEqual(used.inline_keyboard[0][0].text, "🚀 Подключить VPN")
+
+    def test_main_menu_prioritizes_active_subscription(self) -> None:
+        active = main_keyboard(
+            support_username="cea_help",
+            trial_available=False,
+            active_subscription=True,
+        )
+
+        self.assertEqual(active.inline_keyboard[0][0].text, "🟢 Управление VPN")
+        self.assertEqual(active.inline_keyboard[0][0].callback_data, "vpn:subscription")
+        self.assertIn(
+            "Подписка активна",
+            main_screen_text(trial_available=False, active_subscription=True),
+        )
 
     def test_tariff_buttons_show_unapplied_discount_in_rubles_and_stars(self) -> None:
         keyboard = plans_keyboard(
