@@ -232,7 +232,24 @@ async def vpn_maintenance_loop(
                             str(item["promocode"]),
                             subscription_expired=item["kind"] == "expired_discount",
                         )
-                    await vpn_bot.send_message(chat_id=int(item["telegram_id"]), text=text, reply_markup=keyboard, parse_mode="HTML")
+                    try:
+                        await vpn_bot.send_message(
+                            chat_id=int(item["telegram_id"]),
+                            text=text,
+                            reply_markup=keyboard,
+                            parse_mode="HTML",
+                        )
+                    except TelegramForbiddenError:
+                        # A blocked chat must not prevent offers for other users.
+                        logging.info(
+                            "Skipping VPN reengagement message for blocked chat %s",
+                            item["telegram_id"],
+                        )
+                    except Exception:
+                        logging.exception(
+                            "Could not send VPN reengagement message to chat %s",
+                            item["telegram_id"],
+                        )
             except Exception:
                 logging.exception("VPN reengagement loop failed")
         try:
