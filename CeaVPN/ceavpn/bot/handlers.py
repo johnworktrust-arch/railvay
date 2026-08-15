@@ -21,6 +21,7 @@ from aiogram.types import (
     InlineKeyboardButton,
     InlineKeyboardMarkup,
     LabeledPrice,
+    LinkPreviewOptions,
     Message,
     PreCheckoutQuery,
 )
@@ -46,6 +47,7 @@ TARIFFS = {
     "3": ("3 месяца", 469, 389),
     "6": ("6 месяцев", 780, 639),
     "12": ("1 год", 1280, 989),
+    "120": ("10 лет", 9990, 7790),
 }
 
 VPN_PLAN_CODES = {
@@ -53,6 +55,7 @@ VPN_PLAN_CODES = {
     "3": "vpn-3m",
     "6": "vpn-6m",
     "12": "vpn-12m",
+    "120": "vpn-10y",
 }
 
 LEGACY_PAYMENT_METHODS = frozenset({"sbp", "card", "crypto", "other"})
@@ -99,15 +102,26 @@ def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
 
 
 async def _screen(message: Message, text: str, keyboard: InlineKeyboardMarkup) -> None:
+    link_preview_options = LinkPreviewOptions(is_disabled=True)
     try:
-        await message.edit_text(text, reply_markup=keyboard, parse_mode="HTML")
+        await message.edit_text(
+            text,
+            reply_markup=keyboard,
+            parse_mode="HTML",
+            link_preview_options=link_preview_options,
+        )
     except Exception as _exc:
         # MessageNotModified is harmless; other errors fall back to a new message.
         _msg = str(_exc).lower()
         if "message is not modified" not in _msg:
             logging.debug("edit_text failed, falling back to answer: %s", _exc)
         try:
-            await message.answer(text, reply_markup=keyboard, parse_mode="HTML")
+            await message.answer(
+                text,
+                reply_markup=keyboard,
+                parse_mode="HTML",
+                link_preview_options=link_preview_options,
+            )
         except Exception:
             logging.exception("_screen answer fallback also failed")
 

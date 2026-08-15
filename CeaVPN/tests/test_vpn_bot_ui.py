@@ -73,6 +73,22 @@ class VpnBotUiTest(unittest.TestCase):
         )
         self.assertEqual(keyboard.inline_keyboard[0][0].text, "1 месяц — 125₽ / 97 ⭐️")
 
+    def test_ten_year_tariff_is_available_for_purchase(self) -> None:
+        from ceavpn.seed import VPN_PLANS
+
+        keyboard = plans_keyboard()
+        plan = next(item for item in VPN_PLANS if item[0] == "vpn-10y")
+
+        self.assertTrue(
+            any(
+                button.text == "10 лет — 9990₽ / 7790 ⭐️"
+                and button.callback_data == "vpn:tariff:120"
+                for row in keyboard.inline_keyboard
+                for button in row
+            )
+        )
+        self.assertEqual(plan, ("vpn-10y", "10 лет", 3650, 9990, 7790))
+
     def test_user_with_existing_subscription_has_used_trial(self) -> None:
         from ceavpn.database import Database
         from ceavpn.config import load_settings
