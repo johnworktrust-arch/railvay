@@ -87,7 +87,8 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         self.assertIn("Открыть Happ", html)
         self.assertNotIn("http-equiv=\"refresh\"", html)
         self.assertNotIn("window.location", html)
-        self.assertIn("background:#fff", html)
+        self.assertIn("CEA VPN", html)
+        self.assertIn("background:#0b0c0e", html)
 
     def test_builds_opaque_railway_subscription_url(self) -> None:
         settings = Settings(
