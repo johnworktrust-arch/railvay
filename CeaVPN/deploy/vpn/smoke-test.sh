@@ -279,7 +279,7 @@ fi
 # A qualified whitelist node has only its XHTTP/Reality inbound and publishes
 # only that profile.
 expected_vless_profiles="${VPN_SMOKE_EXPECTED_PROFILE_COUNT:-1}"
-expected_profile_remark="${VPN_SMOKE_EXPECTED_REMARK:-${CEAVPN_REGION_REMARK:-🇳🇱 Нидерланды · Амстердам}}"
+expected_profile_remark="${VPN_SMOKE_EXPECTED_REMARK:-${CEAVPN_REGION_REMARK:-🇳🇱 Нидерланды}}"
 if [[ ! "$expected_vless_profiles" =~ ^[1-8]$ ]]; then
   echo "VPN smoke test failed: expected profile count must be between 1 and 8" >&2
   exit 1
