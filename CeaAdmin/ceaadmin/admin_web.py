@@ -57,6 +57,20 @@ def _redirect(location: str) -> web.Response:
     return web.Response(status=302, headers={"Location": location})
 
 
+def _login_page(*, error: str = "", status: int = 200) -> web.Response:
+    template = (ASSETS_DIR / "login.html").read_text(encoding="utf-8")
+    error_markup = (
+        f'<p class="login-error" role="alert">{html.escape(error)}</p>'
+        if error
+        else ""
+    )
+    return web.Response(
+        text=template.replace("__LOGIN_ERROR__", error_markup),
+        status=status,
+        content_type="text/html",
+    )
+
+
 def _database_label(database_url: str) -> str:
     if database_url.startswith("sqlite:///"):
         return "Локальная SQLite"
@@ -229,7 +243,7 @@ async def admin_middleware(
         if request.path.startswith("/api/"):
             return _json_response({"error": "authentication required"}, status=401)
         if request.path == "/":
-            return login_page()
+            return _login_page()
         return _redirect("/login")
 
     if request.path.startswith("/api/"):
@@ -303,19 +317,6 @@ def create_admin_app(
     database_url = settings.admin_database_url or settings.database_url
     app[DATABASE_LABEL_KEY] = _database_label(database_url)
 
-    def login_page(*, error: str = "", status: int = 200) -> web.Response:
-        template = (ASSETS_DIR / "login.html").read_text(encoding="utf-8")
-        error_markup = (
-            f'<p class="login-error" role="alert">{html.escape(error)}</p>'
-            if error
-            else ""
-        )
-        return web.Response(
-            text=template.replace("__LOGIN_ERROR__", error_markup),
-            status=status,
-            content_type="text/html",
-        )
-
     async def healthz(_request: web.Request) -> web.Response:
         return _json_response({"status": "ok"})
 
@@ -323,14 +324,14 @@ def create_admin_app(
         if not app[LOGIN_REQUIRED_KEY] or _is_authenticated(request):
             return _redirect("/")
         if request.method == "GET":
-            return login_page()
+            return _login_page()
 
         form = await request.post()
         supplied = str(form.get("password", "")).encode("utf-8")
         expected = settings.admin_web_password.encode("utf-8")
         if not hmac.compare_digest(supplied, expected):
             await asyncio.sleep(0.35)
-            return login_page(
+            return _login_page(
                 error="Неверный пароль. Проверьте ввод и попробуйте снова.",
                 status=401,
             )

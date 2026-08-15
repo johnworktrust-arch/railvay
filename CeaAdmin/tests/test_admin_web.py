@@ -387,8 +387,9 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(health.status, 200)
 
             root = await client.get("/", allow_redirects=False)
-            self.assertEqual(root.status, 302)
-            self.assertEqual(root.headers["Location"], "/login")
+            self.assertEqual(root.status, 200)
+            root_text = await root.text()
+            self.assertIn("Вход в админку", root_text)
 
             protected_asset = await client.get(
                 "/assets/app.js",
@@ -431,7 +432,8 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
             logout = await client.post("/logout", allow_redirects=False)
             self.assertEqual(logout.status, 302)
             after_logout = await client.get("/", allow_redirects=False)
-            self.assertEqual(after_logout.status, 302)
+            self.assertEqual(after_logout.status, 200)
+            self.assertIn("Вход в админку", await after_logout.text())
         finally:
             await client.close()
 
