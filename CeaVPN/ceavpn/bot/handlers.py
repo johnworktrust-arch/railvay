@@ -389,18 +389,22 @@ def plans_keyboard(
     has_active_paid_subscription: bool = False,
     discount: Dict[str, Any] | None = None,
 ) -> InlineKeyboardMarkup:
-    rows = [
-        [
+    featured_code = "120"
+
+    def tariff_row(code: str) -> list[InlineKeyboardButton]:
+        name, price_rub, price_stars = TARIFFS[code]
+        shown_rub, shown_stars = _discounted_prices(
+            price_rub, price_stars, discount
+        )
+        prefix = "🔥 " if code == featured_code else ""
+        return [
             InlineKeyboardButton(
-                text=(
-                    f"{name} — {_discounted_prices(price_rub, price_stars, discount)[0]}₽ "
-                    f"/ {_discounted_prices(price_rub, price_stars, discount)[1]} ⭐️"
-                ),
+                text=f"{prefix}{name} — {shown_rub}₽ / {shown_stars} ⭐️",
                 callback_data=f"vpn:tariff:{code}",
             )
         ]
-        for code, (name, price_rub, price_stars) in TARIFFS.items()
-    ]
+
+    rows = [tariff_row(code) for code in TARIFFS if code != featured_code]
     if has_active_paid_subscription:
         rows.append([
             InlineKeyboardButton(
@@ -408,6 +412,7 @@ def plans_keyboard(
                 callback_data="vpn:add_devices",
             )
         ])
+    rows.append(tariff_row(featured_code))
     rows.append(_back())
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

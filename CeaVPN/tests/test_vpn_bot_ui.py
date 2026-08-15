@@ -81,12 +81,13 @@ class VpnBotUiTest(unittest.TestCase):
 
         self.assertTrue(
             any(
-                button.text == "10 лет — 9990₽ / 7790 ⭐️"
+                button.text == "🔥 10 лет — 9990₽ / 7790 ⭐️"
                 and button.callback_data == "vpn:tariff:120"
                 for row in keyboard.inline_keyboard
                 for button in row
             )
         )
+        self.assertEqual(keyboard.inline_keyboard[-2][0].callback_data, "vpn:tariff:120")
         self.assertEqual(plan, ("vpn-10y", "10 лет", 3650, 9990, 7790))
 
     def test_user_with_existing_subscription_has_used_trial(self) -> None:
