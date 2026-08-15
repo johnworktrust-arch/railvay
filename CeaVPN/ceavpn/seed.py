@@ -16,7 +16,7 @@ VPN_PLANS = [
 VPN_ADDITIONAL_SERVERS = (
     {
         "code": "ru-lte-1",
-        "name": "Россия · Yandex 1",
+        "name": "Россия",
         "provider": "marzban",
         "region": "RU",
         "api_base_url": "http://127.0.0.1:8000",
@@ -26,7 +26,7 @@ VPN_ADDITIONAL_SERVERS = (
     },
     {
         "code": "us-1",
-        "name": "CEA VPN Charlotte 1",
+        "name": "США",
         "provider": "marzban",
         "region": "US",
         "api_base_url": "http://127.0.0.1:8000",
@@ -35,7 +35,7 @@ VPN_ADDITIONAL_SERVERS = (
     },
     {
         "code": "fi-1",
-        "name": "CEA VPN Helsinki 1",
+        "name": "Финляндия",
         "provider": "marzban",
         "region": "FI",
         "api_base_url": "http://127.0.0.1:8000",
@@ -64,7 +64,7 @@ def seed_reference_data(db: Database) -> None:
         vpn_server_repo.upsert(
             conn,
             code=settings.vpn_server_code,
-            name="CEA VPN Amsterdam 1",
+            name="Нидерланды",
             provider="marzban",
             region="NL",
             api_base_url="http://127.0.0.1:8000",
