@@ -229,6 +229,31 @@ class VpnPlategaPaymentServiceTest(unittest.TestCase):
         self.assertEqual(first.subscription["id"], duplicate.subscription["id"])
         self.assertEqual(self._counts(), (1, 1))
 
+    def test_confirmed_extra_devices_payment_updates_subscription(self) -> None:
+        subscription_order = self._create()
+        self.client.set_status(
+            subscription_order["external_id"], PLATEGA_CONFIRMED
+        )
+        self.vpn.check_platega_payment(
+            user_id=int(self.user["id"]),
+            payment_id=int(subscription_order["id"]),
+        )
+
+        order, _ = self.vpn.create_extra_devices_platega_payment(
+            user_id=int(self.user["id"]), count=2, user_name="platega_user"
+        )
+        self.assertEqual(order["amount_rub"], 60)
+        self.client.set_status(order["external_id"], PLATEGA_CONFIRMED)
+
+        outcome = self.vpn.check_platega_payment(
+            user_id=int(self.user["id"]), payment_id=int(order["id"])
+        )
+
+        self.assertTrue(outcome.processed)
+        self.assertEqual(outcome.status, "paid")
+        self.assertEqual(outcome.subscription["extra_devices"], 2)
+        self.assertEqual(self._counts(), (1, 2))
+
     def test_confirmed_vpn_payment_credits_and_chargeback_reverses_referral(
         self,
     ) -> None:

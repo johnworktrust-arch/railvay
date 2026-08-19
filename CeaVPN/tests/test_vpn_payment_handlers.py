@@ -169,6 +169,43 @@ class VpnPaymentHandlerTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(kwargs["currency"], "XTR")
         self.assertEqual(kwargs["payload"], "vpn_stars_88")
 
+    async def test_extra_devices_platega_order_shows_payment_link(self) -> None:
+        create_payment = Mock()
+        order = {
+            "id": 19,
+            "amount_rub": 60,
+            "payment_url": "https://pay.platega.io/order-19",
+        }
+        services = _services(
+            vpn=SimpleNamespace(
+                uses_platega=True,
+                create_extra_devices_platega_payment=create_payment,
+            )
+        )
+        pay_extra_devices = _handler(
+            create_vpn_router(services), "pay_extra_dev"
+        )
+        callback = _callback("vpn:pay_extra_dev:2:platega")
+
+        to_thread = AsyncMock(return_value=(order, True))
+        with patch("ceavpn.bot.handlers.asyncio.to_thread", to_thread):
+            await pay_extra_devices(callback)
+
+        to_thread.assert_awaited_once_with(
+            create_payment,
+            user_id=42,
+            count=2,
+            user_name="vpn_user",
+        )
+        text = callback.message.edit_text.await_args.args[0]
+        self.assertIn("Сумма: <b>60₽</b>", text)
+        self.assertEqual(
+            callback.message.edit_text.await_args.kwargs["reply_markup"]
+            .inline_keyboard[0][0]
+            .url,
+            "https://pay.platega.io/order-19",
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

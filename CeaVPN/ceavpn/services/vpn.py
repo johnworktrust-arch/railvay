@@ -351,12 +351,13 @@ class VpnService:
                     raise BusinessRuleError("Для добавления доп. устройств требуется активная подписка.")
                 self.subscriptions.add_extra_devices(conn, subscription_id=int(live["id"]), count=count)
                 subscription = self.subscriptions.get_by_id(conn, int(live["id"]))
-                self._enqueue_job_or_raise(
+                if subscription is None:
+                    raise RuntimeError("VPN subscription is missing")
+                self._enqueue_for_active_servers(
                     conn,
-                    subscription_id=int(live["id"]),
-                    server_id=int(live["server_id"]),
+                    subscription=subscription,
                     operation="update",
-                    idempotency_key=f"vpn:promo_extra_dev:{promocode_id}:{user_id}",
+                    base_idempotency_key=f"vpn:promo_extra_dev:{promocode_id}:{user_id}",
                 )
                 reward_summary = f"+{count} доп. устр."
             elif reward_type == "discount_percent":
@@ -967,7 +968,7 @@ class VpnService:
             if (
                 plan is None
                 or payment.get("currency") != "RUB"
-                or int(payment["duration_days"]) <= 0
+                or int(payment["duration_days"]) < 0
             ):
                 raise BusinessRuleError("Параметры заказа повреждены.")
 
@@ -1209,7 +1210,7 @@ class VpnService:
             self._require_not_abuse_blocked(conn, int(payment["user_id"]))
 
             plan = self.plans.get_by_id(conn, int(payment["vpn_plan_id"]))
-            if plan is None or int(payment["duration_days"]) <= 0:
+            if plan is None or int(payment["duration_days"]) < 0:
                 raise BusinessRuleError("Параметры заказа повреждены.")
             payment, marked_paid = self.payments.mark_paid(
                 conn,
@@ -1639,14 +1640,15 @@ class VpnService:
                     conn, subscription_id=int(live["id"]), count=count
                 )
                 subscription = self.subscriptions.get_by_id(conn, int(live["id"]))
-                self._enqueue_job_or_raise(
+                if subscription is None:
+                    raise RuntimeError("VPN subscription is missing")
+                self._enqueue_for_active_servers(
                     conn,
-                    subscription_id=int(live["id"]),
-                    server_id=int(live["server_id"]),
+                    subscription=subscription,
                     operation="update",
-                    idempotency_key=f"vpn:fulfill_extra_dev:{payment_id}",
+                    base_idempotency_key=f"vpn:fulfill_extra_dev:{payment_id}",
                 )
-                return subscription or live
+                return subscription
             raise BusinessRuleError("У вас нет активной подписки для добавления устройств.")
 
         duration = timedelta(days=duration_days)
