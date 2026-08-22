@@ -18,6 +18,10 @@ from aiohttp import ClientSession, ClientTimeout, web
 
 from ceavpn.config import Settings
 from ceavpn.database import Database
+from ceavpn.repositories.vpn_subscription_devices import (
+    DeviceLimitExceededError,
+    VpnSubscriptionDeviceRepository,
+)
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
 from ceavpn.services.vpn import MARZBAN_WHITELIST_PROFILE_VERSION
 
@@ -806,6 +810,57 @@ def device_limit_exceeded_response(bot_username: str = "ceavpn_bot") -> web.Resp
     )
 
 
+def _clean_device_value(value: str, *, maximum_length: int) -> str:
+    value = " ".join(value.split())
+    return value[:maximum_length]
+
+
+def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
+    """Create a stable device key and readable metadata from client headers."""
+
+    user_agent = _clean_device_value(request.headers.get("User-Agent", ""), maximum_length=512)
+    supplied_id = ""
+    for header in ("X-Device-ID", "X-Client-ID", "X-Happ-Device-ID"):
+        candidate = request.headers.get(header, "").strip()
+        if re.fullmatch(r"[A-Za-z0-9._:-]{8,256}", candidate):
+            supplied_id = candidate
+            break
+    if supplied_id:
+        device_key = hashlib.sha256(f"client:{supplied_id}".encode()).hexdigest()
+    else:
+        # A subscription client does not universally expose a device UUID.
+        # The fallback therefore combines its client fingerprint and source
+        # address rather than treating a model or User-Agent as an identity.
+        source = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
+        source = source or request.remote or "unknown"
+        device_key = hashlib.sha256(f"fallback:{source}\n{user_agent}".encode()).hexdigest()
+
+    lower = user_agent.lower()
+    model = "Не определено"
+    platform = "Не определено"
+    if "iphone" in lower:
+        model = "iPhone"
+        version = re.search(r"(?:iphone )?os ([0-9_]+)", lower)
+        platform = f"iOS / {version.group(1).replace('_', '.')}" if version else "iOS"
+    elif "ipad" in lower:
+        model = "iPad"
+        version = re.search(r"os ([0-9_]+)", lower)
+        platform = f"iPadOS / {version.group(1).replace('_', '.')}" if version else "iPadOS"
+    elif "android" in lower:
+        version = re.search(r"android\s+([0-9.]+)", lower)
+        platform = f"Android / {version.group(1)}" if version else "Android"
+        android_model = re.search(r"android[^;]*;[^;]*;\s*([^;)]+)", user_agent, re.I)
+        if android_model:
+            model = _clean_device_value(android_model.group(1), maximum_length=80)
+    elif "windows" in lower:
+        model, platform = "Компьютер", "Windows"
+    elif "mac os" in lower or "macintosh" in lower:
+        model, platform = "Mac", "macOS"
+    elif "linux" in lower:
+        model, platform = "Компьютер", "Linux"
+    return device_key, model, platform, user_agent or "Не определено"
+
+
 def is_subscription_active(subscription: Mapping[str, Any] | None) -> bool:
     if not subscription:
         return False
@@ -833,6 +888,7 @@ def register_vpn_subscription_delivery_routes(
 ) -> None:
     profiles = parse_extra_profiles(settings.vpn_extra_profiles_json)
     repository = VpnSubscriptionRepository()
+    devices = VpnSubscriptionDeviceRepository()
 
     def resolve(token: str, *, allow_inactive: bool = False) -> dict[str, Any] | None:
         match = TOKEN_RE.fullmatch(token)
@@ -862,6 +918,26 @@ def register_vpn_subscription_delivery_routes(
         subscription = resolve(token)
         if subscription is None:
             return expired_subscription_response()
+        device_key, model, platform, user_agent = _device_metadata(request)
+        try:
+            with db.transaction() as conn:
+                devices.register_or_touch(
+                    conn,
+                    subscription_id=int(subscription["id"]),
+                    device_key=device_key,
+                    model=model,
+                    platform=platform,
+                    user_agent=user_agent,
+                    max_devices=max(1, int(subscription.get("plan_max_devices") or 2)),
+                )
+        except DeviceLimitExceededError:
+            return device_limit_exceeded_response(
+                settings.vpn_bot_username or "ceavpn_bot"
+            )
+        except Exception:
+            # A subscription must never be issued without the server-side
+            # device check; the client can safely retry a transient failure.
+            return web.Response(status=503, text="VPN device check unavailable")
         upstream_url = str(subscription.get("subscription_url") or "")
         parsed = urlsplit(upstream_url)
         if (

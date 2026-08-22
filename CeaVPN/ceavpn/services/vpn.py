@@ -18,6 +18,10 @@ from ceavpn.repositories.vpn_reengagement import VpnReengagementRepository
 from ceavpn.repositories.vpn_payments import VpnPaymentRepository
 from ceavpn.repositories.vpn_plans import VpnPlanRepository
 from ceavpn.repositories.vpn_provisioning_jobs import VpnProvisioningJobRepository
+from ceavpn.repositories.vpn_subscription_devices import (
+    DeviceLimitExceededError,
+    VpnSubscriptionDeviceRepository,
+)
 from ceavpn.repositories.vpn_servers import VpnServerRepository
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
 from ceavpn.repositories.vpn_trial_claims import VpnTrialClaimRepository
@@ -46,6 +50,7 @@ _PLATEGA_RECONCILIATION_BATCH_SIZE = 20
 _PLATEGA_FAILED_RECHECK_WINDOW = timedelta(minutes=10)
 _PLATEGA_PAID_DISPUTE_HORIZON = timedelta(days=400)
 _PLATEGA_PAID_RECONCILIATION_LIMIT = 2
+MAX_SUBSCRIPTION_DEVICES = 7
 _MARZBAN_VLESS_INBOUND_TAGS = (
     "VLESS TCP REALITY",
     "VLESS WS TLS FALLBACK",
@@ -169,6 +174,7 @@ class VpnService:
         self.plans = VpnPlanRepository()
         self.payments = VpnPaymentRepository()
         self.subscriptions = VpnSubscriptionRepository()
+        self.devices = VpnSubscriptionDeviceRepository()
         self.trials = VpnTrialClaimRepository()
         self.abuse = VpnAbuseRepository()
         self.jobs = VpnProvisioningJobRepository()
@@ -553,13 +559,20 @@ class VpnService:
                 if not is_paid:
                     raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
                 plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
+                self._require_extra_device_capacity(
+                    conn,
+                    user_id=user_id,
+                    subscription=live,
+                    count=count,
+                    payment_method=f"{PLATEGA_PAYMENT_METHOD}_extra_{count}",
+                )
                 payment, created = self.payments.create_or_get_pending_platega(
                     conn,
                     user_id=user_id,
                     plan_id=plan_id,
                     amount_rub=price,
                     duration_days=0,
-                    payment_method=PLATEGA_PAYMENT_METHOD,
+                    payment_method=f"{PLATEGA_PAYMENT_METHOD}_extra_{count}",
                     request_external_id=request_external_id,
                 )
                 if created or not payment.get("payment_url"):
@@ -645,13 +658,20 @@ class VpnService:
             if not is_paid:
                 raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
             plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
+            self._require_extra_device_capacity(
+                conn,
+                user_id=user_id,
+                subscription=live,
+                count=count,
+                payment_method=f"admin_extra_{count}",
+            )
             payment, created = self.payments.create_admin_demo_payment(
                 conn,
                 user_id=user_id,
                 plan_id=plan_id,
                 amount_rub=price,
                 duration_days=0,
-                payment_method="other",
+                payment_method=f"admin_extra_{count}",
             )
         return payment, created
 
@@ -679,6 +699,13 @@ class VpnService:
             if not is_paid:
                 raise BusinessRuleError("Докупка устройств доступна только при активной платной подписке.")
             plan_id = int(live["plan_id"]) if live.get("plan_id") is not None else 1
+            self._require_extra_device_capacity(
+                conn,
+                user_id=user_id,
+                subscription=live,
+                count=count,
+                payment_method=f"stars_extra_{count}",
+            )
             self._require_checkout_ready_server(conn)
             payment, _ = self.payments.create_or_get_pending_stars(
                 conn,
@@ -686,6 +713,7 @@ class VpnService:
                 plan_id=plan_id,
                 amount_rub=price_rub,
                 duration_days=0,
+                payment_method=f"stars_extra_{count}",
             )
             return payment
 
@@ -1521,6 +1549,32 @@ class VpnService:
             )
         return server
 
+    def _require_extra_device_capacity(
+        self,
+        conn: Any,
+        *,
+        user_id: int,
+        subscription: Mapping[str, Any],
+        count: int,
+        payment_method: str,
+    ) -> None:
+        plan_id = subscription.get("plan_id")
+        plan = self.plans.get_by_id(conn, int(plan_id)) if plan_id is not None else None
+        base_limit = max(1, int((plan or {}).get("max_devices") or 2))
+        purchased = max(0, int(subscription.get("extra_devices") or 0))
+        reserved = self.payments.pending_extra_device_count(conn, user_id=user_id)
+        if self.payments.has_pending_extra_device_payment(
+            conn, user_id=user_id, payment_method=payment_method
+        ):
+            reserved = max(0, reserved - count)
+        available = MAX_SUBSCRIPTION_DEVICES - base_limit - purchased - reserved
+        if count > available:
+            if available <= 0:
+                raise BusinessRuleError("Достигнут максимальный лимит — 7 устройств.")
+            raise BusinessRuleError(
+                f"Можно докупить не больше {available} устройств(а) до лимита в 7."
+            )
+
     def _require_not_abuse_blocked(self, conn: Any, user_id: int) -> None:
         if self.abuse.is_blocked(conn, user_id):
             raise BusinessRuleError(
@@ -1538,6 +1592,83 @@ class VpnService:
     def get_current_subscription(self, user_id: int) -> Dict[str, Any] | None:
         with self.db.transaction() as conn:
             return self.subscriptions.get_latest_for_user(conn, user_id)
+
+    def list_subscription_devices(
+        self, *, user_id: int, page: int = 0, page_size: int = 5
+    ) -> tuple[Dict[str, Any] | None, list[Dict[str, Any]], int]:
+        safe_page = max(0, page)
+        with self.db.transaction() as conn:
+            subscription = self.subscriptions.get_active_for_user(conn, user_id)
+            if subscription is None:
+                return None, [], 0
+            subscription_id = int(subscription["id"])
+            total = self.devices.active_count(conn, subscription_id=subscription_id)
+            devices = self.devices.list_active(
+                conn,
+                subscription_id=subscription_id,
+                offset=safe_page * page_size,
+                limit=page_size,
+            )
+            return subscription, devices, total
+
+    def get_subscription_device(
+        self, *, user_id: int, device_id: int
+    ) -> Dict[str, Any] | None:
+        with self.db.transaction() as conn:
+            subscription = self.subscriptions.get_active_for_user(conn, user_id)
+            if subscription is None:
+                return None
+            device = self.devices.get_by_id(conn, device_id)
+            if (
+                device is None
+                or int(device["subscription_id"]) != int(subscription["id"])
+                or device.get("deactivated_at") is not None
+            ):
+                return None
+            return device
+
+    def detach_subscription_device(
+        self, *, user_id: int, device_id: int
+    ) -> bool:
+        with self.db.transaction() as conn:
+            subscription = self.subscriptions.get_active_for_user(conn, user_id)
+            if subscription is None:
+                return False
+            return self.devices.deactivate(
+                conn,
+                subscription_id=int(subscription["id"]),
+                device_id=device_id,
+            )
+
+    def register_subscription_device(
+        self,
+        *,
+        subscription_id: int,
+        device_key: str,
+        model: str,
+        platform: str,
+        user_agent: str,
+    ) -> bool:
+        """Register a subscription refresh as a device; return False at limit."""
+
+        with self.db.transaction() as conn:
+            subscription = self.subscriptions.get_by_id(conn, subscription_id)
+            if subscription is None:
+                return False
+            max_devices = max(1, int(subscription.get("plan_max_devices") or 2))
+            try:
+                self.devices.register_or_touch(
+                    conn,
+                    subscription_id=subscription_id,
+                    device_key=device_key,
+                    model=model,
+                    platform=platform,
+                    user_agent=user_agent,
+                    max_devices=max_devices,
+                )
+            except DeviceLimitExceededError:
+                return False
+            return True
 
     def has_used_trial(self, user_id: int) -> bool:
         with self.db.transaction() as conn:

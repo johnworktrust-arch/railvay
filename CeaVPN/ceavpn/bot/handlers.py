@@ -365,6 +365,7 @@ def main_keyboard(
 
 EXTRA_DEVICE_PRICES = {1: 50, 2: 60, 3: 70, 4: 80, 5: 90}
 EXTRA_DEVICE_STARS = {1: 30, 2: 40, 3: 50, 4: 60, 5: 70}
+MAX_SUBSCRIPTION_DEVICES = 7
 
 
 def _discounted_prices(
@@ -413,7 +414,7 @@ def plans_keyboard(
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 
-def add_devices_keyboard() -> InlineKeyboardMarkup:
+def add_devices_keyboard(available: int = 5) -> InlineKeyboardMarkup:
     rows = [
         [
             InlineKeyboardButton(
@@ -421,7 +422,7 @@ def add_devices_keyboard() -> InlineKeyboardMarkup:
                 callback_data=f"vpn:extra_dev:{cnt}",
             )
         ]
-        for cnt in range(1, 6)
+        for cnt in range(1, min(5, max(0, available)) + 1)
     ]
     rows.append(_back("vpn:plans"))
     return InlineKeyboardMarkup(inline_keyboard=rows)
@@ -822,6 +823,14 @@ def subscription_screen(
         [InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="vpn:plans")]
     )
     rows.append(
+        [
+            InlineKeyboardButton(
+                text="📱 Подключённые устройства",
+                callback_data="vpn:devices:0",
+            )
+        ]
+    )
+    rows.append(
         [InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{support_username}")]
     )
     rows.append(_back())
@@ -832,6 +841,97 @@ def subscription_screen(
         f"{sub_info_block}\n\n"
         f"{subscription_link_block}\n\n"
         f"{footer_text}",
+        InlineKeyboardMarkup(inline_keyboard=rows),
+    )
+
+
+def _device_datetime(value: Any) -> str:
+    if not value:
+        return "Не определено"
+    try:
+        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
+        if parsed.tzinfo is None:
+            parsed = parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(ZoneInfo("Europe/Moscow")).strftime("%Y-%m-%d %H:%M:%S")
+    except (TypeError, ValueError):
+        return "Не определено"
+
+
+def _device_label(device: Dict[str, Any], index: int) -> str:
+    model = str(device.get("model") or "Не определено").strip()
+    return f"{index}. {model[:42]}"
+
+
+def connected_devices_screen(
+    subscription: Dict[str, Any] | None,
+    devices: list[Dict[str, Any]],
+    *,
+    total: int,
+    page: int,
+    page_size: int = 5,
+) -> tuple[str, InlineKeyboardMarkup]:
+    if subscription is None:
+        return (
+            "📱 <b>Подключённые устройства</b>\n\n"
+            "Нет активной подписки для управления устройствами.",
+            InlineKeyboardMarkup(inline_keyboard=[_back("vpn:subscription")]),
+        )
+    limit = max(1, int(subscription.get("plan_max_devices") or 2))
+    lines = [
+        "📱 <b>Подключённые устройства</b>",
+        "",
+        f"Ваша подписка доступна на <b>{limit} устройствах</b>.",
+        f"Подключено: <b>{total} из {limit}</b>.",
+        f"Можно докупить до {MAX_SUBSCRIPTION_DEVICES} устройств.",
+        "",
+    ]
+    if not devices:
+        lines.append("Пока ни одно устройство не подключило подписку.")
+    for offset, device in enumerate(devices, start=page * page_size + 1):
+        lines.extend(
+            [
+                f"<b>{offset}.</b>",
+                f"└ 📱 Модель: {escape(str(device.get('model') or 'Не определено'))}",
+                f"└ 🧠 Платформа: {escape(str(device.get('platform') or 'Не определено'))}",
+                f"└ 🌐 User-Agent: {escape(str(device.get('user_agent') or 'Не определено')[:180])}",
+                f"└ 🕒 Создано: {_device_datetime(device.get('first_seen_at'))}",
+                f"└ 🔄 Последнее обновление подписки: {_device_datetime(device.get('last_seen_at'))}",
+                "",
+            ]
+        )
+    rows: list[list[InlineKeyboardButton]] = []
+    if limit < MAX_SUBSCRIPTION_DEVICES:
+        rows.append([InlineKeyboardButton(text="➕ Докупить устройство", callback_data="vpn:add_devices")])
+    if total:
+        rows.append([InlineKeyboardButton(text="🗑 Отвязать устройство", callback_data=f"vpn:devices_remove:{page}")])
+    max_page = max(0, (total - 1) // page_size)
+    if max_page:
+        navigation: list[InlineKeyboardButton] = []
+        if page > 0:
+            navigation.append(InlineKeyboardButton(text="◀️", callback_data=f"vpn:devices:{page - 1}"))
+        if page < max_page:
+            navigation.append(InlineKeyboardButton(text="▶️", callback_data=f"vpn:devices:{page + 1}"))
+        if navigation:
+            rows.append(navigation)
+    rows.append(_back("vpn:subscription"))
+    return "\n".join(lines).rstrip(), InlineKeyboardMarkup(inline_keyboard=rows)
+
+
+def device_removal_screen(
+    devices: list[Dict[str, Any]], *, page: int, page_size: int = 5
+) -> tuple[str, InlineKeyboardMarkup]:
+    rows = [
+        [
+            InlineKeyboardButton(
+                text=_device_label(device, page * page_size + index),
+                callback_data=f"vpn:device_remove:{int(device['id'])}:{page}",
+            )
+        ]
+        for index, device in enumerate(devices, start=1)
+    ]
+    rows.append(_back(f"vpn:devices:{page}"))
+    return (
+        "🗑 <b>Отвязать устройство</b>\n\nВыберите устройство, которое хотите отвязать.",
         InlineKeyboardMarkup(inline_keyboard=rows),
     )
 
@@ -1061,6 +1161,104 @@ def create_vpn_router(services: AppServices) -> Router:
             await show_subscription(callback.message, user=user)
         await callback.answer()
 
+    @router.callback_query(F.data.startswith("vpn:devices:"))
+    async def connected_devices(callback: CallbackQuery) -> None:
+        try:
+            page = max(0, int((callback.data or "").rsplit(":", 1)[-1]))
+        except ValueError:
+            await callback.answer("Некорректный запрос.", show_alert=True)
+            return
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        subscription, devices, total = services.vpn.list_subscription_devices(
+            user_id=int(user["id"]), page=page
+        )
+        if callback.message:
+            text, keyboard = connected_devices_screen(
+                subscription, devices, total=total, page=page
+            )
+            await _screen(callback.message, text, keyboard)
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("vpn:devices_remove:"))
+    async def choose_device_to_remove(callback: CallbackQuery) -> None:
+        try:
+            page = max(0, int((callback.data or "").rsplit(":", 1)[-1]))
+        except ValueError:
+            await callback.answer("Некорректный запрос.", show_alert=True)
+            return
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        _, devices, total = services.vpn.list_subscription_devices(
+            user_id=int(user["id"]), page=page
+        )
+        if not total:
+            await callback.answer("Подключённых устройств уже нет.", show_alert=True)
+            return
+        if callback.message:
+            text, keyboard = device_removal_screen(devices, page=page)
+            await _screen(callback.message, text, keyboard)
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("vpn:device_remove:"))
+    async def confirm_device_removal(callback: CallbackQuery) -> None:
+        parts = (callback.data or "").split(":")
+        if len(parts) != 4:
+            await callback.answer("Некорректный запрос.", show_alert=True)
+            return
+        try:
+            device_id, page = int(parts[2]), max(0, int(parts[3]))
+        except ValueError:
+            await callback.answer("Некорректный запрос.", show_alert=True)
+            return
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        device = services.vpn.get_subscription_device(
+            user_id=int(user["id"]), device_id=device_id
+        )
+        if device is None:
+            await callback.answer("Устройство уже отвязано или недоступно.", show_alert=True)
+            return
+        name = escape(str(device.get("model") or "Не определено"))
+        if callback.message:
+            await _screen(
+                callback.message,
+                f"Вы уверены, что хотите отвязать устройство «{name}»?",
+                InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="✅ Отвязать", callback_data=f"vpn:device_remove_confirm:{device_id}:{page}")],
+                        [InlineKeyboardButton(text="❌ Отмена", callback_data=f"vpn:devices:{page}")],
+                        _back(f"vpn:devices_remove:{page}"),
+                    ]
+                ),
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("vpn:device_remove_confirm:"))
+    async def remove_device(callback: CallbackQuery) -> None:
+        parts = (callback.data or "").split(":")
+        if len(parts) != 4:
+            await callback.answer("Некорректный запрос.", show_alert=True)
+            return
+        try:
+            device_id, page = int(parts[2]), max(0, int(parts[3]))
+        except ValueError:
+            await callback.answer("Некорректный запрос.", show_alert=True)
+            return
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        removed = services.vpn.detach_subscription_device(
+            user_id=int(user["id"]), device_id=device_id
+        )
+        if not removed:
+            await callback.answer("Устройство уже отвязано или недоступно.", show_alert=True)
+            return
+        subscription, devices, total = services.vpn.list_subscription_devices(
+            user_id=int(user["id"]), page=page
+        )
+        if callback.message:
+            text, keyboard = connected_devices_screen(
+                subscription, devices, total=total, page=page
+            )
+            await _screen(callback.message, text, keyboard)
+        await callback.answer("Устройство отвязано. Слот освобождён.", show_alert=True)
+
     @router.callback_query(F.data == "vpn:trial")
     async def trial(callback: CallbackQuery) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(callback))
@@ -1181,13 +1379,22 @@ def create_vpn_router(services: AppServices) -> Router:
             )
             return
 
+        current_limit = int(active_sub.get("plan_max_devices") or 2)
+        available = max(0, MAX_SUBSCRIPTION_DEVICES - current_limit)
+        if available == 0:
+            await callback.answer(
+                "Достигнут максимальный лимит — 7 устройств.", show_alert=True
+            )
+            return
+
         if callback.message:
             await _screen(
                 callback.message,
                 "<b>Докупить устройства 📱</b>\n\n"
                 "Выберите количество дополнительных устройств для подключения к вашему VPN:\n\n"
+                f"Сейчас доступно: <b>{current_limit} из {MAX_SUBSCRIPTION_DEVICES}</b>.\n"
                 "ℹ️ Новые устройства привязываются к вашей текущей подписке.",
-                add_devices_keyboard(),
+                add_devices_keyboard(available),
             )
         await callback.answer()
 

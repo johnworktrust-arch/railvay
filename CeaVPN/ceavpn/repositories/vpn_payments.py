@@ -27,6 +27,33 @@ _PROVIDER_TERMINAL_TRANSITIONS = {
 
 
 class VpnPaymentRepository:
+    def pending_extra_device_count(self, conn: Any, *, user_id: int) -> int:
+        """Count reserved slots in still-pending extra-device orders."""
+
+        rows = conn.execute(
+            """
+            SELECT amount_rub FROM vpn_payments
+            WHERE user_id = ? AND status = 'pending' AND duration_days = 0
+            """,
+            (user_id,),
+        ).fetchall()
+        prices = {50: 1, 60: 2, 70: 3, 80: 4, 90: 5}
+        return sum(prices.get(int(row["amount_rub"]), 0) for row in rows)
+
+    def has_pending_extra_device_payment(
+        self, conn: Any, *, user_id: int, payment_method: str
+    ) -> bool:
+        row = conn.execute(
+            """
+            SELECT 1 FROM vpn_payments
+            WHERE user_id = ? AND status = 'pending' AND duration_days = 0
+              AND payment_method = ?
+            LIMIT 1
+            """,
+            (user_id, payment_method),
+        ).fetchone()
+        return row is not None
+
     def create_or_get_pending_admin_demo(
         self,
         conn: sqlite3.Connection,

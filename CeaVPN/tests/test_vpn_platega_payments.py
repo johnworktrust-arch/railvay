@@ -254,6 +254,26 @@ class VpnPlategaPaymentServiceTest(unittest.TestCase):
         self.assertEqual(outcome.subscription["extra_devices"], 2)
         self.assertEqual(self._counts(), (1, 2))
 
+    def test_extra_devices_cannot_reserve_more_than_seven_total_slots(self) -> None:
+        with self.db.transaction() as conn:
+            conn.execute("UPDATE vpn_plans SET max_devices = 2")
+        subscription_order = self._create()
+        self.client.set_status(
+            subscription_order["external_id"], PLATEGA_CONFIRMED
+        )
+        self.vpn.check_platega_payment(
+            user_id=int(self.user["id"]),
+            payment_id=int(subscription_order["id"]),
+        )
+        self.vpn.create_extra_devices_platega_payment(
+            user_id=int(self.user["id"]), count=5, user_name="platega_user"
+        )
+
+        with self.assertRaisesRegex(BusinessRuleError, "максимальный лимит"):
+            self.vpn.create_extra_devices_platega_payment(
+                user_id=int(self.user["id"]), count=1, user_name="platega_user"
+            )
+
     def test_confirmed_vpn_payment_credits_and_chargeback_reverses_referral(
         self,
     ) -> None:

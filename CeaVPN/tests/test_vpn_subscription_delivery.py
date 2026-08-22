@@ -16,6 +16,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from ceavpn.config import Settings
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
+from ceavpn.repositories.vpn_subscription_devices import VpnSubscriptionDeviceRepository
 from ceavpn.vpn_subscription_delivery import (
     _landing_html,
     delivery_subscription_url,
@@ -814,6 +815,10 @@ class VpnQualificationGateRouteTest(unittest.IsolatedAsyncioTestCase):
                 "has_completed_server_replica",
                 side_effect=(True, False, True),
             ) as replica_ready,
+            patch.object(
+                VpnSubscriptionDeviceRepository,
+                "register_or_touch",
+            ),
             patch(
                 "ceavpn.vpn_subscription_delivery.ClientSession",
                 RouteSession,
