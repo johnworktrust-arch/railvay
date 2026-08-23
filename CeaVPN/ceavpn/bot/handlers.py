@@ -893,9 +893,7 @@ def connected_devices_screen(
                 f"<b>{offset}.</b>",
                 f"└ 📱 Модель: {escape(str(device.get('model') or 'Не определено'))}",
                 f"└ 🧠 Платформа: {escape(str(device.get('platform') or 'Не определено'))}",
-                f"└ 🌐 User-Agent: {escape(str(device.get('user_agent') or 'Не определено')[:180])}",
-                f"└ 🕒 Создано: {_device_datetime(device.get('first_seen_at'))}",
-                f"└ 🔄 Последнее обновление подписки: {_device_datetime(device.get('last_seen_at'))}",
+                f"└ 🔄 Обновлено: {_device_datetime(device.get('last_seen_at'))}",
                 "",
             ]
         )

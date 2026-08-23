@@ -18,6 +18,7 @@ from ceavpn.config import Settings
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
 from ceavpn.repositories.vpn_subscription_devices import VpnSubscriptionDeviceRepository
 from ceavpn.vpn_subscription_delivery import (
+    _device_metadata,
     _landing_html,
     delivery_subscription_url,
     merge_subscription_profiles,
@@ -82,6 +83,24 @@ QUALIFICATION_FINGERPRINT = _qualification_fingerprint()
 
 
 class VpnSubscriptionDeliveryTest(unittest.TestCase):
+    def test_device_metadata_recognizes_iphone_model_identifier(self) -> None:
+        request = type(
+            "Request",
+            (),
+            {
+                "headers": {
+                    "User-Agent": "Happ/5.6.0/iOS/18.7.3/iPhone16,1",
+                    "X-Device-ID": "device-15-pro-1234",
+                },
+                "remote": "203.0.113.10",
+            },
+        )()
+
+        _, model, platform, _ = _device_metadata(request)
+
+        self.assertEqual(model, "iPhone 15 Pro")
+        self.assertEqual(platform, "iOS / 18.7.3")
+
     def test_happ_landing_requires_an_explicit_button_press(self) -> None:
         html = _landing_html("https://bot.example.test/sub/token", client="connect")
 

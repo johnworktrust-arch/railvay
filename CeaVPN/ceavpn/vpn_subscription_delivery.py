@@ -815,6 +815,20 @@ def _clean_device_value(value: str, *, maximum_length: int) -> str:
     return value[:maximum_length]
 
 
+_APPLE_MODELS = {
+    "iPhone15,2": "iPhone 14 Pro",
+    "iPhone15,3": "iPhone 14 Pro Max",
+    "iPhone15,4": "iPhone 15",
+    "iPhone15,5": "iPhone 15 Plus",
+    "iPhone16,1": "iPhone 15 Pro",
+    "iPhone16,2": "iPhone 15 Pro Max",
+    "iPhone17,1": "iPhone 16 Pro",
+    "iPhone17,2": "iPhone 16 Pro Max",
+    "iPhone17,3": "iPhone 16",
+    "iPhone17,4": "iPhone 16 Plus",
+}
+
+
 def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
     """Create a stable device key and readable metadata from client headers."""
 
@@ -836,29 +850,49 @@ def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
         device_key = hashlib.sha256(f"fallback:{source}\n{user_agent}".encode()).hexdigest()
 
     lower = user_agent.lower()
-    model = "Не определено"
-    platform = "Не определено"
+    model = _clean_device_value(
+        request.headers.get("X-Device-Model", "")
+        or request.headers.get("X-Device-Name", ""),
+        maximum_length=80,
+    )
+    platform = _clean_device_value(request.headers.get("X-Device-Platform", ""), maximum_length=80)
     if "iphone" in lower:
-        model = "iPhone"
-        version = re.search(r"(?:iphone )?os ([0-9_]+)", lower)
-        platform = f"iOS / {version.group(1).replace('_', '.')}" if version else "iOS"
+        apple_id = re.search(r"iphone\s*([0-9]{1,2},[0-9])", user_agent, re.I)
+        literal_model = re.search(r"\b(iPhone\s+(?:[0-9]{1,2}|SE)(?:\s+(?:Plus|Pro(?:\s+Max)?))?)\b", user_agent, re.I)
+        if not model:
+            model = (
+                _APPLE_MODELS.get(f"iPhone{apple_id.group(1)}", "")
+                if apple_id
+                else ""
+            ) or (literal_model.group(1) if literal_model else "iPhone")
+        version = re.search(r"(?:iphone )?os[ /]([0-9_.]+)|ios[ /]([0-9_.]+)", lower)
+        if not platform:
+            raw_version = next((item for item in version.groups() if item), "") if version else ""
+            platform = f"iOS / {raw_version.replace('_', '.')}" if raw_version else "iOS"
     elif "ipad" in lower:
-        model = "iPad"
-        version = re.search(r"os ([0-9_]+)", lower)
-        platform = f"iPadOS / {version.group(1).replace('_', '.')}" if version else "iPadOS"
+        model = model or "iPad"
+        version = re.search(r"os[ /]([0-9_.]+)|ipados[ /]([0-9_.]+)", lower)
+        if not platform:
+            raw_version = next((item for item in version.groups() if item), "") if version else ""
+            platform = f"iPadOS / {raw_version.replace('_', '.')}" if raw_version else "iPadOS"
     elif "android" in lower:
         version = re.search(r"android\s+([0-9.]+)", lower)
-        platform = f"Android / {version.group(1)}" if version else "Android"
+        platform = platform or (f"Android / {version.group(1)}" if version else "Android")
         android_model = re.search(r"android[^;]*;[^;]*;\s*([^;)]+)", user_agent, re.I)
-        if android_model:
+        if not model and android_model:
             model = _clean_device_value(android_model.group(1), maximum_length=80)
     elif "windows" in lower:
-        model, platform = "Компьютер", "Windows"
+        model, platform = model or "Компьютер", platform or "Windows"
     elif "mac os" in lower or "macintosh" in lower:
-        model, platform = "Mac", "macOS"
+        model, platform = model or "Mac", platform or "macOS"
     elif "linux" in lower:
-        model, platform = "Компьютер", "Linux"
-    return device_key, model, platform, user_agent or "Не определено"
+        model, platform = model or "Компьютер", platform or "Linux"
+    return (
+        device_key,
+        model or "Устройство CEA VPN",
+        platform or "Платформа не передана клиентом",
+        user_agent or "Клиент не передал User-Agent",
+    )
 
 
 def is_subscription_active(subscription: Mapping[str, Any] | None) -> bool:
