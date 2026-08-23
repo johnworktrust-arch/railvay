@@ -107,6 +107,16 @@ def vpn_admin_stats_text(stats: Dict[str, Any]) -> str:
     )
 
 
+def _has_vpn_admin_access(user: Dict[str, Any], services: AppServices) -> bool:
+    """Allow both the global admin roles and the VPN owner's allow-list."""
+
+    if services.admin.has_admin_access(user):
+        return True
+    return int(user["telegram_id"]) in set(
+        services.settings.vpn_admin_demo_telegram_ids
+    )
+
+
 def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
     user = event.from_user
     return {
@@ -1064,7 +1074,7 @@ def create_vpn_router(services: AppServices) -> Router:
     @router.message(Command("admin"))
     async def admin_statistics(message: Message) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
-        if not services.admin.has_admin_access(user):
+        if not _has_vpn_admin_access(user, services):
             # Do not disclose that a private operator command exists.
             return
         stats = await asyncio.to_thread(

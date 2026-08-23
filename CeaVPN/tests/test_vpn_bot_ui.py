@@ -2,9 +2,11 @@ from __future__ import annotations
 
 import unittest
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 from ceavpn.bot.handlers import (
     VPN_MAIN_SCREEN_TEXT,
+    _has_vpn_admin_access,
     connect_landing_url,
     happ_landing_url,
     main_keyboard,
@@ -19,6 +21,19 @@ from ceavpn.bot.handlers import (
 
 
 class VpnBotUiTest(unittest.TestCase):
+    def test_vpn_owner_allow_list_can_use_private_statistics(self) -> None:
+        services = SimpleNamespace(
+            admin=SimpleNamespace(has_admin_access=lambda user: False),
+            settings=SimpleNamespace(vpn_admin_demo_telegram_ids=(12345,)),
+        )
+
+        self.assertTrue(
+            _has_vpn_admin_access({"telegram_id": 12345}, services)
+        )
+        self.assertFalse(
+            _has_vpn_admin_access({"telegram_id": 67890}, services)
+        )
+
     def test_admin_statistics_has_the_essential_vpn_metrics(self) -> None:
         text = vpn_admin_stats_text(
             {
