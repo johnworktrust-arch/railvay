@@ -15,10 +15,20 @@ class VpnAdminRepository:
         period_started_at: str,
         healthy_after: str,
     ) -> Dict[str, Any]:
+        if getattr(conn, "driver", "") == "postgres":
+            paid_at_expression = "COALESCE(pay.paid_at, pay.updated_at, pay.created_at)"
+            healthy_at_expression = "srv.last_health_at"
+        else:
+            # SQLite stores timestamps as text; normalize old space-separated
+            # values before comparing them with current ISO timestamps.
+            paid_at_expression = (
+                "REPLACE(COALESCE(pay.paid_at, pay.updated_at, pay.created_at), ' ', 'T')"
+            )
+            healthy_at_expression = "REPLACE(srv.last_health_at, ' ', 'T')"
         return (
             row_to_dict(
                 conn.execute(
-                    """
+                    f"""
                     SELECT
                         (
                             SELECT COUNT(DISTINCT u.id)
@@ -78,7 +88,7 @@ class VpnAdminRepository:
                             FROM vpn_payments pay
                             WHERE pay.status IN ('paid', 'completed', 'confirmed')
                               AND pay.provider <> 'admin_demo'
-                              AND REPLACE(COALESCE(pay.paid_at, pay.updated_at, pay.created_at), ' ', 'T') >= ?
+                              AND {paid_at_expression} >= ?
                         ) AS revenue_period_rub,
                         (
                             SELECT COUNT(*) FROM vpn_subscriptions s
@@ -105,7 +115,7 @@ class VpnAdminRepository:
                             SELECT COUNT(*) FROM vpn_servers srv
                             WHERE srv.is_active = TRUE
                               AND srv.last_health_at IS NOT NULL
-                              AND REPLACE(srv.last_health_at, ' ', 'T') >= ?
+                              AND {healthy_at_expression} >= ?
                         ) AS servers_healthy,
                         (
                             SELECT COUNT(*) FROM vpn_user_bans ban
@@ -132,15 +142,20 @@ class VpnAdminRepository:
         now: str,
         healthy_after: str,
     ) -> List[Dict[str, Any]]:
+        healthy_at_expression = (
+            "srv.last_health_at"
+            if getattr(conn, "driver", "") == "postgres"
+            else "REPLACE(srv.last_health_at, ' ', 'T')"
+        )
         return rows_to_dicts(
             conn.execute(
-                """
+                f"""
                 SELECT
                     srv.*,
                     CASE
                         WHEN srv.is_active = TRUE
                          AND srv.last_health_at IS NOT NULL
-                         AND REPLACE(srv.last_health_at, ' ', 'T') >= ?
+                         AND {healthy_at_expression} >= ?
                         THEN TRUE ELSE FALSE
                     END AS is_healthy,
                     (
