@@ -13,11 +13,34 @@ from ceavpn.bot.handlers import (
     trial_expired_screen,
     trial_expiry_reminder_screen,
     v2box_landing_url,
+    vpn_admin_stats_text,
     plans_keyboard,
 )
 
 
 class VpnBotUiTest(unittest.TestCase):
+    def test_admin_statistics_has_the_essential_vpn_metrics(self) -> None:
+        text = vpn_admin_stats_text(
+            {
+                "users_total": 120,
+                "active_users": 40,
+                "active_trial_users": 10,
+                "paid_users": 35,
+                "paid_payments": 48,
+                "revenue_rub": 7560,
+                "revenue_period_rub": 890,
+                "expired_subscriptions": 7,
+                "servers_healthy": 3,
+                "servers_total": 4,
+            }
+        )
+
+        self.assertIn("👥 Пользователей: <b>120</b>", text)
+        self.assertIn("🎁 На пробном периоде: <b>10</b>", text)
+        self.assertIn("💎 Покупали подписку: <b>35</b>", text)
+        self.assertIn("💰 Выручка: <b>7560 ₽</b>", text)
+        self.assertIn("🖥 Серверы: <b>3 из 4 онлайн</b>", text)
+
     def test_public_copy_uses_payment_moderation_safe_wording(self) -> None:
         from ceavpn.main import VPN_BOT_DESCRIPTION, VPN_BOT_SHORT_DESCRIPTION
 

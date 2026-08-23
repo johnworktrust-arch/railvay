@@ -34,6 +34,7 @@ from ceavpn.config import Settings
 from ceavpn.services.app import AppServices
 from ceavpn.services.exceptions import BusinessRuleError
 from ceavpn.services.referrals import format_rubles_from_kopecks
+from ceavpn.services.vpn_admin import VpnAdminService
 from ceavpn.vpn_subscription_delivery import (
     delivery_base_url,
     is_subscription_active,
@@ -84,6 +85,26 @@ def main_screen_text(*, trial_available: bool, active_subscription: bool) -> str
             "Выберите срок подписки — доступ откроется сразу после оплаты."
         )
     return f"{VPN_MAIN_SCREEN_TEXT}\n\n{status}"
+
+
+def vpn_admin_stats_text(stats: Dict[str, Any]) -> str:
+    """Render the compact, private VPN-bot owner summary."""
+
+    def value(name: str) -> int:
+        return int(stats.get(name) or 0)
+
+    return (
+        "📊 <b>CEA VPN — статистика</b>\n\n"
+        f"👥 Пользователей: <b>{value('users_total')}</b>\n"
+        f"🟢 Активных подписок: <b>{value('active_users')}</b>\n"
+        f"🎁 На пробном периоде: <b>{value('active_trial_users')}</b>\n"
+        f"💎 Покупали подписку: <b>{value('paid_users')}</b>\n\n"
+        f"💳 Успешных оплат: <b>{value('paid_payments')}</b>\n"
+        f"💰 Выручка: <b>{value('revenue_rub')} ₽</b>\n"
+        f"📈 Сегодня: <b>{value('revenue_period_rub')} ₽</b>\n\n"
+        f"⌛ Истекло подписок: <b>{value('expired_subscriptions')}</b>\n"
+        f"🖥 Серверы: <b>{value('servers_healthy')} из {value('servers_total')} онлайн</b>"
+    )
 
 
 def _user_kwargs(event: Message | CallbackQuery) -> Dict[str, Any]:
@@ -1039,6 +1060,17 @@ def create_vpn_router(services: AppServices) -> Router:
             f"Поддержка — @{escape(services.settings.vpn_support_username)}",
             about_keyboard(services.settings),
         )
+
+    @router.message(Command("admin"))
+    async def admin_statistics(message: Message) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(message))
+        if not services.admin.has_admin_access(user):
+            # Do not disclose that a private operator command exists.
+            return
+        stats = await asyncio.to_thread(
+            VpnAdminService(services.vpn.db, services.settings).dashboard
+        )
+        await message.answer(vpn_admin_stats_text(stats), parse_mode="HTML")
 
     @router.message(CommandStart())
     async def start(message: Message) -> None:
