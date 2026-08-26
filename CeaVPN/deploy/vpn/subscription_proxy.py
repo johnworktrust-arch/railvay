@@ -196,15 +196,11 @@ class SubscriptionProxyHandler(BaseHTTPRequestHandler):
             if subscription_has_expired(headers):
                 body = expired_subscription_body(bot_username)
             else:
-                client_ip = (
-                    self.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-                    or self.client_address[0]
-                )
-                user_agent = self.headers.get("User-Agent", "").strip()
-                device_key = f"{client_ip}:{user_agent}"
-                max_devices = max_devices_from_headers(headers)
-                if is_device_limit_exceeded(self.path, device_key, max_devices):
-                    body = device_limit_exceeded_body(bot_username)
+                # Device slots are enforced by the central subscription
+                # delivery service.  A node-level registry sees the Railway
+                # proxy as a separate client and can therefore block a real
+                # customer with a false "device limit" response.
+                pass
 
         self.send_response(status)
         for name, value in headers.items():
