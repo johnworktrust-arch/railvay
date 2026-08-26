@@ -10,6 +10,7 @@ DynamicUser=yes
 Environment=PYTHONDONTWRITEBYTECODE=1
 Environment=PYTHONUNBUFFERED=1
 Environment=VPN_BOT_USERNAME=ceavpn_bot
+Environment=VPN_CENTRAL_DELIVERY_BASE_URL=https://railvay-production-8ba7.up.railway.app
 ExecStart=/usr/bin/python3 /opt/ceavpn/subscription_proxy.py
 Restart=on-failure
 RestartSec=3s

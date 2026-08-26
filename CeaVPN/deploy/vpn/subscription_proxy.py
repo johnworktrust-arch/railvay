@@ -17,8 +17,10 @@ from urllib.request import Request, urlopen
 LISTEN_HOST = "127.0.0.1"
 LISTEN_PORT = 8010
 UPSTREAM_BASE_URL = "http://127.0.0.1:8000"
+CENTRAL_DELIVERY_BASE_URL = os.getenv("VPN_CENTRAL_DELIVERY_BASE_URL", "").rstrip("/")
 MAX_RESPONSE_BYTES = 512 * 1024
 SUBSCRIPTION_PATH_RE = re.compile(r"/sub/[A-Za-z0-9._~-]{1,160}/?")
+SIGNED_DELIVERY_PATH_RE = re.compile(r"/sub/\d{1,12}\.[0-9a-f]{64}/?")
 FORWARDED_HEADERS = {
     "content-disposition",
     "profile-title",
@@ -165,12 +167,22 @@ class SubscriptionProxyHandler(BaseHTTPRequestHandler):
             self.send_error(404)
             return
 
+        central_delivery = (
+            CENTRAL_DELIVERY_BASE_URL
+            and SIGNED_DELIVERY_PATH_RE.fullmatch(self.path)
+        )
+        request_url = (
+            f"{CENTRAL_DELIVERY_BASE_URL}{self.path}"
+            if central_delivery
+            else f"{UPSTREAM_BASE_URL}{self.path}"
+        )
         request = Request(
-            f"{UPSTREAM_BASE_URL}{self.path}",
+            request_url,
             headers={
                 "Accept": "text/plain",
                 "Accept-Encoding": "identity",
-                "User-Agent": "CEA-Subscription-Proxy/1.0",
+                "User-Agent": self.headers.get("User-Agent", "CEA-Subscription-Proxy/1.0"),
+                "X-Forwarded-For": self.headers.get("X-Forwarded-For", self.client_address[0]),
             },
         )
         try:
