@@ -28,6 +28,14 @@ FORWARDED_HEADERS = {
     "subscription-userinfo",
     "support-url",
 }
+CLIENT_METADATA_HEADERS = (
+    "X-Device-ID",
+    "X-Client-ID",
+    "X-Happ-Device-ID",
+    "X-Device-Model",
+    "X-Device-Name",
+    "X-Device-Platform",
+)
 HAPP_COLOR_PROFILE = (
     '{"backgroundImageType":"dark","backgroundGradientColorIntensity":1,'
     '"backgroundGradientRotationAngle":0,"backgroundColors":['
@@ -157,6 +165,22 @@ def _headers_dict(items: Iterable[tuple[str, str]]) -> dict[str, str]:
     return {name.lower(): value for name, value in items}
 
 
+def forwarded_request_headers(
+    headers: Mapping[str, str], client_address: str
+) -> dict[str, str]:
+    forwarded = {
+        "Accept": "text/plain",
+        "Accept-Encoding": "identity",
+        "User-Agent": headers.get("User-Agent", "CEA-Subscription-Proxy/1.0"),
+        "X-Forwarded-For": headers.get("X-Forwarded-For", client_address),
+    }
+    for name in CLIENT_METADATA_HEADERS:
+        value = headers.get(name, "").strip()
+        if value:
+            forwarded[name] = value
+    return forwarded
+
+
 class SubscriptionProxyHandler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "CEA-Subscription-Proxy"
@@ -178,12 +202,10 @@ class SubscriptionProxyHandler(BaseHTTPRequestHandler):
         )
         request = Request(
             request_url,
-            headers={
-                "Accept": "text/plain",
-                "Accept-Encoding": "identity",
-                "User-Agent": self.headers.get("User-Agent", "CEA-Subscription-Proxy/1.0"),
-                "X-Forwarded-For": self.headers.get("X-Forwarded-For", self.client_address[0]),
-            },
+            headers=forwarded_request_headers(
+                self.headers,
+                self.client_address[0],
+            ),
         )
         try:
             try:

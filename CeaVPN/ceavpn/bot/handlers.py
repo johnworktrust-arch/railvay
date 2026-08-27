@@ -888,8 +888,37 @@ def _device_datetime(value: Any) -> str:
         return "Не определено"
 
 
+def _device_model(device: Dict[str, Any]) -> str:
+    model = str(device.get("model") or "").strip()
+    if model.lower() not in {
+        "",
+        "не определено",
+        "устройство cea vpn",
+    }:
+        return model
+    fingerprint = " ".join(
+        (
+            str(device.get("platform") or ""),
+            str(device.get("user_agent") or ""),
+        )
+    ).lower()
+    if "iphone" in fingerprint or "ios" in fingerprint:
+        return "iPhone"
+    if "ipad" in fingerprint or "ipados" in fingerprint:
+        return "iPad"
+    if "android" in fingerprint:
+        return "Android-устройство"
+    if "mac" in fingerprint:
+        return "Mac"
+    if "windows" in fingerprint:
+        return "Компьютер Windows"
+    if "linux" in fingerprint:
+        return "Компьютер Linux"
+    return "Устройство"
+
+
 def _device_label(device: Dict[str, Any], index: int) -> str:
-    model = str(device.get("model") or "Не определено").strip()
+    model = _device_model(device)
     return f"{index}. {model[:42]}"
 
 
@@ -922,8 +951,7 @@ def connected_devices_screen(
         lines.extend(
             [
                 f"<b>{offset}.</b>",
-                f"└ 📱 Модель: {escape(str(device.get('model') or 'Не определено'))}",
-                f"└ 🧠 Платформа: {escape(str(device.get('platform') or 'Не определено'))}",
+                f"└ 📱 Модель: {escape(_device_model(device))}",
                 f"└ 🔄 Обновлено: {_device_datetime(device.get('last_seen_at'))}",
                 "",
             ]
@@ -1256,7 +1284,7 @@ def create_vpn_router(services: AppServices) -> Router:
         if device is None:
             await callback.answer("Устройство уже отвязано или недоступно.", show_alert=True)
             return
-        name = escape(str(device.get("model") or "Не определено"))
+        name = escape(_device_model(device))
         if callback.message:
             await _screen(
                 callback.message,

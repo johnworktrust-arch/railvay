@@ -101,6 +101,66 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         self.assertEqual(model, "iPhone 15 Pro")
         self.assertEqual(platform, "iOS / 18.7.3")
 
+    def test_happ_device_token_is_stable_when_ip_changes(self) -> None:
+        def request(remote: str):
+            return type(
+                "Request",
+                (),
+                {
+                    "headers": {
+                        "User-Agent": "Happ/5.6.0/ios/2608171408651",
+                    },
+                    "remote": remote,
+                },
+            )()
+
+        first = _device_metadata(request("203.0.113.10"))
+        second = _device_metadata(request("198.51.100.20"))
+
+        self.assertEqual(first[0], second[0])
+        self.assertEqual(first[1], "iPhone")
+        self.assertEqual(first[2], "iOS")
+
+    def test_happ_device_token_distinguishes_devices(self) -> None:
+        first = type(
+            "Request",
+            (),
+            {
+                "headers": {"User-Agent": "Happ/5.6.0/ios/2608171408651"},
+                "remote": "203.0.113.10",
+            },
+        )()
+        second = type(
+            "Request",
+            (),
+            {
+                "headers": {"User-Agent": "Happ/5.6.0/ios/2608171408551"},
+                "remote": "203.0.113.10",
+            },
+        )()
+
+        self.assertNotEqual(_device_metadata(first)[0], _device_metadata(second)[0])
+
+    def test_android_user_agent_extracts_hardware_model(self) -> None:
+        request = type(
+            "Request",
+            (),
+            {
+                "headers": {
+                    "User-Agent": (
+                        "Mozilla/5.0 (Linux; Android 14; SM-S918B "
+                        "Build/UP1A.231005.007)"
+                    )
+                },
+                "remote": "203.0.113.10",
+            },
+        )()
+
+        _, model, platform, _ = _device_metadata(request)
+
+        self.assertEqual(model, "SM-S918B")
+        self.assertEqual(platform, "Android / 14")
+
     def test_happ_landing_requires_an_explicit_button_press(self) -> None:
         html = _landing_html("https://bot.example.test/sub/token", client="connect")
 

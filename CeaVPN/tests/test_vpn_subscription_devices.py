@@ -63,16 +63,25 @@ class VpnSubscriptionDeviceRepositoryTest(unittest.TestCase):
     def tearDown(self) -> None:
         self.db.close()
 
-    def _register(self, key: str, *, limit: int = 2):
+    def _register(
+        self,
+        key: str,
+        *,
+        limit: int = 2,
+        model: str = "iPhone",
+        user_agent: str = "Happ/5.6.0/iOS",
+        legacy_user_agent_suffix: str = "",
+    ):
         with self.db.transaction() as conn:
             return self.devices.register_or_touch(
                 conn,
                 subscription_id=int(self.subscription["id"]),
                 device_key=key,
-                model="iPhone",
+                model=model,
                 platform="iOS / 18",
-                user_agent="Happ/5.6.0/iOS",
+                user_agent=user_agent,
                 max_devices=limit,
+                legacy_user_agent_suffix=legacy_user_agent_suffix,
             )
 
     def test_base_limit_allows_two_and_blocks_third(self) -> None:
@@ -111,6 +120,43 @@ class VpnSubscriptionDeviceRepositoryTest(unittest.TestCase):
         self._register("device-three")
         with self.assertRaises(DeviceLimitExceededError):
             self._register("device-one")
+
+    def test_happ_identity_merges_legacy_ip_duplicates_at_the_limit(self) -> None:
+        user_agent = "Happ/5.6.0/ios/2608171408651"
+        self._register(
+            "legacy-ip-one",
+            model="Не определено",
+            user_agent=user_agent,
+        )
+        self._register(
+            "legacy-ip-two",
+            model="iPhone 13 Pro",
+            user_agent=user_agent,
+        )
+
+        refreshed = self._register(
+            "stable-happ-key",
+            model="iPhone",
+            user_agent=user_agent,
+            legacy_user_agent_suffix="/ios/2608171408651",
+        )
+
+        with self.db.transaction() as conn:
+            self.assertEqual(
+                self.devices.active_count(
+                    conn, subscription_id=int(self.subscription["id"])
+                ),
+                1,
+            )
+            active = self.devices.list_active(
+                conn,
+                subscription_id=int(self.subscription["id"]),
+                offset=0,
+                limit=10,
+            )
+        self.assertEqual(refreshed["device_key"], "stable-happ-key")
+        self.assertEqual(refreshed["model"], "iPhone 13 Pro")
+        self.assertEqual(active[0]["model"], "iPhone 13 Pro")
 
     def test_parallel_registrations_never_exceed_limit(self) -> None:
         barrier = threading.Barrier(3)

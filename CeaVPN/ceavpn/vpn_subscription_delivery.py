@@ -816,6 +816,20 @@ def _clean_device_value(value: str, *, maximum_length: int) -> str:
 
 
 _APPLE_MODELS = {
+    "iPhone12,1": "iPhone 11",
+    "iPhone12,3": "iPhone 11 Pro",
+    "iPhone12,5": "iPhone 11 Pro Max",
+    "iPhone13,1": "iPhone 12 mini",
+    "iPhone13,2": "iPhone 12",
+    "iPhone13,3": "iPhone 12 Pro",
+    "iPhone13,4": "iPhone 12 Pro Max",
+    "iPhone14,2": "iPhone 13 Pro",
+    "iPhone14,3": "iPhone 13 Pro Max",
+    "iPhone14,4": "iPhone 13 mini",
+    "iPhone14,5": "iPhone 13",
+    "iPhone14,6": "iPhone SE (3rd generation)",
+    "iPhone14,7": "iPhone 14",
+    "iPhone14,8": "iPhone 14 Plus",
     "iPhone15,2": "iPhone 14 Pro",
     "iPhone15,3": "iPhone 14 Pro Max",
     "iPhone15,4": "iPhone 15",
@@ -829,6 +843,34 @@ _APPLE_MODELS = {
 }
 
 
+def _happ_device_identity(user_agent: str) -> tuple[str, str] | None:
+    """Return Happ's stable platform/device token without the app version."""
+
+    match = re.fullmatch(
+        r"Happ/[^/\s]+/(?P<platform>[A-Za-z0-9._-]{2,32})/"
+        r"(?P<identifier>[A-Za-z0-9._:-]{8,256})",
+        user_agent.strip(),
+        re.I,
+    )
+    if match is None:
+        return None
+    return match.group("platform").lower(), match.group("identifier")
+
+
+def _android_model(user_agent: str) -> str:
+    match = re.search(
+        r"android\s+[0-9.]+;\s*"
+        r"(?:[a-z]{2}(?:[-_][A-Za-z]{2})?;\s*)?"
+        r"(?P<model>[^;()]+?)(?:\s+Build/[^;()\s]+)?(?:[;)])",
+        user_agent,
+        re.I,
+    )
+    if match is None:
+        return ""
+    model = re.sub(r"\s+Build/.*$", "", match.group("model"), flags=re.I)
+    return _clean_device_value(model, maximum_length=80)
+
+
 def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
     """Create a stable device key and readable metadata from client headers."""
 
@@ -839,8 +881,14 @@ def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
         if re.fullmatch(r"[A-Za-z0-9._:-]{8,256}", candidate):
             supplied_id = candidate
             break
+    happ_identity = _happ_device_identity(user_agent)
     if supplied_id:
         device_key = hashlib.sha256(f"client:{supplied_id}".encode()).hexdigest()
+    elif happ_identity is not None:
+        happ_platform, happ_identifier = happ_identity
+        device_key = hashlib.sha256(
+            f"happ:{happ_platform}:{happ_identifier}".encode()
+        ).hexdigest()
     else:
         # A subscription client does not universally expose a device UUID.
         # The fallback therefore combines its client fingerprint and source
@@ -856,6 +904,7 @@ def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
         maximum_length=80,
     )
     platform = _clean_device_value(request.headers.get("X-Device-Platform", ""), maximum_length=80)
+    happ_platform = happ_identity[0] if happ_identity is not None else ""
     if "iphone" in lower:
         apple_id = re.search(r"iphone\s*([0-9]{1,2},[0-9])", user_agent, re.I)
         literal_model = re.search(r"\b(iPhone\s+(?:[0-9]{1,2}|SE)(?:\s+(?:Plus|Pro(?:\s+Max)?))?)\b", user_agent, re.I)
@@ -875,12 +924,14 @@ def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
         if not platform:
             raw_version = next((item for item in version.groups() if item), "") if version else ""
             platform = f"iPadOS / {raw_version.replace('_', '.')}" if raw_version else "iPadOS"
-    elif "android" in lower:
+    elif "android" in lower or happ_platform == "android":
         version = re.search(r"android\s+([0-9.]+)", lower)
         platform = platform or (f"Android / {version.group(1)}" if version else "Android")
-        android_model = re.search(r"android[^;]*;[^;]*;\s*([^;)]+)", user_agent, re.I)
-        if not model and android_model:
-            model = _clean_device_value(android_model.group(1), maximum_length=80)
+        model = model or _android_model(user_agent) or "Android-устройство"
+    elif happ_platform in {"ios", "iphoneos"}:
+        model, platform = model or "iPhone", platform or "iOS"
+    elif happ_platform == "ipados":
+        model, platform = model or "iPad", platform or "iPadOS"
     elif "windows" in lower:
         model, platform = model or "Компьютер", platform or "Windows"
     elif "mac os" in lower or "macintosh" in lower:
@@ -953,6 +1004,12 @@ def register_vpn_subscription_delivery_routes(
         if subscription is None:
             return expired_subscription_response()
         device_key, model, platform, user_agent = _device_metadata(request)
+        happ_identity = _happ_device_identity(user_agent)
+        legacy_user_agent_suffix = (
+            f"/{happ_identity[0]}/{happ_identity[1]}"
+            if happ_identity is not None
+            else ""
+        )
         try:
             with db.transaction() as conn:
                 devices.register_or_touch(
@@ -963,6 +1020,7 @@ def register_vpn_subscription_delivery_routes(
                     platform=platform,
                     user_agent=user_agent,
                     max_devices=max(1, int(subscription.get("plan_max_devices") or 2)),
+                    legacy_user_agent_suffix=legacy_user_agent_suffix,
                 )
         except DeviceLimitExceededError:
             return device_limit_exceeded_response(

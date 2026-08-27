@@ -91,6 +91,23 @@ class VpnSubscriptionProxyTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             proxy.expired_subscription_body("bad username")
 
+    def test_forwards_device_identity_and_model_headers(self) -> None:
+        headers = proxy.forwarded_request_headers(
+            {
+                "User-Agent": "Happ/5.6.0/ios/2608171408651",
+                "X-Forwarded-For": "203.0.113.10",
+                "X-Device-ID": "iphone-device-1234",
+                "X-Device-Model": "iPhone 13 Pro",
+                "X-Device-Platform": "iOS 18",
+            },
+            "127.0.0.1",
+        )
+
+        self.assertEqual(headers["X-Device-ID"], "iphone-device-1234")
+        self.assertEqual(headers["X-Device-Model"], "iPhone 13 Pro")
+        self.assertEqual(headers["X-Device-Platform"], "iOS 18")
+        self.assertEqual(headers["X-Forwarded-For"], "203.0.113.10")
+
 
 if __name__ == "__main__":
     unittest.main()
