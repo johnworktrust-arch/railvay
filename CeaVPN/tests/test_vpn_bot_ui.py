@@ -69,6 +69,13 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertLessEqual(len(VPN_BOT_SHORT_DESCRIPTION), 120)
         self.assertLessEqual(len(VPN_BOT_DESCRIPTION), 512)
 
+    def test_vpn_bot_exposes_start_in_telegram_command_menu(self) -> None:
+        from ceavpn.main import VPN_BOT_COMMANDS
+
+        self.assertEqual(len(VPN_BOT_COMMANDS), 1)
+        self.assertEqual(VPN_BOT_COMMANDS[0].command, "start")
+        self.assertEqual(VPN_BOT_COMMANDS[0].description, "Запустить бота")
+
     def test_main_menu_hides_trial_after_it_has_been_used(self) -> None:
         available = main_keyboard(
             support_username="cea_help",

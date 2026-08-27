@@ -59,6 +59,9 @@ BOT_COMMANDS = [
     BotCommand(command="start", description="Главное меню"),
     BotCommand(command="profile", description="Профиль"),
 ]
+VPN_BOT_COMMANDS = [
+    BotCommand(command="start", description="Запустить бота"),
+]
 BOT_DESCRIPTION = (
     "🔥 Cea AI — современные AI-инструменты в одном боте.\n\n"
     "— общение с DeepSeek V4 Flash и ChatGPT GPT-5.6\n"
@@ -1020,6 +1023,8 @@ async def main() -> None:
     vpn_dispatcher = None
     if settings.vpn_telegram_bot_token:
         vpn_bot = Bot(token=settings.vpn_telegram_bot_token)
+        await vpn_bot.set_my_commands(VPN_BOT_COMMANDS)
+        await vpn_bot.set_my_commands(VPN_BOT_COMMANDS, language_code="ru")
         await vpn_bot.set_my_description(description=VPN_BOT_DESCRIPTION)
         await vpn_bot.set_my_description(
             description=VPN_BOT_DESCRIPTION,
