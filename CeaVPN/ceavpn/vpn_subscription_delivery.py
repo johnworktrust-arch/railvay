@@ -141,6 +141,25 @@ HAPP_COLOR_PROFILE = json.dumps(
     separators=(",", ":"),
 )
 
+# Happ applies these advanced subscription settings only when the subscription
+# is registered to a Provider ID.  Do not emit them for an unregistered
+# provider: that would make the response claim behaviour Happ will ignore.
+HAPP_PROVIDER_ID_RE = re.compile(r"[A-Za-z0-9_-]{8,128}")
+
+
+def happ_auto_selection_headers(provider_id: str) -> dict[str, str]:
+    """Return Happ's native lowest-delay auto-connect settings, when enabled."""
+
+    normalized = provider_id.strip()
+    if not HAPP_PROVIDER_ID_RE.fullmatch(normalized):
+        return {}
+    return {
+        "providerid": normalized,
+        "subscription-autoconnect": "1",
+        "subscription-autoconnect-type": "lowestdelay",
+        "subscription-ping-onopen-enabled": "1",
+    }
+
 
 def _profile_string(
     item: Mapping[str, Any],
@@ -1086,6 +1105,7 @@ def register_vpn_subscription_delivery_routes(
                 "color-profile": HAPP_COLOR_PROFILE,
             }
         )
+        headers.update(happ_auto_selection_headers(settings.vpn_happ_provider_id))
         return web.Response(
             body=merged,
             content_type="text/plain",
@@ -1117,6 +1137,7 @@ def register_vpn_subscription_delivery_routes(
 
 __all__ = [
     "delivery_base_url",
+    "happ_auto_selection_headers",
     "delivery_subscription_url",
     "expired_subscription_response",
     "is_subscription_active",

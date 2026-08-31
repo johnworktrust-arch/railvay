@@ -27,6 +27,12 @@ FORWARDED_HEADERS = {
     "profile-update-interval",
     "subscription-userinfo",
     "support-url",
+    # Native Happ controls are set centrally so every node gives customers the
+    # same client-side lowest-latency automatic server selection.
+    "providerid",
+    "subscription-autoconnect",
+    "subscription-autoconnect-type",
+    "subscription-ping-onopen-enabled",
 }
 CLIENT_METADATA_HEADERS = (
     "X-Device-ID",

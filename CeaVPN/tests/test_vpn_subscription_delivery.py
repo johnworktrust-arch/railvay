@@ -21,6 +21,7 @@ from ceavpn.vpn_subscription_delivery import (
     _device_metadata,
     _landing_html,
     delivery_subscription_url,
+    happ_auto_selection_headers,
     merge_subscription_profiles,
     parse_extra_profiles,
     qualification_profile_fingerprint,
@@ -83,6 +84,21 @@ QUALIFICATION_FINGERPRINT = _qualification_fingerprint()
 
 
 class VpnSubscriptionDeliveryTest(unittest.TestCase):
+    def test_happ_auto_selection_uses_native_lowest_delay_mode(self) -> None:
+        self.assertEqual(
+            happ_auto_selection_headers("cea_provider_2026"),
+            {
+                "providerid": "cea_provider_2026",
+                "subscription-autoconnect": "1",
+                "subscription-autoconnect-type": "lowestdelay",
+                "subscription-ping-onopen-enabled": "1",
+            },
+        )
+
+    def test_happ_auto_selection_is_disabled_without_valid_provider_id(self) -> None:
+        self.assertEqual(happ_auto_selection_headers(""), {})
+        self.assertEqual(happ_auto_selection_headers("line\nbreak"), {})
+
     def test_device_metadata_recognizes_iphone_model_identifier(self) -> None:
         request = type(
             "Request",

@@ -108,6 +108,16 @@ class VpnSubscriptionProxyTest(unittest.TestCase):
         self.assertEqual(headers["X-Device-Platform"], "iOS 18")
         self.assertEqual(headers["X-Forwarded-For"], "203.0.113.10")
 
+    def test_forwards_happ_automatic_server_selection_headers(self) -> None:
+        self.assertTrue(
+            {
+                "providerid",
+                "subscription-autoconnect",
+                "subscription-autoconnect-type",
+                "subscription-ping-onopen-enabled",
+            }.issubset(proxy.FORWARDED_HEADERS)
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
