@@ -267,7 +267,7 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
 
         self.assertIsNotNone(auto)
         assert auto is not None
-        self.assertEqual(auto["remark"], "🌌 Авто | Самый быстрый 🔥")
+        self.assertEqual(auto["remark"], "🔵 Авто | Самый быстрый ✦✦✦✦")
         self.assertEqual(auto["address"], "us.example.test")
 
     def test_autoselect_profile_is_the_first_subscription_row(self) -> None:
@@ -294,7 +294,10 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         ).decode().splitlines()
 
         self.assertEqual(len(rendered), 3)
-        self.assertEqual(unquote(urlsplit(rendered[0]).fragment), "🌌 Авто | Самый быстрый 🔥")
+        self.assertEqual(
+            unquote(urlsplit(rendered[0]).fragment),
+            "🔵 Авто | Самый быстрый ✦✦✦✦",
+        )
         self.assertEqual(urlsplit(rendered[0]).hostname, "us.example.test")
         self.assertEqual(unquote(urlsplit(rendered[-1]).fragment), "🇺🇸 США")
 
@@ -312,7 +315,8 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         assert auto_uri is not None
         self.assertEqual(urlsplit(auto_uri).hostname, "us.example.test")
         self.assertEqual(
-            unquote(urlsplit(auto_uri).fragment), "🌌 Авто | Самый быстрый 🔥"
+            unquote(urlsplit(auto_uri).fragment),
+            "🔵 Авто | Самый быстрый ✦✦✦✦",
         )
         rendered = merge_subscription_profiles(
             existing,
@@ -322,7 +326,8 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         ).decode().splitlines()
         self.assertEqual(len(rendered), 2)
         self.assertEqual(
-            unquote(urlsplit(rendered[0]).fragment), "🌌 Авто | Самый быстрый 🔥"
+            unquote(urlsplit(rendered[0]).fragment),
+            "🔵 Авто | Самый быстрый ✦✦✦✦",
         )
 
     def test_rejects_non_ws_profile_path(self) -> None:
