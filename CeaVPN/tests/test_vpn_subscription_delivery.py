@@ -21,6 +21,7 @@ from ceavpn.vpn_subscription_delivery import (
     _device_metadata,
     _landing_html,
     autoselect_profile,
+    autoselect_profile_uri,
     delivery_subscription_url,
     happ_auto_selection_headers,
     merge_subscription_profiles,
@@ -296,6 +297,33 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         self.assertEqual(unquote(urlsplit(rendered[0]).fragment), "🌌 Авто | Самый быстрый 🔥")
         self.assertEqual(urlsplit(rendered[0]).hostname, "us.example.test")
         self.assertEqual(unquote(urlsplit(rendered[-1]).fragment), "🇺🇸 США")
+
+    def test_autoselect_uri_clones_us_row_from_existing_subscription(self) -> None:
+        provider_uuid = "9c97ef67-c753-46d0-9529-74a33f566773"
+        existing = (
+            f"vless://{provider_uuid}@us.example.test:443"
+            "?encryption=none&security=tls&type=ws&host=us.example.test"
+            f"&path=%2Fws-{'5' * 48}#%F0%9F%87%BA%F0%9F%87%B8%20%D0%A1%D0%A8%D0%90\n"
+        ).encode()
+
+        auto_uri = autoselect_profile_uri(existing)
+
+        self.assertIsNotNone(auto_uri)
+        assert auto_uri is not None
+        self.assertEqual(urlsplit(auto_uri).hostname, "us.example.test")
+        self.assertEqual(
+            unquote(urlsplit(auto_uri).fragment), "🌌 Авто | Самый быстрый 🔥"
+        )
+        rendered = merge_subscription_profiles(
+            existing,
+            provider_uuid=provider_uuid,
+            profiles=(),
+            priority_uris=(auto_uri,),
+        ).decode().splitlines()
+        self.assertEqual(len(rendered), 2)
+        self.assertEqual(
+            unquote(urlsplit(rendered[0]).fragment), "🌌 Авто | Самый быстрый 🔥"
+        )
 
     def test_rejects_non_ws_profile_path(self) -> None:
         with self.assertRaisesRegex(ValueError, "Invalid VPN extra profile"):

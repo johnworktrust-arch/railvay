@@ -12,7 +12,7 @@ import unicodedata
 from datetime import datetime, timedelta, timezone
 from html import escape
 from typing import Any, Mapping, Sequence
-from urllib.parse import quote, urlencode, urlsplit
+from urllib.parse import quote, unquote, urlencode, urlsplit
 
 from aiohttp import ClientSession, ClientTimeout, web
 
@@ -699,12 +699,31 @@ def autoselect_profile(
     return None
 
 
+def autoselect_profile_uri(body: bytes) -> str | None:
+    """Clone the existing US VLESS entry with the visible Auto label.
+
+    The production subscription already contains the working server links.
+    Cloning the US URI directly retains every server-specific transport
+    setting and avoids requiring a second domain or a duplicate server config.
+    """
+    lines, _ = _decode_subscription(body)
+    for line in lines:
+        base, separator, encoded_remark = line.partition("#")
+        if not separator:
+            continue
+        remark = unquote(encoded_remark).casefold()
+        if any(marker in remark for marker in AUTOSELECT_US_MARKERS):
+            return f"{base}#{quote(AUTOSELECT_REMARK, safe='')}"
+    return None
+
+
 def merge_subscription_profiles(
     body: bytes,
     *,
     provider_uuid: str,
     profiles: Sequence[Mapping[str, Any]],
     priority_profiles: Sequence[Mapping[str, Any]] = (),
+    priority_uris: Sequence[str] = (),
 ) -> bytes:
     if not re.fullmatch(
         r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -713,6 +732,11 @@ def merge_subscription_profiles(
         raise ValueError("Invalid VPN provider UUID")
     lines, was_base64 = _decode_subscription(body)
     priority_lines: list[str] = []
+    for uri in priority_uris:
+        if not uri.startswith("vless://"):
+            raise ValueError("Invalid priority VPN profile")
+        if uri not in lines and uri not in priority_lines:
+            priority_lines.append(uri)
     for profile in priority_profiles:
         uri = _profile_uri(provider_uuid, profile)
         if uri not in lines and uri not in priority_lines:
@@ -1118,12 +1142,16 @@ def register_vpn_subscription_delivery_routes(
                     session,
                     replica_profiles,
                 )
-            auto_profile = autoselect_profile(eligible_profiles)
+            auto_uri = autoselect_profile_uri(body)
+            auto_profile = (
+                None if auto_uri else autoselect_profile(eligible_profiles)
+            )
             merged = merge_subscription_profiles(
                 body,
                 provider_uuid=str(subscription.get("provider_uuid") or ""),
                 profiles=eligible_profiles,
                 priority_profiles=(auto_profile,) if auto_profile else (),
+                priority_uris=(auto_uri,) if auto_uri else (),
             )
         except Exception:
             return expired_subscription_response()
@@ -1168,6 +1196,7 @@ def register_vpn_subscription_delivery_routes(
 __all__ = [
     "delivery_base_url",
     "autoselect_profile",
+    "autoselect_profile_uri",
     "happ_auto_selection_headers",
     "delivery_subscription_url",
     "expired_subscription_response",
