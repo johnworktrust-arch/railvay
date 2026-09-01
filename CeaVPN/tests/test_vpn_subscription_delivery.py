@@ -20,6 +20,7 @@ from ceavpn.repositories.vpn_subscription_devices import VpnSubscriptionDeviceRe
 from ceavpn.vpn_subscription_delivery import (
     _device_metadata,
     _landing_html,
+    autoselect_profile,
     delivery_subscription_url,
     happ_auto_selection_headers,
     merge_subscription_profiles,
@@ -251,6 +252,50 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
             profiles=profiles,
         )
         self.assertEqual(base64.b64decode(duplicate).decode().count("vless://"), 2)
+
+    def test_autoselect_profile_uses_the_qualified_us_endpoint(self) -> None:
+        profiles = parse_extra_profiles(
+            "[{"
+            '"remark":"🇺🇸 США","address":"us.example.test","port":443,'
+            '"sni":"us.example.test","host":"us.example.test",'
+            f'"path":"/ws-{"3" * 48}"'
+            "}]"
+        )
+
+        auto = autoselect_profile(profiles)
+
+        self.assertIsNotNone(auto)
+        assert auto is not None
+        self.assertEqual(auto["remark"], "🌌 Авто | Самый быстрый 🔥")
+        self.assertEqual(auto["address"], "us.example.test")
+
+    def test_autoselect_profile_is_the_first_subscription_row(self) -> None:
+        provider_uuid = "9c97ef67-c753-46d0-9529-74a33f566773"
+        profiles = parse_extra_profiles(
+            "[{"
+            '"remark":"🇺🇸 США","address":"us.example.test","port":443,'
+            '"sni":"us.example.test","host":"us.example.test",'
+            f'"path":"/ws-{"4" * 48}"'
+            "}]"
+        )
+        auto = autoselect_profile(profiles)
+        assert auto is not None
+        existing = (
+            f"vless://{provider_uuid}@old.example.test:8443"
+            f"?encryption=none&security=tls&type=ws&path=%2Fws-{'1' * 48}#Old\n"
+        ).encode()
+
+        rendered = merge_subscription_profiles(
+            existing,
+            provider_uuid=provider_uuid,
+            profiles=profiles,
+            priority_profiles=(auto,),
+        ).decode().splitlines()
+
+        self.assertEqual(len(rendered), 3)
+        self.assertEqual(unquote(urlsplit(rendered[0]).fragment), "🌌 Авто | Самый быстрый 🔥")
+        self.assertEqual(urlsplit(rendered[0]).hostname, "us.example.test")
+        self.assertEqual(unquote(urlsplit(rendered[-1]).fragment), "🇺🇸 США")
 
     def test_rejects_non_ws_profile_path(self) -> None:
         with self.assertRaisesRegex(ValueError, "Invalid VPN extra profile"):

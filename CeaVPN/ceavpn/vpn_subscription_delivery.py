@@ -54,6 +54,8 @@ QUALIFICATION_STATUS_KEYS = frozenset(
 QUALIFICATION_STATUS_MAX_BYTES = 4096
 QUALIFICATION_MAX_FUTURE = timedelta(days=7)
 XHTTP_MODE = "auto"
+AUTOSELECT_REMARK = "🌌 Авто | Самый быстрый 🔥"
+AUTOSELECT_US_MARKERS = ("сша", "usa", "united states")
 XHTTP_EXTRA = {
     "scMaxEachPostBytes": 1000000,
     "scMaxConcurrentPosts": 100,
@@ -678,11 +680,31 @@ def _profile_uri(provider_uuid: str, profile: Mapping[str, Any]) -> str:
     )
 
 
+def autoselect_profile(
+    profiles: Sequence[Mapping[str, Any]],
+) -> dict[str, Any] | None:
+    """Return a first-list profile which deliberately uses the US endpoint.
+
+    Happ does not expose a stable API for injecting a native selectable
+    auto-location.  The product fallback is intentionally explicit: the
+    visible Auto row is a copy of the qualified US profile, so tapping it
+    always connects through the same working US server.
+    """
+    for profile in profiles:
+        remark = str(profile.get("remark") or "").casefold()
+        if any(marker in remark for marker in AUTOSELECT_US_MARKERS):
+            result = dict(profile)
+            result["remark"] = AUTOSELECT_REMARK
+            return result
+    return None
+
+
 def merge_subscription_profiles(
     body: bytes,
     *,
     provider_uuid: str,
     profiles: Sequence[Mapping[str, Any]],
+    priority_profiles: Sequence[Mapping[str, Any]] = (),
 ) -> bytes:
     if not re.fullmatch(
         r"[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}",
@@ -690,6 +712,11 @@ def merge_subscription_profiles(
     ):
         raise ValueError("Invalid VPN provider UUID")
     lines, was_base64 = _decode_subscription(body)
+    priority_lines: list[str] = []
+    for profile in priority_profiles:
+        uri = _profile_uri(provider_uuid, profile)
+        if uri not in lines and uri not in priority_lines:
+            priority_lines.append(uri)
     for profile in profiles:
         uri = _profile_uri(provider_uuid, profile)
         address = str(profile["address"])
@@ -710,6 +737,7 @@ def merge_subscription_profiles(
             for line in lines
         ):
             lines.append(uri)
+    lines = priority_lines + lines
     rendered = ("\n".join(lines) + "\n").encode("utf-8")
     return base64.b64encode(rendered) if was_base64 else rendered
 
@@ -1090,10 +1118,12 @@ def register_vpn_subscription_delivery_routes(
                     session,
                     replica_profiles,
                 )
+            auto_profile = autoselect_profile(eligible_profiles)
             merged = merge_subscription_profiles(
                 body,
                 provider_uuid=str(subscription.get("provider_uuid") or ""),
                 profiles=eligible_profiles,
+                priority_profiles=(auto_profile,) if auto_profile else (),
             )
         except Exception:
             return expired_subscription_response()
@@ -1137,6 +1167,7 @@ def register_vpn_subscription_delivery_routes(
 
 __all__ = [
     "delivery_base_url",
+    "autoselect_profile",
     "happ_auto_selection_headers",
     "delivery_subscription_url",
     "expired_subscription_response",
