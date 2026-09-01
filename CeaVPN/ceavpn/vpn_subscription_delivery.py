@@ -54,7 +54,7 @@ QUALIFICATION_STATUS_KEYS = frozenset(
 QUALIFICATION_STATUS_MAX_BYTES = 4096
 QUALIFICATION_MAX_FUTURE = timedelta(days=7)
 XHTTP_MODE = "auto"
-AUTOSELECT_REMARK = "🔵 Авто | Самый быстрый ✦✦✦✦"
+AUTOSELECT_REMARK = "Авто | Самый быстрый 🔥"
 AUTOSELECT_US_MARKERS = ("сша", "usa", "united states")
 XHTTP_EXTRA = {
     "scMaxEachPostBytes": 1000000,
