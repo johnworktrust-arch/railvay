@@ -23,6 +23,7 @@ from ceavpn.internal_api import (
     handle_provider_status_request,
 )
 from ceavpn.payment_notifications import notify_payment_result
+from ceavpn.vpn_purchase_notifications import notify_new_purchases
 from ceavpn.public_offer import PUBLIC_OFFER_TEXT
 from ceavpn.runtime_diagnostics import (
     record_webhook_request,
@@ -199,6 +200,10 @@ async def vpn_maintenance_loop(
     interval_seconds = int(os.getenv("VPN_MAINTENANCE_INTERVAL_SECONDS", "60"))
     preview_sent = False
     while True:
+        try:
+            await notify_new_purchases(services, vpn_bot)
+        except Exception:
+            logging.exception("VPN admin purchase notifications failed")
         if (
             not preview_sent
             and os.getenv("VPN_REENGAGEMENT_ADMIN_PREVIEW", "").lower()
