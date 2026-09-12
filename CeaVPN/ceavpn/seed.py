@@ -59,7 +59,7 @@ def seed_reference_data(db: Database) -> None:
                 duration_days=duration_days,
                 price_rub=price_rub,
                 price_stars=price_stars,
-                max_devices=2,
+                max_devices=3,
             )
         vpn_server_repo.upsert(
             conn,

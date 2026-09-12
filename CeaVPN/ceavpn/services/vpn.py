@@ -484,7 +484,7 @@ class VpnService:
             try:
                 remote = client.create_payment(
                     amount_rub=int(payment["amount_rub"]),
-                    description=f"CEA VPN — {plan_name}, 2 устройства",
+                    description=f"CEA VPN — {plan_name}, 3 устройства",
                     return_url=self._public_url(self.platega_return_path),
                     failed_url=self._public_url(self.platega_failed_path),
                     payload=f"vpn_payment:{int(payment['id'])}",
@@ -1560,7 +1560,7 @@ class VpnService:
     ) -> None:
         plan_id = subscription.get("plan_id")
         plan = self.plans.get_by_id(conn, int(plan_id)) if plan_id is not None else None
-        base_limit = max(1, int((plan or {}).get("max_devices") or 2))
+        base_limit = max(1, int((plan or {}).get("max_devices") or 3))
         purchased = max(0, int(subscription.get("extra_devices") or 0))
         reserved = self.payments.pending_extra_device_count(conn, user_id=user_id)
         if self.payments.has_pending_extra_device_payment(
@@ -1655,7 +1655,7 @@ class VpnService:
             subscription = self.subscriptions.get_by_id(conn, subscription_id)
             if subscription is None:
                 return False
-            max_devices = max(1, int(subscription.get("plan_max_devices") or 2))
+            max_devices = max(1, int(subscription.get("plan_max_devices") or 3))
             try:
                 self.devices.register_or_touch(
                     conn,

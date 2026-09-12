@@ -1090,7 +1090,7 @@ def register_vpn_subscription_delivery_routes(
                     model=model,
                     platform=platform,
                     user_agent=user_agent,
-                    max_devices=max(1, int(subscription.get("plan_max_devices") or 2)),
+                    max_devices=max(1, int(subscription.get("plan_max_devices") or 3)),
                     legacy_user_agent_suffix=legacy_user_agent_suffix,
                 )
         except DeviceLimitExceededError:
