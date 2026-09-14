@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 from unittest.mock import patch
-from urllib.parse import parse_qs, unquote, urlsplit
+from urllib.parse import parse_qs, quote, unquote, urlsplit
 
 from aiohttp import web
 from aiohttp.test_utils import TestClient, TestServer
@@ -254,7 +254,7 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         )
         self.assertEqual(base64.b64decode(duplicate).decode().count("vless://"), 2)
 
-    def test_autoselect_profile_uses_the_qualified_us_endpoint(self) -> None:
+    def test_autoselect_profile_falls_back_to_us_when_europe_absent(self) -> None:
         profiles = parse_extra_profiles(
             "[{"
             '"remark":"🇺🇸 США","address":"us.example.test","port":443,'
@@ -269,6 +269,26 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         assert auto is not None
         self.assertEqual(auto["remark"], "Авто | Самый быстрый 🔥")
         self.assertEqual(auto["address"], "us.example.test")
+
+    def test_autoselect_prefers_finland_regardless_of_subscription_order(self) -> None:
+        profiles = [
+            {"remark": "🇺🇸 США", "address": "us.example.test"},
+            {"remark": "🇳🇱 Нидерланды", "address": "nl.example.test"},
+            {"remark": "🇫🇮 Финляндия", "address": "fi.example.test"},
+        ]
+        original = [dict(profile) for profile in profiles]
+        self.assertEqual(autoselect_profile(profiles)["address"], "fi.example.test")
+        self.assertEqual(profiles, original)
+        for candidates, expected in ((profiles, "fi.example.test"),
+                                     (profiles[:2], "nl.example.test"),
+                                     (profiles[:1], "us.example.test")):
+            body = "\n".join(
+                f"vless://id@{p['address']}:8443?security=tls&type=ws#{quote(p['remark'])}"
+                for p in candidates
+            ).encode()
+            result = autoselect_profile_uri(base64.b64encode(body))
+            self.assertEqual(urlsplit(result).hostname, expected)
+            self.assertEqual(urlsplit(result).query, "security=tls&type=ws")
 
     def test_autoselect_profile_is_the_first_subscription_row(self) -> None:
         provider_uuid = "9c97ef67-c753-46d0-9529-74a33f566773"

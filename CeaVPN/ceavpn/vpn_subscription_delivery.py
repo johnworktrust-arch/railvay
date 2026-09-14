@@ -55,7 +55,11 @@ QUALIFICATION_STATUS_MAX_BYTES = 4096
 QUALIFICATION_MAX_FUTURE = timedelta(days=7)
 XHTTP_MODE = "auto"
 AUTOSELECT_REMARK = "Авто | Самый быстрый 🔥"
-AUTOSELECT_US_MARKERS = ("сша", "usa", "united states")
+AUTOSELECT_LOCATION_PRIORITY = (
+    ("финляндия", "finland"),
+    ("нидерланды", "netherlands"),
+    ("сша", "usa", "united states"),
+)
 XHTTP_EXTRA = {
     "scMaxEachPostBytes": 1000000,
     "scMaxConcurrentPosts": 100,
@@ -683,37 +687,32 @@ def _profile_uri(provider_uuid: str, profile: Mapping[str, Any]) -> str:
 def autoselect_profile(
     profiles: Sequence[Mapping[str, Any]],
 ) -> dict[str, Any] | None:
-    """Return a first-list profile which deliberately uses the US endpoint.
+    """Prefer a European profile for the service's Russian audience.
 
-    Happ does not expose a stable API for injecting a native selectable
-    auto-location.  The product fallback is intentionally explicit: the
-    visible Auto row is a copy of the qualified US profile, so tapping it
-    always connects through the same working US server.
+    This is a regional fallback order, not a measurement of client latency.
+    Native Happ lowest-delay selection remains a separate client feature.
     """
-    for profile in profiles:
-        remark = str(profile.get("remark") or "").casefold()
-        if any(marker in remark for marker in AUTOSELECT_US_MARKERS):
-            result = dict(profile)
-            result["remark"] = AUTOSELECT_REMARK
-            return result
+    for markers in AUTOSELECT_LOCATION_PRIORITY:
+        for profile in profiles:
+            remark = str(profile.get("remark") or "").casefold()
+            if any(marker in remark for marker in markers):
+                result = dict(profile)
+                result["remark"] = AUTOSELECT_REMARK
+                return result
     return None
 
 
 def autoselect_profile_uri(body: bytes) -> str | None:
-    """Clone the existing US VLESS entry with the visible Auto label.
-
-    The production subscription already contains the working server links.
-    Cloning the US URI directly retains every server-specific transport
-    setting and avoids requiring a second domain or a duplicate server config.
-    """
+    """Clone a regional fallback while preserving its transport settings."""
     lines, _ = _decode_subscription(body)
-    for line in lines:
-        base, separator, encoded_remark = line.partition("#")
-        if not separator:
-            continue
-        remark = unquote(encoded_remark).casefold()
-        if any(marker in remark for marker in AUTOSELECT_US_MARKERS):
-            return f"{base}#{quote(AUTOSELECT_REMARK, safe='')}"
+    for markers in AUTOSELECT_LOCATION_PRIORITY:
+        for line in lines:
+            base, separator, encoded_remark = line.partition("#")
+            if not separator or urlsplit(base).scheme != "vless":
+                continue
+            remark = unquote(encoded_remark).casefold()
+            if any(marker in remark for marker in markers):
+                return f"{base}#{quote(AUTOSELECT_REMARK, safe='')}"
     return None
 
 
