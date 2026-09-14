@@ -8,7 +8,6 @@ from ceavpn.bot.handlers import (
     VPN_MAIN_SCREEN_TEXT,
     _has_vpn_admin_access,
     connect_landing_url,
-    connected_devices_screen,
     happ_landing_url,
     main_keyboard,
     main_screen_text,
@@ -248,11 +247,10 @@ class VpnBotUiTest(unittest.TestCase):
             "https://sub.example.test:8443/connect/secret-token",
         )
         self.assertEqual(connect_button.text, "Подключить VPN 🚀")
-        self.assertEqual(len(keyboard.inline_keyboard), 5)
+        self.assertEqual(len(keyboard.inline_keyboard), 4)
         self.assertEqual(keyboard.inline_keyboard[1][0].text, "🔄 Продлить подписку")
-        self.assertEqual(keyboard.inline_keyboard[2][0].text, "📱 Подключённые устройства")
-        self.assertEqual(keyboard.inline_keyboard[3][0].text, "🆘 Поддержка")
-        self.assertEqual(keyboard.inline_keyboard[4][0].text, "⬅️ Назад")
+        self.assertEqual(keyboard.inline_keyboard[2][0].text, "🆘 Поддержка")
+        self.assertEqual(keyboard.inline_keyboard[3][0].text, "⬅️ Назад")
         self.assertIn("Имя: bb", text)
         self.assertIn("ID: 1625313155", text)
         self.assertIn("Тариф: 30 дней", text)
@@ -264,44 +262,6 @@ class VpnBotUiTest(unittest.TestCase):
         self.assertNotIn("США", text)
         self.assertNotIn("Финляндия", text)
         self.assertIn("23 августа 2026 года, 22:35 (МСК)", text)
-
-    def test_connected_device_card_only_shows_model_and_updated_time(self) -> None:
-        text, _ = connected_devices_screen(
-            {"plan_max_devices": 2},
-            [
-                {
-                    "id": 1,
-                    "model": "iPhone 13 Pro",
-                    "platform": "iOS / 18.6",
-                    "last_seen_at": datetime(2026, 8, 27, 10, 0, tzinfo=timezone.utc),
-                }
-            ],
-            total=1,
-            page=0,
-        )
-
-        self.assertIn("Модель: iPhone 13 Pro", text)
-        self.assertIn("Обновлено: 2026-08-27 13:00:00", text)
-        self.assertNotIn("Платформа:", text)
-
-    def test_connected_device_card_never_shows_undefined_model(self) -> None:
-        text, _ = connected_devices_screen(
-            {"plan_max_devices": 2},
-            [
-                {
-                    "id": 1,
-                    "model": "Не определено",
-                    "platform": "iOS",
-                    "user_agent": "Happ/5.6.0/ios/2608171408651",
-                    "last_seen_at": datetime(2026, 8, 27, 10, 0, tzinfo=timezone.utc),
-                }
-            ],
-            total=1,
-            page=0,
-        )
-
-        self.assertIn("Модель: iPhone", text)
-        self.assertNotIn("Не определено", text)
 
     def test_paid_extension_of_trial_shows_the_paid_plan(self) -> None:
         text, _ = subscription_screen(

@@ -847,14 +847,6 @@ def subscription_screen(
         [InlineKeyboardButton(text="🔄 Продлить подписку", callback_data="vpn:plans")]
     )
     rows.append(
-        [
-            InlineKeyboardButton(
-                text="📱 Подключённые устройства",
-                callback_data="vpn:devices:0",
-            )
-        ]
-    )
-    rows.append(
         [InlineKeyboardButton(text="🆘 Поддержка", url=f"https://t.me/{support_username}")]
     )
     rows.append(_back())
@@ -867,119 +859,6 @@ def subscription_screen(
         f"{footer_text}",
         InlineKeyboardMarkup(inline_keyboard=rows),
     )
-
-
-def _device_datetime(value: Any) -> str:
-    if not value:
-        return "Не определено"
-    try:
-        parsed = value if isinstance(value, datetime) else datetime.fromisoformat(str(value))
-        if parsed.tzinfo is None:
-            parsed = parsed.replace(tzinfo=timezone.utc)
-        return parsed.astimezone(ZoneInfo("Europe/Moscow")).strftime("%Y-%m-%d %H:%M:%S")
-    except (TypeError, ValueError):
-        return "Не определено"
-
-
-def _device_model(device: Dict[str, Any]) -> str:
-    model = str(device.get("model") or "").strip()
-    if model.lower() not in {
-        "",
-        "не определено",
-        "устройство cea vpn",
-    }:
-        return model
-    fingerprint = " ".join(
-        (
-            str(device.get("platform") or ""),
-            str(device.get("user_agent") or ""),
-        )
-    ).lower()
-    if "iphone" in fingerprint or "ios" in fingerprint:
-        return "iPhone"
-    if "ipad" in fingerprint or "ipados" in fingerprint:
-        return "iPad"
-    if "android" in fingerprint:
-        return "Android-устройство"
-    if "mac" in fingerprint:
-        return "Mac"
-    if "windows" in fingerprint:
-        return "Компьютер Windows"
-    if "linux" in fingerprint:
-        return "Компьютер Linux"
-    return "Устройство"
-
-
-def _device_label(device: Dict[str, Any], index: int) -> str:
-    model = _device_model(device)
-    return f"{index}. {model[:42]}"
-
-
-def connected_devices_screen(
-    subscription: Dict[str, Any] | None,
-    devices: list[Dict[str, Any]],
-    *,
-    total: int,
-    page: int,
-    page_size: int = 5,
-) -> tuple[str, InlineKeyboardMarkup]:
-    if subscription is None:
-        return (
-            "📱 <b>Подключённые устройства</b>\n\n"
-            "Нет активной подписки для управления устройствами.",
-            InlineKeyboardMarkup(inline_keyboard=[_back("vpn:subscription")]),
-        )
-    limit = max(1, int(subscription.get("plan_max_devices") or 3))
-    lines = [
-        "📱 <b>Подключённые устройства</b>",
-        "",
-        f"Ваша подписка доступна на <b>{limit} устройствах</b>.",
-        f"Подключено: <b>{total} из {limit}</b>.",
-        "",
-    ]
-    if not devices:
-        lines.append("Пока ни одно устройство не подключило подписку.")
-    for offset, device in enumerate(devices, start=page * page_size + 1):
-        lines.extend(
-            [
-                f"<b>{offset}.</b>",
-                f"└ 📱 Модель: {escape(_device_model(device))}",
-                f"└ 🔄 Обновлено: {_device_datetime(device.get('last_seen_at'))}",
-                "",
-            ]
-        )
-    rows: list[list[InlineKeyboardButton]] = []
-    max_page = max(0, (total - 1) // page_size)
-    if max_page:
-        navigation: list[InlineKeyboardButton] = []
-        if page > 0:
-            navigation.append(InlineKeyboardButton(text="◀️", callback_data=f"vpn:devices:{page - 1}"))
-        if page < max_page:
-            navigation.append(InlineKeyboardButton(text="▶️", callback_data=f"vpn:devices:{page + 1}"))
-        if navigation:
-            rows.append(navigation)
-    rows.append(_back("vpn:subscription"))
-    return "\n".join(lines).rstrip(), InlineKeyboardMarkup(inline_keyboard=rows)
-
-
-def device_removal_screen(
-    devices: list[Dict[str, Any]], *, page: int, page_size: int = 5
-) -> tuple[str, InlineKeyboardMarkup]:
-    rows = [
-        [
-            InlineKeyboardButton(
-                text=_device_label(device, page * page_size + index),
-                callback_data=f"vpn:device_remove:{int(device['id'])}:{page}",
-            )
-        ]
-        for index, device in enumerate(devices, start=1)
-    ]
-    rows.append(_back(f"vpn:devices:{page}"))
-    return (
-        "🗑 <b>Отвязать устройство</b>\n\nВыберите устройство, которое хотите отвязать.",
-        InlineKeyboardMarkup(inline_keyboard=rows),
-    )
-
 
 def _referral_text(user: Dict[str, Any], stats: Any, bot_username: str) -> str:
     code = str(user.get("referral_code") or f"tg{user['telegram_id']}")
@@ -1216,30 +1095,6 @@ def create_vpn_router(services: AppServices) -> Router:
         if callback.message:
             await show_subscription(callback.message, user=user)
         await callback.answer()
-
-    @router.callback_query(F.data.startswith("vpn:devices:"))
-    async def connected_devices(callback: CallbackQuery) -> None:
-        try:
-            page = max(0, int((callback.data or "").rsplit(":", 1)[-1]))
-        except ValueError:
-            await callback.answer("Некорректный запрос.", show_alert=True)
-            return
-        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
-        subscription, devices, total = services.vpn.list_subscription_devices(
-            user_id=int(user["id"]), page=page
-        )
-        if callback.message:
-            text, keyboard = connected_devices_screen(
-                subscription, devices, total=total, page=page
-            )
-            await _screen(callback.message, text, keyboard)
-        await callback.answer()
-
-    @router.callback_query(F.data.startswith("vpn:devices_remove:"))
-    @router.callback_query(F.data.startswith("vpn:device_remove:"))
-    @router.callback_query(F.data.startswith("vpn:device_remove_confirm:"))
-    async def device_removal_disabled(callback: CallbackQuery) -> None:
-        await callback.answer("Удаление устройств отключено.", show_alert=True)
 
     @router.callback_query(F.data == "vpn:trial")
     async def trial(callback: CallbackQuery) -> None:
