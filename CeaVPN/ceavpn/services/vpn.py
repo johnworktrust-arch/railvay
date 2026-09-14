@@ -2251,10 +2251,19 @@ class VpnService:
                 and int(job["server_id"])
                 == int(subscription["server_id"])
             ):
+                # A failed refresh must not revoke an entitlement that was
+                # already provisioned.  The old subscription URL remains
+                # usable while this job is retried in the background.  Only a
+                # first-time provisioning failure (or an update without any
+                # usable URL) belongs in the user-visible error state.
+                preserve_active = (
+                    str(job["operation"]) == "update"
+                    and bool(str(subscription.get("subscription_url") or "").strip())
+                )
                 self.subscriptions.mark_status(
                     conn,
                     subscription_id=int(job["subscription_id"]),
-                    status="error",
+                    status="active" if preserve_active else "error",
                     last_error="Provisioning is being retried",
                 )
 

@@ -709,6 +709,69 @@ class VpnRuntimeTest(unittest.TestCase):
             ).fetchone()
         self.assertEqual((job["status"], job["attempts"]), ("failed", 5))
 
+    def test_paid_update_failure_preserves_existing_active_entitlement(self) -> None:
+        trial = self.vpn.claim_trial(
+            user_id=int(self.user["id"]),
+            channel="@ceafamily",
+        )
+        create = self.vpn.claim_worker_job(
+            worker_id="worker-nl1",
+            lease_seconds=60,
+            control_plane_ready=True,
+        )
+        assert create is not None
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1",
+            job_id=int(create["job_id"]),
+            lease_token=str(create["lease_token"]),
+            subscription_url="https://sub.example.test:8443/sub/existing-link",
+        )
+
+        with self.db.transaction() as conn:
+            update, _ = self.vpn.jobs.enqueue(
+                conn,
+                subscription_id=int(trial.subscription["id"]),
+                operation="update",
+                idempotency_key="vpn:payment:999:update",
+            )
+
+        for attempt in range(5):
+            claimed = self.vpn.claim_worker_job(
+                worker_id="worker-nl1",
+                lease_seconds=60,
+                control_plane_ready=True,
+            )
+            assert claimed is not None
+            self.assertEqual(int(claimed["job_id"]), int(update["id"]))
+            self.vpn.fail_worker_job(
+                worker_id="worker-nl1",
+                job_id=int(claimed["job_id"]),
+                lease_token=str(claimed["lease_token"]),
+                error_message="temporary provider failure",
+            )
+            if attempt < 4:
+                with self.db.transaction() as conn:
+                    conn.execute(
+                        """
+                        UPDATE vpn_provisioning_jobs
+                        SET next_attempt_at = ?
+                        WHERE id = ?
+                        """,
+                        (
+                            (utcnow() - timedelta(seconds=1)).isoformat(),
+                            int(update["id"]),
+                        ),
+                    )
+
+        stored = self.vpn.get_current_subscription(int(self.user["id"]))
+        self.assertIsNotNone(stored)
+        assert stored is not None
+        self.assertEqual(stored["status"], "active")
+        self.assertEqual(
+            stored["subscription_url"],
+            "https://sub.example.test:8443/sub/existing-link",
+        )
+
     def test_server_upsert_does_not_reactivate_manually_disabled_server(self) -> None:
         repository = VpnServerRepository()
         with self.db.transaction() as conn:

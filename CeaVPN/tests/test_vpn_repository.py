@@ -407,6 +407,48 @@ class VpnRepositoryTest(unittest.TestCase):
         self.assertEqual(expired["status"], "expired")
         self.assertEqual([row["id"] for row in due], [subscription["id"]])
 
+    def test_stale_failed_subscription_is_shown_as_expired(self) -> None:
+        subscription = self._create_subscription()
+        due_at = (utcnow() + timedelta(days=31)).isoformat()
+        with self.db.transaction() as conn:
+            self.subscriptions.mark_status(
+                conn,
+                subscription_id=subscription["id"],
+                status="error",
+                last_error="temporary worker failure",
+            )
+            latest = self.subscriptions.get_latest_for_user(
+                conn,
+                self.user["id"],
+            )
+            self.subscriptions.expire_stale_for_user(
+                conn,
+                user_id=self.user["id"],
+                now=due_at,
+            )
+            expired = self.subscriptions.get_by_id(conn, subscription["id"])
+
+        self.assertIsNotNone(latest)
+        self.assertEqual(latest["status"], "error")
+        self.assertIsNotNone(expired)
+        assert expired is not None
+        self.assertEqual(expired["status"], "expired")
+
+    def test_unexpired_failed_subscription_can_be_renewed_in_place(self) -> None:
+        subscription = self._create_subscription()
+        with self.db.transaction() as conn:
+            self.subscriptions.mark_status(
+                conn,
+                subscription_id=subscription["id"],
+                status="error",
+                last_error="temporary worker failure",
+            )
+            live = self.subscriptions.get_live_for_user(conn, self.user["id"])
+
+        self.assertIsNotNone(live)
+        assert live is not None
+        self.assertEqual(live["id"], subscription["id"])
+
     def test_profile_update_candidates_are_active_and_idempotent(self) -> None:
         subscription = self._create_subscription()
         with self.db.transaction() as conn:

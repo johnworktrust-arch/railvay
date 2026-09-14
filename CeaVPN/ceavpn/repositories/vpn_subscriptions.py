@@ -86,7 +86,7 @@ class VpnSubscriptionRepository:
             UPDATE vpn_subscriptions
             SET status = 'expired', updated_at = ?
             WHERE user_id = ?
-              AND status = 'active'
+              AND status IN ('provisioning', 'active', 'error')
               AND ends_at <= ?
             """,
             (current, user_id, current),
@@ -131,11 +131,12 @@ class VpnSubscriptionRepository:
                 """
                 SELECT * FROM vpn_subscriptions
                 WHERE user_id = ?
-                  AND status IN ('provisioning', 'active')
+                  AND status IN ('provisioning', 'active', 'error')
+                  AND ends_at > ?
                 ORDER BY ends_at DESC
                 LIMIT 1
                 """,
-                (user_id,),
+                (user_id, iso_now()),
             ).fetchone()
         )
 
