@@ -607,7 +607,7 @@ function vpnDrawerMarkup(user) {
         </button>
       </div>
       <div class="action-row">
-        <button class="button primary" id="vpn-grant-vip" type="button">🎖 Выдать VIP-доступ</button>
+        <button class="button primary" id="vpn-grant-vip" type="button">🎖 ${user.is_vip ? "Обновить VIP-доступ" : "Выдать VIP-доступ"}</button>
       </div>
     </section>
   ` : "";
@@ -629,6 +629,7 @@ function vpnDrawerMarkup(user) {
       ${detail("Лимит устройств", subscription.max_devices ? String(subscription.max_devices) : "—")}
       ${detail("Синхронизация", asDate(subscription.last_synced_at))}
       ${detail("Антиабуз", isBlocked ? "Забанен" : "Нет бана")}
+      ${detail("VIP", user.is_vip ? `Да · с ${asDate(user.vip_granted_at)}` : "Нет")}
     </div>
     ${management}
     ${subscription.last_error ? `

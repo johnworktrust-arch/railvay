@@ -362,6 +362,7 @@ class VpnAdminRepository:
                           AND paid.status = 'paid'
                           AND paid.provider <> 'admin_demo'
                     ) AS vpn_has_paid,
+                    EXISTS (SELECT 1 FROM vpn_vip_users vip WHERE vip.user_id = u.id AND vip.is_active = TRUE) AS vpn_is_vip,
                     (
                         SELECT COUNT(*) FROM vpn_payments paid
                         WHERE paid.user_id = u.id
@@ -553,6 +554,9 @@ class VpnAdminRepository:
                 ).fetchall()
             )
         user["subscription"] = subscription
+        vip = conn.execute("SELECT is_active, granted_at FROM vpn_vip_users WHERE user_id = ?", (user_id,)).fetchone()
+        user["is_vip"] = bool(vip and vip["is_active"])
+        user["vip_granted_at"] = vip["granted_at"] if vip else None
         user["trial"] = trial
         user["vpn_ban"] = self._active_ban(conn, user_id)
         user["payments"] = payments
