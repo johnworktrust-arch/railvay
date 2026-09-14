@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import math
 import re
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
@@ -122,6 +123,35 @@ class VpnAdminService:
         if card is None:
             raise NotFoundError("VPN-пользователь не найден")
         return card
+
+    def grant_vip(self, *, user_id: int, admin_user_id: int | None = None) -> Dict[str, Any]:
+        """Grant a long-lived free VPN entitlement and mark the user as VIP."""
+        now = datetime.now(timezone.utc)
+        with self.db.transaction() as conn:
+            user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if user is None:
+                raise NotFoundError("VPN-пользователь не найден")
+            conn.execute(
+                """INSERT INTO vpn_vip_users (user_id, granted_at, granted_by, is_active)
+                   VALUES (?, ?, ?, TRUE)
+                   ON CONFLICT(user_id) DO UPDATE SET is_active = TRUE, granted_at = excluded.granted_at,
+                     granted_by = excluded.granted_by""",
+                (user_id, now.isoformat(), admin_user_id, admin_user_id),
+            )
+            live = self.subscriptions.get_live_for_user(conn, user_id)
+            if live is None:
+                servers = self.servers.list_active(conn)
+                server = next((s for s in servers if s.get("last_health_at")), None) or (servers[0] if servers else None)
+                if server is None:
+                    raise ValidationError("Нет доступного VPN-сервера")
+                subscription = self.subscriptions.create_provisioning(
+                    conn, user_id=user_id, server_id=int(server["id"]), plan_id=None,
+                    kind="paid", provider_username=f"vip_{secrets.token_hex(12)}",
+                    starts_at=now.isoformat(), ends_at=(now + timedelta(days=3650)).isoformat(),
+                )
+                self.jobs.enqueue(conn, subscription_id=int(subscription["id"]), server_id=int(server["id"]),
+                                  operation="create", idempotency_key=f"vpn:vip:{user_id}:{subscription['id']}")
+            return self.repository.user_card(conn, user_id=user_id, now=now.isoformat()) or {}
 
     def set_abuse_blocked(
         self,

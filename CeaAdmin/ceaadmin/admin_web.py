@@ -478,6 +478,30 @@ def create_admin_app(
         )
         return _json_response({"ok": True, "user": card})
 
+    async def grant_vpn_vip(request: web.Request) -> web.Response:
+        operator = _require_operator(request)
+        user_id = int(request.match_info["user_id"])
+        card = await asyncio.to_thread(
+            app[VPN_ADMIN_KEY].grant_vip,
+            user_id=user_id,
+            admin_user_id=int(operator["user_id"]),
+        )
+        user = card.get("user") or {}
+        code = str(user.get("referral_code") or f"tg{user.get('telegram_id', '')}")
+        username = app[SETTINGS_KEY].vpn_bot_username or "your_vpn_bot"
+        referral_link = f"https://t.me/{username}?start=ref_{code}"
+        token = app[SETTINGS_KEY].vpn_telegram_bot_token
+        sent = False
+        if token and user.get("telegram_id"):
+            sent = await _send_telegram_message(
+                token=token, telegram_id=int(user["telegram_id"]),
+                text=("🎖 Вы теперь VIP-пользователь CEA VPN!\n\n"
+                      "Вам доступен бесплатный VPN.\n"
+                      f"Ваша реферальная ссылка:\n{referral_link}"),
+                button_text="Открыть VPN", button_url=referral_link,
+            )
+        return _json_response({"ok": True, "user": card, "referral_link": referral_link, "message_sent": sent})
+
     async def user_card(request: web.Request) -> web.Response:
         user_id = int(request.match_info["user_id"])
         card = await asyncio.to_thread(services.admin.user_card, user_id)
@@ -758,6 +782,7 @@ def create_admin_app(
         "/api/vpn/users/{user_id:\\d+}/abuse-blocked",
         set_vpn_abuse_blocked,
     )
+    app.router.add_post("/api/vpn/users/{user_id:\\d+}/vip", grant_vpn_vip)
     app.router.add_get("/api/vpn/promocodes", vpn_promocodes_list)
     app.router.add_post("/api/vpn/promocodes", vpn_promocode_create)
     app.router.add_post("/api/vpn/promocodes/{id:\\d+}/toggle", vpn_promocode_toggle)

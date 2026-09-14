@@ -606,6 +606,9 @@ function vpnDrawerMarkup(user) {
           ${isBlocked ? "Разбанить VPN" : "Забанить VPN"}
         </button>
       </div>
+      <div class="action-row">
+        <button class="button primary" id="vpn-grant-vip" type="button">🎖 Выдать VIP-доступ</button>
+      </div>
     </section>
   ` : "";
   return `
@@ -696,6 +699,18 @@ function closeDrawer() {
 
 function bindVpnDrawerActions(user) {
   const blockButton = byId("vpn-block-user");
+  const vipButton = byId("vpn-grant-vip");
+  if (vipButton) vipButton.addEventListener("click", async () => {
+    if (!window.confirm("Выдать этому пользователю бесплатный VIP-доступ на 10 лет и отправить сообщение в Telegram?")) return;
+    vipButton.disabled = true;
+    try {
+      const result = await api(`/api/vpn/users/${user.id}/vip`, { method: "POST" });
+      showToast(result.message_sent ? "VIP выдан, сообщение отправлено" : "VIP выдан");
+      byId("drawer-content").innerHTML = vpnDrawerMarkup(result.user);
+      bindVpnDrawerActions(result.user);
+      loadVpnUsers(); loadVpnStats();
+    } catch (error) { showToast(error.message, true); vipButton.disabled = false; }
+  });
   if (!blockButton) return;
   blockButton.addEventListener("click", async () => {
     const isBlocked = Boolean(user.vpn_ban?.id || user.subscription?.is_blocked);

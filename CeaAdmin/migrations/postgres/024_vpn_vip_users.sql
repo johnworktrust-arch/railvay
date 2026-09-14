@@ -1,0 +1,6 @@
+CREATE TABLE IF NOT EXISTS vpn_vip_users (
+    user_id BIGINT PRIMARY KEY REFERENCES users(id) ON DELETE CASCADE,
+    granted_at TIMESTAMPTZ NOT NULL,
+    granted_by BIGINT NULL,
+    is_active BOOLEAN NOT NULL DEFAULT TRUE
+);
