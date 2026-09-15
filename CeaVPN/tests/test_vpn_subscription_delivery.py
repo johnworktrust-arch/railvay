@@ -16,7 +16,7 @@ from aiohttp.test_utils import TestClient, TestServer
 
 from ceavpn.config import Settings
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
-from ceavpn.repositories.vpn_subscription_devices import VpnSubscriptionDeviceRepository
+from ceavpn.repositories.vpn_subscription_devices import DeviceLimitExceededError, VpnSubscriptionDeviceRepository
 from ceavpn.vpn_subscription_delivery import (
     _device_metadata,
     _landing_html,
@@ -119,7 +119,7 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         self.assertEqual(model, "iPhone 15 Pro")
         self.assertEqual(platform, "iOS / 18.7.3")
 
-    def test_happ_device_token_is_stable_when_ip_changes(self) -> None:
+    def test_happ_hwid_is_stable_when_ip_changes(self) -> None:
         def request(remote: str):
             return type(
                 "Request",
@@ -127,6 +127,7 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
                 {
                     "headers": {
                         "User-Agent": "Happ/5.6.0/ios/2608171408651",
+                        "X-Hwid": "hardware-device-one",
                     },
                     "remote": remote,
                 },
@@ -139,7 +140,7 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
         self.assertEqual(first[1], "iPhone")
         self.assertEqual(first[2], "iOS")
 
-    def test_happ_device_token_distinguishes_devices(self) -> None:
+    def test_happ_build_is_not_accepted_as_device_identity(self) -> None:
         first = type(
             "Request",
             (),
@@ -157,7 +158,18 @@ class VpnSubscriptionDeliveryTest(unittest.TestCase):
             },
         )()
 
-        self.assertNotEqual(_device_metadata(first)[0], _device_metadata(second)[0])
+        self.assertEqual(_device_metadata(first)[0], "")
+        self.assertEqual(_device_metadata(second)[0], "")
+
+    def test_hwid_survives_app_upgrade_and_distinguishes_identical_models(self) -> None:
+        def request(hwid, agent):
+            return type("Request", (), {"headers": {"X-Hwid": hwid,
+                "User-Agent": agent, "X-Device-Model": "iPhone 13 Pro"}})()
+        first = _device_metadata(request("hardware-phone-one", "Happ/5.6.0/ios/2608171408651"))[0]
+        upgraded = _device_metadata(request("hardware-phone-one", "Happ/5.7.0/ios/2609021014649"))[0]
+        second = _device_metadata(request("hardware-phone-two", "Happ/5.7.0/ios/2609021014649"))[0]
+        self.assertEqual(first, upgraded)
+        self.assertNotEqual(first, second)
 
     def test_android_user_agent_extracts_hardware_model(self) -> None:
         request = type(
@@ -993,7 +1005,7 @@ class VpnQualificationGateRouteTest(unittest.IsolatedAsyncioTestCase):
             db=_FakeDatabase(),  # type: ignore[arg-type]
             settings=settings,
         )
-        client = TestClient(TestServer(app))
+        client = TestClient(TestServer(app), headers={"X-Hwid": "test-hardware-device"})
         await client.start_server()
         self.addAsyncCleanup(client.close)
 
@@ -1017,6 +1029,14 @@ class VpnQualificationGateRouteTest(unittest.IsolatedAsyncioTestCase):
                 RouteSession,
             ),
         ):
+            missing_hwid = await client.get(f"/sub/{token}", headers={"X-Hwid": ""})
+            self.assertEqual(missing_hwid.status, 400)
+            with patch.object(VpnSubscriptionDeviceRepository, "register_or_touch",
+                              side_effect=DeviceLimitExceededError):
+                limited = await client.get(f"/sub/{token}")
+                self.assertEqual(limited.status, 403)
+                self.assertEqual(limited.headers["x-hwid-max-devices-reached"], "true")
+                self.assertNotIn("vless://", await limited.text())
             qualified = await client.get(f"/sub/{token}")
             qualified_body = await qualified.read()
             pending_replica = await client.get(f"/sub/{token}")
@@ -1025,6 +1045,7 @@ class VpnQualificationGateRouteTest(unittest.IsolatedAsyncioTestCase):
             revoked_body = await revoked.read()
 
         self.assertEqual(qualified.status, 200)
+        self.assertEqual(qualified.headers["subscription-always-hwid-enable"], "1")
         self.assertEqual(pending_replica.status, 200)
         self.assertEqual(revoked.status, 200)
         self.assertEqual(qualified_body.decode().count("vless://"), 3)

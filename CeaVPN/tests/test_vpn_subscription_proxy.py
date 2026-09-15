@@ -97,6 +97,7 @@ class VpnSubscriptionProxyTest(unittest.TestCase):
                 "User-Agent": "Happ/5.6.0/ios/2608171408651",
                 "X-Forwarded-For": "203.0.113.10",
                 "X-Device-ID": "iphone-device-1234",
+                "X-Hwid": "stable-hardware-1234",
                 "X-Device-Model": "iPhone 13 Pro",
                 "X-Device-Platform": "iOS 18",
             },
@@ -104,6 +105,7 @@ class VpnSubscriptionProxyTest(unittest.TestCase):
         )
 
         self.assertEqual(headers["X-Device-ID"], "iphone-device-1234")
+        self.assertEqual(headers["X-Hwid"], "stable-hardware-1234")
         self.assertEqual(headers["X-Device-Model"], "iPhone 13 Pro")
         self.assertEqual(headers["X-Device-Platform"], "iOS 18")
         self.assertEqual(headers["X-Forwarded-For"], "203.0.113.10")

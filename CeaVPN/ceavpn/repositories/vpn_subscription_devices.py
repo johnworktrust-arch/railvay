@@ -35,6 +35,16 @@ class VpnSubscriptionDeviceRepository:
             ).fetchone()
 
         now = iso_now()
+        if device_key.startswith(("hwid:", "client:")):
+            # Legacy rows were keyed by IP/software build. Keep their history,
+            # but don't let those unreliable slots block real HWID registration.
+            conn.execute(
+                """UPDATE vpn_subscription_devices
+                   SET deactivated_at = ?, updated_at = ?
+                   WHERE subscription_id = ? AND deactivated_at IS NULL
+                     AND device_key NOT LIKE 'hwid:%' AND device_key NOT LIKE 'client:%'""",
+                (now, now, subscription_id),
+            )
         existing = self.get_by_key(
             conn, subscription_id=subscription_id, device_key=device_key
         )

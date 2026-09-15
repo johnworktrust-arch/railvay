@@ -86,6 +86,21 @@ class VpnRuntimeTest(unittest.TestCase):
         )
         return trial
 
+    def test_repeated_create_after_restart_does_not_notify_again(self) -> None:
+        trial = self._activate_trial(subscription_suffix="trial-ready")
+        with self.db.transaction() as conn:
+            self.vpn.jobs.enqueue(conn, subscription_id=trial.subscription["id"],
+                operation="create", idempotency_key="test:server-rebuild")
+        job = self.vpn.claim_worker_job(worker_id="worker-nl1", lease_seconds=60,
+                                       control_plane_ready=True)
+        completion = self.vpn.complete_worker_job(worker_id="worker-nl1",
+            job_id=job["job_id"], lease_token=job["lease_token"],
+            subscription_url="https://sub.example.test:8443/sub/trial-ready")
+        self.assertEqual(completion.subscription["subscription_url"], "")
+        with self.db.transaction() as conn:
+            saved = self.vpn.subscriptions.get_by_id(conn, trial.subscription["id"])
+        self.assertTrue(saved["subscription_url"])
+
     def test_signed_legacy_direct_profile_defaults_only_to_vision(self) -> None:
         tags, flow, worker_epoch = _worker_transport_profile(
             {

@@ -84,6 +84,22 @@ class VpnSubscriptionDeviceRepositoryTest(unittest.TestCase):
                 legacy_user_agent_suffix=legacy_user_agent_suffix,
             )
 
+    def test_real_hwid_replaces_legacy_slots_and_enforces_limit_after_upgrade(self) -> None:
+        self._register("legacy-build-one", limit=3)
+        self._register("legacy-build-two", limit=3)
+        self._register("legacy-ip-three", limit=3)
+        first = self._register("hwid:phone-one", limit=3)
+        self._register("hwid:phone-two", limit=3)
+        self._register("hwid:phone-three", limit=3)
+        again = self._register("hwid:phone-one", limit=3, user_agent="Happ/new-version")
+        self.assertEqual(first["id"], again["id"])
+        with self.assertRaises(DeviceLimitExceededError):
+            self._register("hwid:phone-four", limit=3)
+        with self.db.transaction() as conn:
+            self.assertEqual(self.devices.active_count(conn, subscription_id=self.subscription["id"]), 3)
+            legacy = self.devices.get_by_key(conn, subscription_id=self.subscription["id"], device_key="legacy-build-one")
+            self.assertIsNotNone(legacy["deactivated_at"])
+
     def test_base_limit_allows_two_and_blocks_third(self) -> None:
         self._register("device-one")
         self._register("device-two")

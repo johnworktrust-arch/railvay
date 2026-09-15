@@ -22,6 +22,9 @@ MAX_RESPONSE_BYTES = 512 * 1024
 SUBSCRIPTION_PATH_RE = re.compile(r"/sub/[A-Za-z0-9._~-]{1,160}/?")
 SIGNED_DELIVERY_PATH_RE = re.compile(r"/sub/\d{1,12}\.[0-9a-f]{64}/?")
 FORWARDED_HEADERS = {
+    "subscription-always-hwid-enable",
+    "x-hwid-max-devices-reached",
+    "x-hwid-not-supported",
     "content-disposition",
     "profile-title",
     "profile-update-interval",
@@ -35,6 +38,9 @@ FORWARDED_HEADERS = {
     "subscription-ping-onopen-enabled",
 }
 CLIENT_METADATA_HEADERS = (
+    "X-Hwid",
+    "X-Device-OS",
+    "X-Ver-OS",
     "X-Device-ID",
     "X-Client-ID",
     "X-Happ-Device-ID",

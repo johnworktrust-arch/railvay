@@ -2192,12 +2192,8 @@ class VpnService:
             if user is None:
                 raise RuntimeError("VPN subscription user is missing")
             completion_subscription = subscription
-            if int(server["id"]) != int(subscription["server_id"]) or (
-                operation == "update"
-                and str(job.get("idempotency_key") or "").startswith(
-                    ("vpn:chargeback:", "vpn:profile:", "vpn:replica:")
-                )
-            ):
+            if (not is_canonical or operation != "create"
+                    or current_subscription.get("last_synced_at")):
                 # `notify_vpn_ready` deliberately ignores completions without a
                 # URL. Keep the real URL in the database/Marzban, but suppress a
                 # misleading second "VPN готов" message for this purely

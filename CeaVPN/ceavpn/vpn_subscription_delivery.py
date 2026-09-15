@@ -850,33 +850,11 @@ def expired_subscription_response() -> web.Response:
 
 
 def device_limit_exceeded_response(bot_username: str = "ceavpn_bot") -> web.Response:
-    username = bot_username.strip().lstrip("@")
-    zero_uuid = "00000000-0000-0000-0000-000000000000"
-    remarks = (
-        "🔴 Лимит устройств исчерпан",
-        f"👉 Докупить устройства можно в боте @{username}",
-    )
-    links = [
-        (
-            f"vless://{zero_uuid}@127.0.0.1:{index}"
-            "?type=ws&security=none#"
-            + quote(remark, safe="")
-        )
-        for index, remark in enumerate(remarks, start=1)
-    ]
-    body = base64.b64encode(("\n".join(links) + "\n").encode("utf-8"))
-    headers = {
-        "profile-title": "CEA VPN (Лимит устройств исчерпан)",
-        "subscription-userinfo": "upload=0; download=0; total=0; expire=0",
-        "Cache-Control": "no-store",
-        "X-Content-Type-Options": "nosniff",
-        "routing-enable": "0",
-    }
+    # An error must not replace the last working configuration in the client.
     return web.Response(
-        body=body,
-        content_type="text/plain",
-        charset="utf-8",
-        headers=headers,
+        status=403,
+        text="Лимит устройств исчерпан. Обратитесь в поддержку.",
+        headers={"Cache-Control": "no-store", "x-hwid-max-devices-reached": "true"},
     )
 
 
@@ -914,7 +892,7 @@ _APPLE_MODELS = {
 
 
 def _happ_device_identity(user_agent: str) -> tuple[str, str] | None:
-    """Return Happ's stable platform/device token without the app version."""
+    """Parse Happ platform/build metadata (the build is NOT a device ID)."""
 
     match = re.fullmatch(
         r"Happ/[^/\s]+/(?P<platform>[A-Za-z0-9._-]{2,32})/"
@@ -946,26 +924,20 @@ def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
 
     user_agent = _clean_device_value(request.headers.get("User-Agent", ""), maximum_length=512)
     supplied_id = ""
-    for header in ("X-Device-ID", "X-Client-ID", "X-Happ-Device-ID"):
+    identity_kind = "client"
+    for header in ("X-Hwid", "X-Device-ID", "X-Client-ID", "X-Happ-Device-ID"):
         candidate = request.headers.get(header, "").strip()
-        if re.fullmatch(r"[A-Za-z0-9._:-]{8,256}", candidate):
+        if re.fullmatch(r"[A-Za-z0-9._:=+-]{8,256}", candidate):
             supplied_id = candidate
+            identity_kind = "hwid" if header == "X-Hwid" else "client"
             break
     happ_identity = _happ_device_identity(user_agent)
     if supplied_id:
-        device_key = hashlib.sha256(f"client:{supplied_id}".encode()).hexdigest()
-    elif happ_identity is not None:
-        happ_platform, happ_identifier = happ_identity
-        device_key = hashlib.sha256(
-            f"happ:{happ_platform}:{happ_identifier}".encode()
-        ).hexdigest()
+        device_key = identity_kind + ":" + hashlib.sha256(supplied_id.encode()).hexdigest()
     else:
-        # A subscription client does not universally expose a device UUID.
-        # The fallback therefore combines its client fingerprint and source
-        # address rather than treating a model or User-Agent as an identity.
-        source = request.headers.get("X-Forwarded-For", "").split(",")[0].strip()
-        source = source or request.remote or "unknown"
-        device_key = hashlib.sha256(f"fallback:{source}\n{user_agent}".encode()).hexdigest()
+        # Happ's User-Agent suffix is a BUILD identifier shared by devices.
+        # Neither a software update nor an IP change identifies a new device.
+        device_key = ""
 
     lower = user_agent.lower()
     model = _clean_device_value(
@@ -973,7 +945,10 @@ def _device_metadata(request: web.Request) -> tuple[str, str, str, str]:
         or request.headers.get("X-Device-Name", ""),
         maximum_length=80,
     )
-    platform = _clean_device_value(request.headers.get("X-Device-Platform", ""), maximum_length=80)
+    platform = _clean_device_value(
+        request.headers.get("X-Device-Platform", "") or request.headers.get("X-Device-OS", ""),
+        maximum_length=80,
+    )
     happ_platform = happ_identity[0] if happ_identity is not None else ""
     if "iphone" in lower:
         apple_id = re.search(r"iphone\s*([0-9]{1,2},[0-9])", user_agent, re.I)
@@ -1074,12 +1049,13 @@ def register_vpn_subscription_delivery_routes(
         if subscription is None:
             return expired_subscription_response()
         device_key, model, platform, user_agent = _device_metadata(request)
-        happ_identity = _happ_device_identity(user_agent)
-        legacy_user_agent_suffix = (
-            f"/{happ_identity[0]}/{happ_identity[1]}"
-            if happ_identity is not None
-            else ""
-        )
+        if not device_key:
+            return web.Response(
+                status=400,
+                text="Включите передачу HWID в настройках Happ и обновите подписку.",
+                headers={"Cache-Control": "no-store", "x-hwid-not-supported": "true",
+                         "subscription-always-hwid-enable": "1"},
+            )
         try:
             with db.transaction() as conn:
                 devices.register_or_touch(
@@ -1090,7 +1066,6 @@ def register_vpn_subscription_delivery_routes(
                     platform=platform,
                     user_agent=user_agent,
                     max_devices=max(1, int(subscription.get("plan_max_devices") or 3)),
-                    legacy_user_agent_suffix=legacy_user_agent_suffix,
                 )
         except DeviceLimitExceededError:
             return device_limit_exceeded_response(
@@ -1122,7 +1097,7 @@ def register_vpn_subscription_delivery_routes(
                 ) as upstream:
                     body = await upstream.read()
                     if upstream.status != 200 or len(body) > 512 * 1024:
-                        return expired_subscription_response()
+                        return web.Response(status=502, text="VPN subscription temporarily unavailable")
                     headers = {
                         name: upstream.headers[name]
                         for name in FORWARDED_HEADERS
@@ -1153,13 +1128,14 @@ def register_vpn_subscription_delivery_routes(
                 priority_uris=(auto_uri,) if auto_uri else (),
             )
         except Exception:
-            return expired_subscription_response()
+            return web.Response(status=503, text="VPN subscription temporarily unavailable")
         headers.update(
             {
                 "Cache-Control": "no-store",
                 "X-Content-Type-Options": "nosniff",
                 "routing-enable": "0",
                 "color-profile": HAPP_COLOR_PROFILE,
+                "subscription-always-hwid-enable": "1",
             }
         )
         headers.update(happ_auto_selection_headers(settings.vpn_happ_provider_id))

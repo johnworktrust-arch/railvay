@@ -752,6 +752,27 @@ def _require_diagnostics_access(request: web.Request) -> None:
         raise web.HTTPNotFound()
 
 
+async def notify_vpn_ready(*, bot, services, settings, completion) -> None:
+    # Check the worker's suppression marker before creating a delivery URL.
+    if (bot is None or completion.operation != "create"
+            or not completion.subscription.get("subscription_url")
+            or not completion.subscription.get("id")):
+        return
+    user = services.users.get_by_telegram_id(completion.telegram_id)
+    sub = dict(completion.subscription)
+    sub = with_delivery_subscription(sub, settings) or sub
+    text, keyboard = subscription_screen(
+        sub, support_username=settings.vpn_support_username,
+        subscription_base_url=delivery_base_url(settings) or settings.vpn_subscription_base_url,
+        user=user,
+    )
+    try:
+        await bot.send_message(chat_id=completion.telegram_id, text=text,
+                               reply_markup=keyboard, parse_mode="HTML")
+    except Exception:
+        logging.exception("Could not notify Telegram user that VPN provisioning completed")
+
+
 async def run_webhook(
     *,
     bot: Bot,
@@ -801,38 +822,9 @@ async def run_webhook(
         bot=vpn_bot,
     )
 
-    notified_subscription_ids: set[int] = set()
-
-    async def notify_vpn_ready(completion) -> None:
-        if vpn_bot is None or completion.operation not in {"create", "update"}:
-            return
-        sub_id = int(completion.subscription.get("id") or 0)
-        if sub_id <= 0:
-            return
-
-        subscription_base_url = (
-            delivery_base_url(settings) or settings.vpn_subscription_base_url
-        )
-        user = services.users.get_by_telegram_id(completion.telegram_id)
-        sub = dict(completion.subscription)
-        sub = with_delivery_subscription(sub, settings) or sub
-        text, keyboard = subscription_screen(
-            sub,
-            support_username=settings.vpn_support_username,
-            subscription_base_url=subscription_base_url,
-            user=user,
-        )
-        try:
-            await vpn_bot.send_message(
-                chat_id=completion.telegram_id,
-                text=text,
-                reply_markup=keyboard,
-                parse_mode="HTML",
-            )
-        except Exception:
-            logging.exception(
-                "Could not notify Telegram user that VPN provisioning completed"
-            )
+    async def on_vpn_ready(completion) -> None:
+        await notify_vpn_ready(bot=vpn_bot, services=services, settings=settings,
+                               completion=completion)
 
     register_vpn_subscription_delivery_routes(
         app,
@@ -844,7 +836,7 @@ async def run_webhook(
         db=services.vpn.db,
         services=services,
         settings=settings,
-        on_completed=notify_vpn_ready,
+        on_completed=on_vpn_ready,
     )
 
     async def provider_settings(request: web.Request) -> web.Response:
