@@ -25,10 +25,21 @@ from aiogram.types import (
     Message,
     PreCheckoutQuery,
 )
+from ceavpn.bot.keyboards import (
+    admin_back_keyboard,
+    admin_broadcast_audience_keyboard,
+    admin_menu_keyboard,
+    admin_user_card_keyboard,
+    admin_users_keyboard,
+)
 
 
 class VpnPromoState(StatesGroup):
     waiting_for_code = State()
+
+
+class AdminBroadcastState(StatesGroup):
+    waiting_for_message = State()
 
 from ceavpn.config import Settings
 from ceavpn.services.app import AppServices
@@ -93,17 +104,75 @@ def vpn_admin_stats_text(stats: Dict[str, Any]) -> str:
     def value(name: str) -> int:
         return int(stats.get(name) or 0)
 
+    total = value("users_total")
+    paid = value("paid_users")
+    payments = value("paid_payments")
+    conversion = paid * 100 / total if total else 0
+    average = value("revenue_rub") / payments if payments else 0
     return (
-        "📊 <b>CEA VPN — статистика</b>\n\n"
-        f"👥 Пользователей: <b>{value('users_total')}</b>\n"
-        f"🟢 Активных подписок: <b>{value('active_users')}</b>\n"
+        "📊 <b>Статистика CEA VPN</b>\n\n"
+        "👥 <b>Аудитория</b>\n"
+        f"👥 Пользователей: <b>{total}</b>\n"
+        f"Новых сегодня: <b>{value('users_period')}</b>\n"
+        f"С активной подпиской: <b>{value('active_users')}</b>\n"
+        f"Без активной подписки: <b>{value('inactive_users')}</b>\n"
         f"🎁 На пробном периоде: <b>{value('active_trial_users')}</b>\n"
-        f"💎 Покупали подписку: <b>{value('paid_users')}</b>\n\n"
-        f"💳 Успешных оплат: <b>{value('paid_payments')}</b>\n"
+        f"💎 Покупали подписку: <b>{paid}</b>\n"
+        f"Конверсия: <b>{conversion:.1f}%</b>\n\n"
+        "💳 <b>Продажи</b>\n"
+        f"Успешных оплат: <b>{payments}</b>\n"
         f"💰 Выручка: <b>{value('revenue_rub')} ₽</b>\n"
-        f"📈 Сегодня: <b>{value('revenue_period_rub')} ₽</b>\n\n"
-        f"⌛ Истекло подписок: <b>{value('expired_subscriptions')}</b>\n"
+        f"Средний чек: <b>{average:.0f} ₽</b>\n"
+        f"Выручка сегодня: <b>{value('revenue_period_rub')} ₽</b>\n\n"
+        "🛠 <b>Сервис</b>\n"
+        f"Истекло подписок: <b>{value('expired_subscriptions')}</b>\n"
+        f"Ошибок подписок: <b>{value('error_subscriptions')}</b>\n"
         f"🖥 Серверы: <b>{value('servers_healthy')} из {value('servers_total')} онлайн</b>"
+    )
+
+
+def vpn_admin_home_text() -> str:
+    return (
+        "👑 <b>Админ-панель CEA VPN</b>\n\n"
+        "Здесь можно смотреть статистику, управлять "
+        "пользователями, выдавать VIP и делать рассылки.\n\n"
+        "Выберите раздел 👇"
+    )
+
+
+def vpn_admin_user_text(user: Dict[str, Any]) -> str:
+    name = " ".join(
+        part for part in (user.get("first_name"), user.get("last_name")) if part
+    ).strip()
+    identity = f"@{user['username']}" if user.get("username") else name or "Без имени"
+    subscription = user.get("subscription") or {}
+    payments = user.get("payments") or {}
+    ban = user.get("vpn_ban")
+    if ban:
+        status = "⛔️ Заблокирован"
+    elif subscription.get("status") == "active":
+        status = "🟢 Подписка активна"
+    elif subscription.get("status") == "error":
+        status = "⚠️ Ошибка подключения"
+    else:
+        status = "🔴 Нет активной подписки"
+    plan = subscription.get("plan_name") or (
+        "VIP" if user.get("is_vip") else "Пробный период" if user.get("trial") else "—"
+    )
+    created = str(user.get("created_at") or "—").replace("T", " ")[:16]
+    ends = str(subscription.get("ends_at") or "—").replace("T", " ")[:16]
+    return (
+        "👤 <b>Карточка пользователя</b>\n\n"
+        f"<b>{escape(identity)}</b>\n"
+        f"Telegram ID: <code>{int(user['telegram_id'])}</code>\n"
+        f"Внутренний ID: <code>{int(user['id'])}</code>\n"
+        f"Добавлен: <code>{escape(created)}</code>\n\n"
+        f"Статус: <b>{status}</b>\n"
+        f"Тариф: <b>{escape(str(plan))}</b>\n"
+        f"Действует до: <code>{escape(ends)}</code>\n"
+        f"VIP: <b>{'да' if user.get('is_vip') else 'нет'}</b>\n\n"
+        f"Покупок: <b>{int(payments.get('paid_count') or 0)}</b>\n"
+        f"Оплачено: <b>{int(payments.get('paid_amount_rub') or 0)} ₽</b>"
     )
 
 
@@ -966,16 +1035,258 @@ def create_vpn_router(services: AppServices) -> Router:
             about_keyboard(services.settings),
         )
 
+    vpn_admin_instance: VpnAdminService | None = None
+
+    def get_vpn_admin() -> VpnAdminService:
+        nonlocal vpn_admin_instance
+        if vpn_admin_instance is None:
+            vpn_admin_instance = VpnAdminService(services.vpn.db, services.settings)
+        return vpn_admin_instance
+
+    async def show_admin_users(message: Message, *, page: int = 1) -> None:
+        data = await asyncio.to_thread(
+            get_vpn_admin().list_users, page=page, page_size=10, segment="all"
+        )
+        text = (
+            "👥 <b>Пользователи</b>\n\n"
+            f"Всего: <b>{int(data['total'])}</b>\n"
+            f"Страница: <b>{int(data['page'])}/{int(data['pages'])}</b>\n\n"
+            "💎 — платная  ·  🎁 — пробная  ·  🎖 — VIP\n"
+            "🔴 — без подписки  ·  ⛔️ — заблокирован\n\n"
+            "Нажмите на пользователя, чтобы открыть карточку."
+        )
+        await _screen(
+            message,
+            text,
+            admin_users_keyboard(
+                data["users"], page=int(data["page"]), pages=int(data["pages"])
+            ),
+        )
+
+    async def show_admin_user(message: Message, *, user_id: int, page: int) -> None:
+        card = await asyncio.to_thread(get_vpn_admin().user_card, user_id)
+        await _screen(
+            message,
+            vpn_admin_user_text(card),
+            admin_user_card_keyboard(card, can_manage=True, users_page=page),
+        )
+
     @router.message(Command("admin"))
-    async def admin_statistics(message: Message) -> None:
+    async def admin_panel(message: Message, state: FSMContext) -> None:
         user = services.users.ensure_telegram_user(**_user_kwargs(message))
         if not _has_vpn_admin_access(user, services):
             # Do not disclose that a private operator command exists.
             return
-        stats = await asyncio.to_thread(
-            VpnAdminService(services.vpn.db, services.settings).dashboard
+        await state.clear()
+        await message.answer(
+            vpn_admin_home_text(),
+            reply_markup=admin_menu_keyboard(),
+            parse_mode="HTML",
         )
-        await message.answer(vpn_admin_stats_text(stats), parse_mode="HTML")
+
+    @router.callback_query(F.data == "admin:home")
+    async def admin_home(callback: CallbackQuery, state: FSMContext) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(user, services):
+            return
+        await state.clear()
+        if callback.message:
+            await _screen(callback.message, vpn_admin_home_text(), admin_menu_keyboard())
+        await callback.answer()
+
+    @router.callback_query(F.data == "admin:stats")
+    async def admin_stats(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(user, services):
+            return
+        stats = await asyncio.to_thread(get_vpn_admin().dashboard)
+        if callback.message:
+            await _screen(callback.message, vpn_admin_stats_text(stats), admin_back_keyboard())
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("admin:users:"))
+    async def admin_users(callback: CallbackQuery) -> None:
+        user = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(user, services):
+            return
+        try:
+            page = max(1, int((callback.data or "").rsplit(":", 1)[-1]))
+        except ValueError:
+            page = 1
+        if callback.message:
+            await show_admin_users(callback.message, page=page)
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("admin:user:"))
+    async def admin_user_card(callback: CallbackQuery) -> None:
+        actor = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(actor, services):
+            return
+        try:
+            _, _, user_id, page = (callback.data or "").split(":")
+            if callback.message:
+                await show_admin_user(
+                    callback.message, user_id=int(user_id), page=int(page)
+                )
+        except (ValueError, BusinessRuleError) as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("admin:ban:"))
+    @router.callback_query(F.data.startswith("admin:unban:"))
+    async def admin_toggle_ban(callback: CallbackQuery) -> None:
+        actor = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(actor, services):
+            return
+        try:
+            action, user_id_text, page_text = (callback.data or "").split(":")[1:]
+            blocked = action == "ban"
+            card = await asyncio.to_thread(
+                get_vpn_admin().set_abuse_blocked,
+                user_id=int(user_id_text),
+                is_blocked=blocked,
+                reason="Блокировка из Telegram-админки" if blocked else "",
+                admin_user_id=int(actor["id"]),
+            )
+            if callback.message:
+                await _screen(
+                    callback.message,
+                    vpn_admin_user_text(card),
+                    admin_user_card_keyboard(
+                        card, can_manage=True, users_page=int(page_text)
+                    ),
+                )
+        except (ValueError, BusinessRuleError) as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        await callback.answer("Пользователь заблокирован" if blocked else "Пользователь разблокирован")
+
+    @router.callback_query(F.data.startswith("admin:vip:"))
+    async def admin_grant_vip(callback: CallbackQuery) -> None:
+        actor = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(actor, services):
+            return
+        try:
+            _, _, user_id_text, page_text = (callback.data or "").split(":")
+            card = await asyncio.to_thread(
+                get_vpn_admin().grant_vip,
+                user_id=int(user_id_text),
+                admin_user_id=int(actor["id"]),
+            )
+            code = str(card.get("referral_code") or f"tg{card['telegram_id']}")
+            referral_link = (
+                f"https://t.me/{services.settings.vpn_bot_username or 'your_vpn_bot'}"
+                f"?start=ref_{code}"
+            )
+            try:
+                await callback.bot.send_message(
+                    int(card["telegram_id"]),
+                    "🎖 <b>Вы теперь VIP-пользователь CEA VPN!</b>\n\n"
+                    "Вам доступен бесплатный VPN.\n\n"
+                    f"🔗 <b>Ваша реферальная ссылка:</b>\n<code>{escape(referral_link)}</code>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                logging.exception("Failed to notify VPN VIP user %s", user_id_text)
+            if callback.message:
+                await _screen(
+                    callback.message,
+                    vpn_admin_user_text(card),
+                    admin_user_card_keyboard(
+                        card, can_manage=True, users_page=int(page_text)
+                    ),
+                )
+        except (ValueError, BusinessRuleError) as exc:
+            await callback.answer(str(exc), show_alert=True)
+            return
+        await callback.answer("VIP-доступ выдан")
+
+    @router.callback_query(F.data == "admin:broadcast")
+    async def admin_broadcast(callback: CallbackQuery, state: FSMContext) -> None:
+        actor = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(actor, services):
+            return
+        await state.clear()
+        if callback.message:
+            await _screen(
+                callback.message,
+                "📣 <b>Новая рассылка</b>\n\nВыберите, кому отправить сообщение:",
+                admin_broadcast_audience_keyboard(),
+            )
+        await callback.answer()
+
+    @router.callback_query(F.data.startswith("admin:broadcast:"))
+    async def admin_broadcast_audience(
+        callback: CallbackQuery, state: FSMContext
+    ) -> None:
+        actor = services.users.ensure_telegram_user(**_user_kwargs(callback))
+        if not _has_vpn_admin_access(actor, services):
+            return
+        audience = (callback.data or "").rsplit(":", 1)[-1]
+        if audience not in {"all", "active", "inactive"}:
+            await callback.answer("Неверная аудитория", show_alert=True)
+            return
+        await state.set_state(AdminBroadcastState.waiting_for_message)
+        await state.update_data(audience=audience)
+        labels = {
+            "all": "всем пользователям",
+            "active": "пользователям с активной подпиской",
+            "inactive": "пользователям без активной подписки",
+        }
+        if callback.message:
+            await _screen(
+                callback.message,
+                "📣 <b>Рассылка</b>\n\n"
+                f"Аудитория: <b>{labels[audience]}</b>\n\n"
+                "Теперь отправьте сюда готовое сообщение. "
+                "Можно отправить <b>текст, фото с подписью, видео или документ</b>.\n\n"
+                "Для отмены отправьте /cancel.",
+                admin_back_keyboard(),
+            )
+        await callback.answer()
+
+    @router.message(AdminBroadcastState.waiting_for_message)
+    async def admin_send_broadcast(message: Message, state: FSMContext) -> None:
+        actor = services.users.ensure_telegram_user(**_user_kwargs(message))
+        if not _has_vpn_admin_access(actor, services):
+            return
+        if (message.text or "").strip().lower() == "/cancel":
+            await state.clear()
+            await message.answer("Рассылка отменена.", reply_markup=admin_menu_keyboard())
+            return
+        data = await state.get_data()
+        audience = str(data.get("audience") or "all")
+        recipient_ids = await asyncio.to_thread(
+            get_vpn_admin().broadcast_recipient_ids, audience
+        )
+        await state.clear()
+        sent = 0
+        failed = 0
+        for start in range(0, len(recipient_ids), 25):
+            batch = recipient_ids[start:start + 25]
+            results = await asyncio.gather(
+                *(
+                    message.bot.copy_message(
+                        chat_id=telegram_id,
+                        from_chat_id=message.chat.id,
+                        message_id=message.message_id,
+                    )
+                    for telegram_id in batch
+                ),
+                return_exceptions=True,
+            )
+            sent += sum(not isinstance(result, Exception) for result in results)
+            failed += sum(isinstance(result, Exception) for result in results)
+            if start + 25 < len(recipient_ids):
+                await asyncio.sleep(0.9)
+        await message.answer(
+            "✅ <b>Рассылка завершена</b>\n\n"
+            f"Отправлено: <b>{sent}</b>\n"
+            f"Не доставлено: <b>{failed}</b>",
+            reply_markup=admin_menu_keyboard(),
+            parse_mode="HTML",
+        )
 
     @router.message(CommandStart())
     async def start(message: Message) -> None:

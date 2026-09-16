@@ -16,11 +16,34 @@ from ceavpn.bot.handlers import (
     trial_expiry_reminder_screen,
     v2box_landing_url,
     vpn_admin_stats_text,
+    vpn_admin_home_text,
     plans_keyboard,
+)
+from ceavpn.bot.keyboards import (
+    admin_broadcast_audience_keyboard,
+    admin_menu_keyboard,
 )
 
 
 class VpnBotUiTest(unittest.TestCase):
+    def test_admin_panel_has_users_stats_and_broadcast_sections(self) -> None:
+        keyboard = admin_menu_keyboard()
+        callbacks = [row[0].callback_data for row in keyboard.inline_keyboard]
+
+        self.assertIn("Админ-панель CEA VPN", vpn_admin_home_text())
+        self.assertEqual(
+            callbacks,
+            ["admin:stats", "admin:users:1", "admin:broadcast"],
+        )
+
+    def test_admin_broadcast_has_all_required_audiences(self) -> None:
+        keyboard = admin_broadcast_audience_keyboard()
+        callbacks = [row[0].callback_data for row in keyboard.inline_keyboard]
+
+        self.assertIn("admin:broadcast:all", callbacks)
+        self.assertIn("admin:broadcast:active", callbacks)
+        self.assertIn("admin:broadcast:inactive", callbacks)
+
     def test_vpn_owner_allow_list_can_use_private_statistics(self) -> None:
         services = SimpleNamespace(
             admin=SimpleNamespace(has_admin_access=lambda user: False),

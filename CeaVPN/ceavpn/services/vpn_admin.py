@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import math
+import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict
 from zoneinfo import ZoneInfo
@@ -12,7 +13,7 @@ from ceavpn.repositories.vpn_admin import VpnAdminRepository
 from ceavpn.repositories.vpn_provisioning_jobs import VpnProvisioningJobRepository
 from ceavpn.repositories.vpn_servers import VpnServerRepository
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
-from ceavpn.services.exceptions import NotFoundError
+from ceavpn.services.exceptions import BusinessRuleError, NotFoundError
 
 
 class VpnAdminService:
@@ -76,6 +77,8 @@ class VpnAdminService:
             "trial",
             "paid",
             "active",
+            "inactive",
+            "vip",
             "expired",
             "issues",
             "blocked",
@@ -120,6 +123,85 @@ class VpnAdminService:
             raise NotFoundError("VPN-пользователь не найден")
         return card
 
+    def broadcast_recipient_ids(self, audience: str) -> list[int]:
+        if audience not in {"all", "active", "inactive"}:
+            raise BusinessRuleError("Неизвестная аудитория рассылки")
+        now = datetime.now(timezone.utc).isoformat()
+        with self.db.transaction() as conn:
+            if audience == "active":
+                rows = conn.execute(
+                    """SELECT u.telegram_id FROM users u
+                       WHERE EXISTS (
+                         SELECT 1 FROM vpn_subscriptions s
+                         WHERE s.user_id = u.id
+                           AND s.status = 'active'
+                           AND s.ends_at > ?
+                       )""",
+                    (now,),
+                ).fetchall()
+            elif audience == "inactive":
+                rows = conn.execute(
+                    """SELECT u.telegram_id FROM users u
+                       WHERE NOT EXISTS (
+                         SELECT 1 FROM vpn_subscriptions s
+                         WHERE s.user_id = u.id
+                           AND s.status = 'active'
+                           AND s.ends_at > ?
+                       )""",
+                    (now,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT telegram_id FROM users").fetchall()
+        return [int(row["telegram_id"]) for row in rows]
+
+    def grant_vip(
+        self, *, user_id: int, admin_user_id: int | None = None
+    ) -> Dict[str, Any]:
+        """Grant the selected user a long-lived free VPN entitlement."""
+        now = datetime.now(timezone.utc)
+        with self.db.transaction() as conn:
+            user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+            if user is None:
+                raise NotFoundError("VPN-пользователь не найден")
+            conn.execute(
+                """INSERT INTO vpn_vip_users (user_id, granted_at, granted_by, is_active)
+                   VALUES (?, ?, ?, TRUE)
+                   ON CONFLICT(user_id) DO UPDATE SET
+                     is_active = TRUE,
+                     granted_at = excluded.granted_at,
+                     granted_by = excluded.granted_by""",
+                (user_id, now.isoformat(), admin_user_id),
+            )
+            live = self.subscriptions.get_live_for_user(conn, user_id)
+            if live is None:
+                servers = self.servers.list_active(conn)
+                server = next(
+                    (item for item in servers if item.get("last_health_at")),
+                    servers[0] if servers else None,
+                )
+                if server is None:
+                    raise BusinessRuleError("Нет доступного VPN-сервера")
+                subscription = self.subscriptions.create_provisioning(
+                    conn,
+                    user_id=user_id,
+                    server_id=int(server["id"]),
+                    plan_id=None,
+                    kind="paid",
+                    provider_username=f"vip_{secrets.token_hex(12)}",
+                    starts_at=now.isoformat(),
+                    ends_at=(now + timedelta(days=3650)).isoformat(),
+                )
+                self.jobs.enqueue(
+                    conn,
+                    subscription_id=int(subscription["id"]),
+                    server_id=int(server["id"]),
+                    operation="create",
+                    idempotency_key=f"vpn:vip:{user_id}:{subscription['id']}",
+                )
+            return self.repository.user_card(
+                conn, user_id=user_id, now=now.isoformat()
+            ) or {}
+
     def set_abuse_blocked(
         self,
         *,
@@ -131,26 +213,7 @@ class VpnAdminService:
         now = datetime.now(timezone.utc).isoformat()
         with self.db.transaction() as conn:
             exists = conn.execute(
-                """
-                SELECT 1 AS exists
-                FROM users u
-                WHERE u.id = ?
-                  AND (
-                    EXISTS (
-                        SELECT 1 FROM vpn_subscriptions s
-                        WHERE s.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_payments pay
-                        WHERE pay.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_trial_claims claim
-                        WHERE claim.user_id = u.id
-                    )
-                  )
-                LIMIT 1
-                """,
+                "SELECT 1 AS exists FROM users WHERE id = ? LIMIT 1",
                 (user_id,),
             ).fetchone()
             if exists is None:

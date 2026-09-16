@@ -18,6 +18,7 @@ class VpnAdminRepository:
         if getattr(conn, "driver", "") == "postgres":
             paid_at_expression = "COALESCE(pay.paid_at, pay.updated_at, pay.created_at)"
             healthy_at_expression = "srv.last_health_at"
+            user_created_expression = "u.created_at"
         else:
             # SQLite stores timestamps as text; normalize old space-separated
             # values before comparing them with current ISO timestamps.
@@ -25,30 +26,31 @@ class VpnAdminRepository:
                 "REPLACE(COALESCE(pay.paid_at, pay.updated_at, pay.created_at), ' ', 'T')"
             )
             healthy_at_expression = "REPLACE(srv.last_health_at, ' ', 'T')"
+            user_created_expression = "REPLACE(u.created_at, ' ', 'T')"
         return (
             row_to_dict(
                 conn.execute(
                     f"""
                     SELECT
+                        (SELECT COUNT(*) FROM users) AS users_total,
                         (
-                            SELECT COUNT(DISTINCT u.id)
-                            FROM users u
-                            WHERE EXISTS (
-                                SELECT 1 FROM vpn_subscriptions s
-                                WHERE s.user_id = u.id
-                            ) OR EXISTS (
-                                SELECT 1 FROM vpn_payments pay
-                                WHERE pay.user_id = u.id
-                            ) OR EXISTS (
-                                SELECT 1 FROM vpn_trial_claims claim
-                                WHERE claim.user_id = u.id
-                            )
-                        ) AS users_total,
+                            SELECT COUNT(*) FROM users u
+                            WHERE {user_created_expression} >= ?
+                        ) AS users_period,
                         (
                             SELECT COUNT(DISTINCT s.user_id)
                             FROM vpn_subscriptions s
                             WHERE s.status = 'active' AND s.ends_at > ?
                         ) AS active_users,
+                        (
+                            SELECT COUNT(*) FROM users u
+                            WHERE NOT EXISTS (
+                                SELECT 1 FROM vpn_subscriptions active_subscription
+                                WHERE active_subscription.user_id = u.id
+                                  AND active_subscription.status = 'active'
+                                  AND active_subscription.ends_at > ?
+                            )
+                        ) AS inactive_users,
                         (
                             SELECT COUNT(DISTINCT s.user_id)
                             FROM vpn_subscriptions s
@@ -123,6 +125,8 @@ class VpnAdminRepository:
                         ) AS blocked_users
                     """,
                     (
+                        period_started_at,
+                        now,
                         now,
                         now,
                         now,
@@ -199,7 +203,7 @@ class VpnAdminRepository:
                 AND EXISTS (
                     SELECT 1 FROM vpn_payments pay_filter
                     WHERE pay_filter.user_id = u.id
-                      AND pay_filter.status = 'paid'
+                      AND pay_filter.status IN ('paid', 'completed', 'confirmed')
                       AND pay_filter.provider <> 'admin_demo'
                 )
                 """,
@@ -215,6 +219,27 @@ class VpnAdminRepository:
                 )
                 """,
                 ["now"],
+            ),
+            "inactive": (
+                """
+                AND NOT EXISTS (
+                    SELECT 1 FROM vpn_subscriptions active_filter
+                    WHERE active_filter.user_id = u.id
+                      AND active_filter.status = 'active'
+                      AND active_filter.ends_at > ?
+                )
+                """,
+                ["now"],
+            ),
+            "vip": (
+                """
+                AND EXISTS (
+                    SELECT 1 FROM vpn_vip_users vip_filter
+                    WHERE vip_filter.user_id = u.id
+                      AND vip_filter.is_active = TRUE
+                )
+                """,
+                [],
             ),
             "expired": (
                 """
@@ -301,20 +326,7 @@ class VpnAdminRepository:
             f"""
             SELECT COUNT(*) AS count
             FROM users u
-            WHERE (
-                EXISTS (
-                    SELECT 1 FROM vpn_subscriptions s_scope
-                    WHERE s_scope.user_id = u.id
-                )
-                OR EXISTS (
-                    SELECT 1 FROM vpn_payments pay_scope
-                    WHERE pay_scope.user_id = u.id
-                )
-                OR EXISTS (
-                    SELECT 1 FROM vpn_trial_claims claim_scope
-                    WHERE claim_scope.user_id = u.id
-                )
-            )
+            WHERE TRUE
             {segment_sql}
             {search_sql}
             """,
@@ -368,27 +380,31 @@ class VpnAdminRepository:
                     EXISTS (
                         SELECT 1 FROM vpn_payments paid
                         WHERE paid.user_id = u.id
-                          AND paid.status = 'paid'
+                          AND paid.status IN ('paid', 'completed', 'confirmed')
                           AND paid.provider <> 'admin_demo'
                     ) AS vpn_has_paid,
+                    EXISTS (
+                        SELECT 1 FROM vpn_vip_users vip
+                        WHERE vip.user_id = u.id AND vip.is_active = TRUE
+                    ) AS vpn_is_vip,
                     (
                         SELECT COUNT(*) FROM vpn_payments paid
                         WHERE paid.user_id = u.id
-                          AND paid.status = 'paid'
+                          AND paid.status IN ('paid', 'completed', 'confirmed')
                           AND paid.provider <> 'admin_demo'
                     ) AS vpn_paid_count,
                     (
                         SELECT COALESCE(SUM(paid.amount_rub), 0)
                         FROM vpn_payments paid
                         WHERE paid.user_id = u.id
-                          AND paid.status = 'paid'
+                          AND paid.status IN ('paid', 'completed', 'confirmed')
                           AND paid.provider <> 'admin_demo'
                     ) AS vpn_paid_amount_rub,
                     (
                         SELECT MAX(paid.paid_at)
                         FROM vpn_payments paid
                         WHERE paid.user_id = u.id
-                          AND paid.status = 'paid'
+                          AND paid.status IN ('paid', 'completed', 'confirmed')
                           AND paid.provider <> 'admin_demo'
                     ) AS vpn_last_paid_at
                 FROM users u
@@ -412,20 +428,7 @@ class VpnAdminRepository:
                 LEFT JOIN vpn_plans p ON p.id = s.plan_id
                 LEFT JOIN vpn_user_bans ban
                   ON ban.user_id = u.id
-                WHERE (
-                    EXISTS (
-                        SELECT 1 FROM vpn_subscriptions s_scope
-                        WHERE s_scope.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_payments pay_scope
-                        WHERE pay_scope.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_trial_claims claim_scope
-                        WHERE claim_scope.user_id = u.id
-                    )
-                )
+                WHERE TRUE
                 {segment_sql}
                 {search_sql}
                 ORDER BY u.created_at DESC
@@ -447,20 +450,6 @@ class VpnAdminRepository:
                 """
                 SELECT * FROM users u
                 WHERE u.id = ?
-                  AND (
-                    EXISTS (
-                        SELECT 1 FROM vpn_subscriptions s
-                        WHERE s.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_payments pay
-                        WHERE pay.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_trial_claims claim
-                        WHERE claim.user_id = u.id
-                    )
-                  )
                 """,
                 (user_id,),
             ).fetchone()
@@ -519,7 +508,7 @@ class VpnAdminRepository:
                         MAX(paid_at) AS last_paid_at
                     FROM vpn_payments
                     WHERE user_id = ?
-                      AND status = 'paid'
+                      AND status IN ('paid', 'completed', 'confirmed')
                       AND provider <> 'admin_demo'
                     """,
                     (user_id,),
@@ -556,6 +545,12 @@ class VpnAdminRepository:
                 ).fetchall()
             )
         user["subscription"] = subscription
+        vip = conn.execute(
+            "SELECT is_active, granted_at FROM vpn_vip_users WHERE user_id = ?",
+            (user_id,),
+        ).fetchone()
+        user["is_vip"] = bool(vip and vip["is_active"])
+        user["vip_granted_at"] = vip["granted_at"] if vip else None
         user["trial"] = trial
         user["vpn_ban"] = self._active_ban(conn, user_id)
         user["payments"] = payments

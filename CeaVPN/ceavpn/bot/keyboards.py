@@ -589,17 +589,11 @@ def history_result_keyboard(*, page: int) -> InlineKeyboardMarkup:
 
 
 def admin_menu_keyboard(*, maintenance_active: bool = False) -> InlineKeyboardMarkup:
-    maintenance_text = (
-        "🛠 Тех работы включены"
-        if maintenance_active
-        else "🛠 Тех работы выключены"
-    )
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
             [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:1")],
-            [InlineKeyboardButton(text="🔎 Поиск", callback_data="admin:search")],
-            [InlineKeyboardButton(text=maintenance_text, callback_data="admin:maintenance")],
+            [InlineKeyboardButton(text="📣 Рассылка", callback_data="admin:broadcast")],
         ]
     )
 
@@ -607,15 +601,24 @@ def admin_menu_keyboard(*, maintenance_active: bool = False) -> InlineKeyboardMa
 def admin_users_keyboard(
     users: Iterable[Dict[str, Any]], *, page: int, pages: int
 ) -> InlineKeyboardMarkup:
-    rows = [
-        [
+    rows = []
+    for user in users:
+        if user.get("vpn_is_blocked"):
+            marker = "⛔️"
+        elif user.get("vpn_is_vip"):
+            marker = "🎖"
+        elif user.get("vpn_is_active") and user.get("vpn_has_paid"):
+            marker = "💎"
+        elif user.get("vpn_is_active"):
+            marker = "🎁"
+        else:
+            marker = "🔴"
+        rows.append([
             InlineKeyboardButton(
-                text=f"👤 {user_label(user)}",
+                text=f"{marker} {user_label(user)}"[:64],
                 callback_data=f"admin:user:{user['id']}:{page}",
             )
-        ]
-        for user in users
-    ]
+        ])
     pager = []
     if page > 1:
         pager.append(
@@ -636,7 +639,8 @@ def admin_user_card_keyboard(
 ) -> InlineKeyboardMarkup:
     rows = []
     if can_manage:
-        if user["is_blocked"]:
+        is_blocked = bool(user.get("vpn_ban"))
+        if is_blocked:
             rows.append(
                 [
                     InlineKeyboardButton(
@@ -654,15 +658,13 @@ def admin_user_card_keyboard(
                     )
                 ]
             )
-        rows.append(
-            [
-                InlineKeyboardButton(
-                    text="➕ Начислить коины",
-                    callback_data=f"admin:credit:{user['id']}:{users_page}",
-                )
-            ]
-        )
-    back_callback = "admin:search" if users_page == 0 else f"admin:users:{users_page}"
+        rows.append([
+            InlineKeyboardButton(
+                text="🎖 Обновить VIP" if user.get("is_vip") else "🎖 Выдать VIP",
+                callback_data=f"admin:vip:{user['id']}:{users_page}",
+            )
+        ])
+    back_callback = f"admin:users:{users_page}"
     rows.append(
         [InlineKeyboardButton(text=BACK_TO_MENU_BUTTON, callback_data=back_callback)]
     )
@@ -674,6 +676,17 @@ def admin_back_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="⬅️ Админка", callback_data="admin:home")]
+        ]
+    )
+
+
+def admin_broadcast_audience_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="👥 Всем пользователям", callback_data="admin:broadcast:all")],
+            [InlineKeyboardButton(text="🟢 С активной подпиской", callback_data="admin:broadcast:active")],
+            [InlineKeyboardButton(text="🔴 Без активной подписки", callback_data="admin:broadcast:inactive")],
+            [InlineKeyboardButton(text="⬅️ В админку", callback_data="admin:home")],
         ]
     )
 
