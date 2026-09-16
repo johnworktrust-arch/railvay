@@ -15,7 +15,7 @@ from pathlib import Path
 from typing import Any, Dict
 from urllib.parse import urlparse
 
-from aiohttp import ClientSession, ClientTimeout, web
+from aiohttp import ClientSession, ClientTimeout, FormData, web
 
 from ceaadmin.config import Settings, load_settings
 from ceaadmin.database import Database
@@ -27,8 +27,10 @@ from ceaadmin.services.vpn_admin import VpnAdminService
 ASSETS_DIR = Path(__file__).resolve().parent / "admin_assets"
 LOCAL_HOSTS = {"127.0.0.1", "localhost", "::1"}
 MAX_REQUEST_BYTES = 8 * 1024
-MAX_BROADCAST_RECIPIENTS = 100
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024
+MAX_BROADCAST_RECIPIENTS = 10_000
 MAX_BROADCAST_TEXT_LENGTH = 4096
+MAX_PHOTO_CAPTION_LENGTH = 1024
 MAX_BUTTON_TEXT_LENGTH = 64
 TELEGRAM_SEND_TIMEOUT = ClientTimeout(total=12)
 AUTH_COOKIE_NAME = "cea_admin_session"
@@ -184,19 +186,51 @@ async def _send_telegram_message(
     text: str,
     button_text: str,
     button_url: str,
-) -> bool:
+    session: ClientSession | None = None,
+    photo: bytes | str | None = None,
+    photo_name: str = "broadcast.jpg",
+    photo_mime: str = "image/jpeg",
+) -> bool | str:
     payload: dict[str, Any] = {"chat_id": telegram_id, "text": text}
     if button_text:
         payload["reply_markup"] = {
             "inline_keyboard": [[{"text": button_text, "url": button_url}]]
         }
-    async with ClientSession(timeout=TELEGRAM_SEND_TIMEOUT) as session:
-        async with session.post(
-            f"https://api.telegram.org/bot{token}/sendMessage",
-            json=payload,
+    owned_session = session is None
+    client = session or ClientSession(timeout=TELEGRAM_SEND_TIMEOUT)
+    try:
+        if photo is None:
+            request_kwargs: dict[str, Any] = {"json": payload}
+            method = "sendMessage"
+        else:
+            method = "sendPhoto"
+            form = FormData()
+            form.add_field("chat_id", str(telegram_id))
+            form.add_field("caption", text)
+            if button_text:
+                form.add_field("reply_markup", json.dumps(payload["reply_markup"]))
+            if isinstance(photo, bytes):
+                form.add_field(
+                    "photo", photo, filename=photo_name, content_type=photo_mime
+                )
+            else:
+                form.add_field("photo", photo)
+            request_kwargs = {"data": form}
+        async with client.post(
+            f"https://api.telegram.org/bot{token}/{method}",
+            **request_kwargs,
         ) as response:
             result = await response.json(content_type=None)
-    return response.status == 200 and bool(result.get("ok"))
+        if response.status != 200 or not result.get("ok"):
+            return False
+        if photo is not None:
+            sizes = (result.get("result") or {}).get("photo") or []
+            if sizes:
+                return str(sizes[-1].get("file_id") or "") or True
+        return True
+    finally:
+        if owned_session:
+            await client.close()
 
 
 @web.middleware
@@ -304,7 +338,7 @@ def create_admin_app(
     token = admin_token or secrets.token_urlsafe(32)
     app = web.Application(
         middlewares=[security_headers_middleware, admin_middleware],
-        client_max_size=MAX_REQUEST_BYTES,
+        client_max_size=MAX_UPLOAD_BYTES + MAX_REQUEST_BYTES,
     )
     app[DB_KEY] = db
     app[SERVICES_KEY] = services
@@ -486,7 +520,7 @@ def create_admin_app(
             user_id=user_id,
             admin_user_id=int(operator["user_id"]),
         )
-        user = card.get("user") or {}
+        user = card.get("user") or card
         code = str(user.get("referral_code") or f"tg{user.get('telegram_id', '')}")
         username = app[SETTINGS_KEY].vpn_bot_username or "your_vpn_bot"
         referral_link = f"https://t.me/{username}?start=ref_{code}"
@@ -672,23 +706,52 @@ def create_admin_app(
 
     async def send_message(request: web.Request) -> web.Response:
         operator = _require_operator(request)
-        payload = await _read_json(request)
+        photo: bytes | None = None
+        photo_name = "broadcast.jpg"
+        photo_mime = "image/jpeg"
+        if request.content_type.startswith("multipart/"):
+            payload: dict[str, Any] = {}
+            reader = await request.multipart()
+            async for part in reader:
+                if part.name == "photo" and part.filename:
+                    photo_name = Path(part.filename).name or photo_name
+                    photo_mime = part.headers.get("Content-Type", photo_mime).lower()
+                    if photo_mime not in {"image/jpeg", "image/png", "image/webp"}:
+                        raise web.HTTPBadRequest(text="Фото должно быть JPG, PNG или WebP")
+                    photo = await part.read(decode=False)
+                    if not photo or len(photo) > MAX_UPLOAD_BYTES:
+                        raise web.HTTPBadRequest(text="Размер фото — до 10 МБ")
+                else:
+                    value = await part.text()
+                    if part.name == "user_ids":
+                        try:
+                            payload[part.name] = json.loads(value or "[]")
+                        except json.JSONDecodeError:
+                            raise web.HTTPBadRequest(text="Некорректный список получателей")
+                    elif part.name:
+                        payload[part.name] = value
+        else:
+            payload = await _read_json(request)
         text = str(payload.get("text") or "").strip()
         button_text = str(payload.get("button_text") or "").strip()
         button_url = str(payload.get("button_url") or "").strip()
-        raw_ids = payload.get("user_ids")
+        audience = str(payload.get("audience") or "selected").strip()
+        if audience not in {"selected", "all", "active", "inactive"}:
+            raise web.HTTPBadRequest(text="Некорректная аудитория рассылки")
+        raw_ids = payload.get("user_ids", [])
         if not isinstance(raw_ids, list):
             raise web.HTTPBadRequest(text="Выберите получателей")
         try:
             user_ids = list(dict.fromkeys(int(value) for value in raw_ids))
         except (TypeError, ValueError):
             raise web.HTTPBadRequest(text="Некорректный список получателей")
-        if not text or len(text) > MAX_BROADCAST_TEXT_LENGTH:
-            raise web.HTTPBadRequest(text="Текст сообщения — от 1 до 4096 символов")
-        if not user_ids or len(user_ids) > MAX_BROADCAST_RECIPIENTS:
+        max_text_length = MAX_PHOTO_CAPTION_LENGTH if photo else MAX_BROADCAST_TEXT_LENGTH
+        if not text or len(text) > max_text_length:
             raise web.HTTPBadRequest(
-                text=f"Выберите от 1 до {MAX_BROADCAST_RECIPIENTS} получателей"
+                text=f"Текст сообщения — от 1 до {max_text_length} символов"
             )
+        if audience == "selected" and not user_ids:
+            raise web.HTTPBadRequest(text="Выберите хотя бы одного получателя")
         if bool(button_text) != bool(button_url):
             raise web.HTTPBadRequest(text="Для кнопки нужны и текст, и ссылка")
         if button_text and len(button_text) > MAX_BUTTON_TEXT_LENGTH:
@@ -704,51 +767,88 @@ def create_admin_app(
 
         source_db = app[VPN_ADMIN_KEY].db
         with source_db.transaction() as conn:
-            placeholders = ", ".join("?" for _ in user_ids)
-            rows = conn.execute(
-                f"""
-                SELECT u.id, u.telegram_id
-                FROM users u
-                WHERE u.id IN ({placeholders})
-                  AND (
-                    EXISTS (
-                        SELECT 1 FROM vpn_subscriptions subscription
-                        WHERE subscription.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_payments payment
-                        WHERE payment.user_id = u.id
-                    )
-                    OR EXISTS (
-                        SELECT 1 FROM vpn_trial_claims trial
-                        WHERE trial.user_id = u.id
-                    )
-                  )
-                """,
-                tuple(user_ids),
-            ).fetchall()
+            if audience == "selected":
+                placeholders = ", ".join("?" for _ in user_ids)
+                rows = conn.execute(
+                    f"SELECT u.id, u.telegram_id FROM users u WHERE u.id IN ({placeholders})",
+                    tuple(user_ids),
+                ).fetchall()
+            elif audience == "active":
+                now = datetime.now(timezone.utc).isoformat()
+                rows = conn.execute(
+                    """SELECT u.id, u.telegram_id FROM users u
+                       WHERE EXISTS (
+                         SELECT 1 FROM vpn_subscriptions s
+                         WHERE s.user_id = u.id AND s.status = 'active' AND s.ends_at > ?
+                       )""",
+                    (now,),
+                ).fetchall()
+            elif audience == "inactive":
+                now = datetime.now(timezone.utc).isoformat()
+                rows = conn.execute(
+                    """SELECT u.id, u.telegram_id FROM users u
+                       WHERE NOT EXISTS (
+                         SELECT 1 FROM vpn_subscriptions s
+                         WHERE s.user_id = u.id AND s.status = 'active' AND s.ends_at > ?
+                       )""",
+                    (now,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT id, telegram_id FROM users").fetchall()
         recipients = [dict(row) for row in rows]
-        if len(recipients) != len(user_ids):
+        if audience == "selected" and len(recipients) != len(user_ids):
             raise web.HTTPBadRequest(text="Некоторые выбранные пользователи не найдены")
+        if not recipients:
+            raise web.HTTPBadRequest(text="В выбранной аудитории нет пользователей")
+        if len(recipients) > MAX_BROADCAST_RECIPIENTS:
+            raise web.HTTPBadRequest(text="Слишком большая аудитория рассылки")
         bot_token = settings.vpn_telegram_bot_token
         if not bot_token:
             raise web.HTTPBadRequest(text="Токен VPN-бота не настроен")
 
-        results = await asyncio.gather(
-            *(
-                _send_telegram_message(
+        results: list[Any] = []
+        async with ClientSession(timeout=TELEGRAM_SEND_TIMEOUT) as telegram_session:
+            photo_reference: bytes | str | None = photo
+            if photo is not None:
+                first = recipients.pop(0)
+                first_result = await _send_telegram_message(
                     token=bot_token,
-                    telegram_id=int(recipient["telegram_id"]),
+                    telegram_id=int(first["telegram_id"]),
                     text=text,
                     button_text=button_text,
                     button_url=button_url,
+                    session=telegram_session,
+                    photo=photo,
+                    photo_name=photo_name,
+                    photo_mime=photo_mime,
                 )
-                for recipient in recipients
-            ),
-            return_exceptions=True,
-        )
-        sent = sum(result is True for result in results)
-        failed = len(recipients) - sent
+                results.append(first_result)
+                if isinstance(first_result, str):
+                    photo_reference = first_result
+            for start in range(0, len(recipients), 25):
+                batch = recipients[start:start + 25]
+                results.extend(await asyncio.gather(
+                    *(
+                        _send_telegram_message(
+                            token=bot_token,
+                            telegram_id=int(recipient["telegram_id"]),
+                            text=text,
+                            button_text=button_text,
+                            button_url=button_url,
+                            session=telegram_session,
+                            photo=photo_reference,
+                            photo_name=photo_name,
+                            photo_mime=photo_mime,
+                        )
+                        for recipient in batch
+                    ),
+                    return_exceptions=True,
+                ))
+                if start + 25 < len(recipients):
+                    await asyncio.sleep(0.9)
+        sent = sum(result is True or isinstance(result, str) for result in results)
+        total_recipients = len(results)
+        failed = total_recipients - sent
         with db.transaction() as conn:
             services.admin.admins.log_action(
                 conn,
@@ -757,10 +857,12 @@ def create_admin_app(
                 action="telegram_message_send",
                 payload={
                     "bot": "vpn",
-                    "recipient_count": len(recipients),
+                    "recipient_count": total_recipients,
                     "sent": sent,
                     "failed": failed,
                     "has_button": bool(button_text),
+                    "has_photo": bool(photo),
+                    "audience": audience,
                 },
             )
         return _json_response({"ok": True, "sent": sent, "failed": failed})

@@ -781,6 +781,11 @@ tbody tr:last-child td {
   color: var(--blue);
 }
 
+.badge.vip {
+  background: #fff1c7;
+  color: #8a5a00;
+}
+
 .badge.admin {
   background: #ece7f5;
   color: #65518b;
@@ -1374,6 +1379,8 @@ tbody tr:last-child td {
 
 .message-panel { max-width: 920px; }
 .message-form { display: grid; gap: 18px; }
+#selected-recipients { display: grid; gap: 10px; }
+#selected-recipients[hidden] { display: none; }
 .message-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; }
 .recipient-picker { position: relative; }
 .recipient-results { position: absolute; z-index: 5; top: calc(100% + 6px); left: 0; right: 0; max-height: 230px; overflow: auto; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); box-shadow: 0 14px 30px rgba(15, 23, 42, .16); padding: 6px; }
@@ -1383,6 +1390,7 @@ tbody tr:last-child td {
 .recipient-chip { display: inline-flex; align-items: center; gap: 8px; border: 1px solid var(--blue); border-radius: 999px; background: var(--blue-soft); color: var(--blue); padding: 6px 10px; cursor: pointer; font: inherit; font-size: 13px; }
 .recipient-chip span { font-size: 17px; line-height: 12px; }
 .message-textarea { min-height: 150px; height: auto !important; padding: 12px 14px !important; resize: vertical; font: inherit; }
+.file-input { height: auto !important; padding: 9px 12px !important; }
 .form-hint { color: var(--muted); font-size: 13px; }
 .message-send-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; }
 

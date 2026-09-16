@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import unittest
 from dataclasses import replace
+from io import BytesIO
 from unittest.mock import patch
 
+from aiohttp import FormData
 from aiohttp.test_utils import TestClient, TestServer
 
 from ceaadmin.admin_web import (
@@ -182,7 +184,7 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(credit_response.status, 200)
         credited = await credit_response.json()
-        self.assertEqual(credited["balance"], 35)
+        self.assertEqual(credited["balance"], 110)
 
         maintenance_response = await self.client.post(
             "/api/maintenance",
@@ -242,6 +244,61 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status, 400)
 
+    async def test_message_can_target_all_vpn_bot_users(self) -> None:
+        with patch(
+            "ceaadmin.admin_web._send_telegram_message",
+            return_value=True,
+        ) as send:
+            response = await self.client.post(
+                "/api/vpn/messages",
+                headers=self.headers,
+                json={"audience": "all", "text": "Важное обновление"},
+            )
+        self.assertEqual(response.status, 200)
+        result = await response.json()
+        self.assertEqual(result["sent"], 4)
+        self.assertEqual(result["failed"], 0)
+        self.assertEqual(send.call_count, 4)
+
+    async def test_vip_can_be_granted_from_vpn_user_card(self) -> None:
+        with patch(
+            "ceaadmin.admin_web._send_telegram_message",
+            return_value=True,
+        ) as send:
+            response = await self.client.post(
+                f"/api/vpn/users/{self.trial_user['id']}/vip",
+                headers=self.headers,
+            )
+        self.assertEqual(response.status, 200)
+        result = await response.json()
+        self.assertTrue(result["user"]["is_vip"])
+        self.assertTrue(result["message_sent"])
+        send.assert_called_once()
+
+
+    async def test_broadcast_accepts_photo_and_inactive_audience(self) -> None:
+        form = FormData()
+        form.add_field("audience", "inactive")
+        form.add_field("user_ids", "[]")
+        form.add_field("text", "Новость с фото")
+        form.add_field(
+            "photo",
+            BytesIO(b"fake-jpeg"),
+            filename="news.jpg",
+            content_type="image/jpeg",
+        )
+        with patch(
+            "ceaadmin.admin_web._send_telegram_message",
+            return_value=True,
+        ) as send:
+            response = await self.client.post(
+                "/api/vpn/messages", headers=self.headers, data=form
+            )
+        self.assertEqual(response.status, 200)
+        result = await response.json()
+        self.assertGreater(result["sent"], 0)
+        self.assertEqual(send.call_count, result["sent"])
+
     async def test_vpn_message_recipients_returns_selectable_list(self) -> None:
         response = await self.client.get(
             "/api/vpn/message-recipients",
@@ -249,8 +306,8 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(response.status, 200)
         result = await response.json()
-        self.assertEqual(len(result["users"]), 1)
-        self.assertEqual(result["users"][0]["id"], self.trial_user["id"])
+        self.assertEqual(len(result["users"]), 4)
+        self.assertIn(self.trial_user["id"], {user["id"] for user in result["users"]})
 
     async def test_vpn_promocode_validates_discount_and_resolves_telegram_target(self) -> None:
         invalid = await self.client.post(
@@ -299,7 +356,7 @@ class AdminWebTest(unittest.IsolatedAsyncioTestCase):
         )
         self.assertEqual(stats_response.status, 200)
         stats = await stats_response.json()
-        self.assertEqual(stats["users_total"], 1)
+        self.assertEqual(stats["users_total"], 4)
         self.assertEqual(stats["trial_users"], 1)
         self.assertEqual(stats["provisioning_subscriptions"], 1)
         self.assertGreaterEqual(stats["servers_total"], 1)

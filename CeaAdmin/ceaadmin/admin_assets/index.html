@@ -47,7 +47,7 @@
           </button>
           <button class="nav-item" type="button" data-view="vpn-users">
             <span aria-hidden="true">◎</span>
-            VPN-пользователи
+            Пользователи
           </button>
           <button class="nav-item" type="button" data-view="vpn-promocodes">
             <span aria-hidden="true">🎟</span>
@@ -55,7 +55,7 @@
           </button>
           <button class="nav-item" type="button" data-view="messages">
             <span aria-hidden="true">✉</span>
-            Сообщения
+            Рассылка
           </button>
         </div>
       </nav>
@@ -245,23 +245,39 @@
         <section class="panel message-panel">
           <div class="panel-heading">
             <div>
-              <h2>Сообщение VPN-пользователям</h2>
-              <p>Выберите одного или нескольких пользователей VPN и отправьте им сообщение от VPN-бота.</p>
+              <h2>Новая рассылка</h2>
+              <p>Отправьте текст, фото и кнопку всему боту или нужной группе пользователей.</p>
             </div>
           </div>
           <form id="message-form" class="message-form">
-            <div class="promo-input-group recipient-picker">
-              <label for="recipient-search">Получатели</label>
-              <input class="input" id="recipient-search" type="search" placeholder="Выберите из списка или найдите по имени, @username, Telegram ID" autocomplete="off">
-              <div class="recipient-results" id="recipient-results" hidden></div>
+            <div class="promo-input-group">
+              <label for="message-audience">Кому отправить</label>
+              <select class="input" id="message-audience">
+                <option value="all">Всем пользователям</option>
+                <option value="active">Только с активной подпиской</option>
+                <option value="inactive">Только без активной подписки</option>
+                <option value="selected">Выбранным пользователям</option>
+              </select>
             </div>
-            <div class="recipient-chips" id="recipient-chips">
-              <span class="empty-list">Получатели ещё не выбраны</span>
+            <div id="selected-recipients" hidden>
+              <div class="promo-input-group recipient-picker">
+                <label for="recipient-search">Получатели</label>
+                <input class="input" id="recipient-search" type="search" placeholder="Имя, @username или Telegram ID" autocomplete="off">
+                <div class="recipient-results" id="recipient-results" hidden></div>
+              </div>
+              <div class="recipient-chips" id="recipient-chips">
+                <span class="empty-list">Получатели ещё не выбраны</span>
+              </div>
+            </div>
+            <div class="promo-input-group">
+              <label for="message-photo">Фото (необязательно)</label>
+              <input class="input file-input" id="message-photo" type="file" accept="image/jpeg,image/png,image/webp">
+              <span class="form-hint">JPG, PNG или WebP до 10 МБ.</span>
             </div>
             <div class="promo-input-group">
               <label for="message-text">Текст сообщения</label>
               <textarea class="input message-textarea" id="message-text" maxlength="4096" placeholder="Напишите сообщение…" required></textarea>
-              <span class="form-hint">До 4096 символов. Текст будет отправлен без форматирования.</span>
+              <span class="form-hint" id="message-text-hint">До 4096 символов; с фото — до 1024.</span>
             </div>
             <div class="message-grid">
               <div class="promo-input-group">
@@ -281,7 +297,7 @@
               <input id="message-button-url" type="hidden" data-deep-link-base="__VPN_BOT_DEEP_LINK_BASE__">
             </div>
             <div class="message-send-row">
-              <span id="message-count" class="form-hint">Выбрано: 0</span>
+              <span id="message-count" class="form-hint">Аудитория: все пользователи</span>
               <button class="button primary" id="message-submit" type="submit">Отправить сообщение</button>
             </div>
           </form>
@@ -291,9 +307,9 @@
       <section class="view" id="vpn-overview-view">
         <div class="metrics" aria-label="Основные показатели VPN">
           <article class="metric">
-            <span>VPN-пользователи</span>
+            <span>Всего пользователей</span>
             <strong id="vpn-metric-users">—</strong>
-            <small id="vpn-metric-conversion">— конверсия</small>
+            <small id="vpn-metric-users-today">— за сегодня</small>
           </article>
           <article class="metric">
             <span>Активные подписки</span>
@@ -380,7 +396,8 @@
             <button class="segment vpn-segment" type="button" data-vpn-segment="trial">Пробные</button>
             <button class="segment vpn-segment" type="button" data-vpn-segment="paid">Платившие</button>
             <button class="segment vpn-segment" type="button" data-vpn-segment="active">Активные</button>
-            <button class="segment vpn-segment" type="button" data-vpn-segment="expired">Истекли</button>
+            <button class="segment vpn-segment" type="button" data-vpn-segment="inactive">Без подписки</button>
+            <button class="segment vpn-segment" type="button" data-vpn-segment="vip">VIP</button>
             <button class="segment vpn-segment" type="button" data-vpn-segment="issues">Ошибки</button>
             <button class="segment vpn-segment" type="button" data-vpn-segment="blocked">Баны</button>
           </div>

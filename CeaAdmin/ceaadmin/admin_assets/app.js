@@ -73,7 +73,9 @@ async function api(path, options = {}) {
     "X-Cea-Admin-Token": token,
     ...(options.headers || {}),
   };
-  if (options.body) headers["Content-Type"] = "application/json";
+  if (options.body && !(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
+  }
   const response = await fetch(path, { ...options, headers });
   const payload = await response.json().catch(() => ({}));
   if (response.status === 401) {
@@ -122,9 +124,9 @@ function setView(view) {
     overview: "Обзор",
     users: "Пользователи",
     "vpn-overview": "Обзор VPN",
-    "vpn-users": "VPN-пользователи",
+    "vpn-users": "Пользователи VPN",
     "vpn-promocodes": "Промокоды VPN",
-    messages: "Сообщения",
+    messages: "Рассылка",
   };
   byId("page-title").textContent = titles[view] || "Обзор";
   if (view === "overview") {
@@ -241,8 +243,8 @@ function serverListMarkup(servers) {
 async function loadVpnStats() {
   const data = await api("/api/vpn/stats");
   metric("vpn-metric-users", data.users_total);
-  byId("vpn-metric-conversion").textContent =
-    `${data.conversion_percent || 0}% оплатили`;
+  byId("vpn-metric-users-today").textContent =
+    `+${formatNumber.format(data.users_period || 0)} за сегодня`;
   metric("vpn-metric-active", data.active_users);
   byId("vpn-metric-active-paid").textContent =
     `${formatNumber.format(data.active_paid_users || 0)} платных`;
@@ -358,6 +360,9 @@ function vpnStatusBadge(user) {
   }
   if (user.vpn_status === "provisioning") {
     return '<span class="badge provisioning">Подключается</span>';
+  }
+  if (user.vpn_is_vip) {
+    return '<span class="badge vip">VIP</span>';
   }
 
   // Active subscription (ends_at > now)
@@ -802,7 +807,14 @@ function recipientLabel(user) {
 function renderMessageRecipients() {
   const chips = byId("recipient-chips");
   const count = byId("message-count");
-  count.textContent = `Выбрано: ${state.messageRecipients.length}`;
+  const audience = byId("message-audience").value;
+  const audienceLabels = {
+    all: "Аудитория: все пользователи",
+    active: "Аудитория: с активной подпиской",
+    inactive: "Аудитория: без активной подписки",
+    selected: `Выбрано: ${state.messageRecipients.length}`,
+  };
+  count.textContent = audienceLabels[audience];
   if (!state.messageRecipients.length) {
     chips.innerHTML = '<span class="empty-list">Получатели ещё не выбраны</span>';
     return;
@@ -1004,6 +1016,17 @@ byId("recipient-chips").addEventListener("click", (event) => {
   );
   renderMessageRecipients();
 });
+byId("message-audience").addEventListener("change", (event) => {
+  byId("selected-recipients").hidden = event.target.value !== "selected";
+  renderMessageRecipients();
+});
+byId("message-photo").addEventListener("change", (event) => {
+  const file = event.target.files[0];
+  byId("message-text").maxLength = file ? 1024 : 4096;
+  byId("message-text-hint").textContent = file
+    ? "С фото текст может содержать до 1024 символов."
+    : "До 4096 символов; с фото — до 1024.";
+});
 byId("message-button-action").addEventListener("change", (event) => {
   const url = byId("message-button-url");
   const text = byId("message-button-text");
@@ -1030,7 +1053,8 @@ byId("message-form").addEventListener("submit", async (event) => {
     showToast("У вас нет прав для отправки сообщений", true);
     return;
   }
-  if (!state.messageRecipients.length) {
+  const audience = byId("message-audience").value;
+  if (audience === "selected" && !state.messageRecipients.length) {
     showToast("Выберите хотя бы одного получателя", true);
     return;
   }
@@ -1038,21 +1062,33 @@ byId("message-form").addEventListener("submit", async (event) => {
   const text = byId("message-text").value.trim();
   const button_text = byId("message-button-text").value.trim();
   const button_url = byId("message-button-url").value.trim();
-  if (!window.confirm(`Отправить сообщение ${state.messageRecipients.length} получателям?`)) return;
+  const audienceNames = {
+    all: "всем пользователям",
+    active: "всем с активной подпиской",
+    inactive: "всем без активной подписки",
+    selected: `${state.messageRecipients.length} выбранным пользователям`,
+  };
+  if (!window.confirm(`Отправить сообщение ${audienceNames[audience]}?`)) return;
   submit.disabled = true;
   try {
+    const formData = new FormData();
+    formData.append("audience", audience);
+    formData.append("user_ids", JSON.stringify(state.messageRecipients.map((user) => Number(user.id))));
+    formData.append("text", text);
+    formData.append("button_text", button_text);
+    formData.append("button_url", button_url);
+    const photo = byId("message-photo").files[0];
+    if (photo) formData.append("photo", photo);
     const result = await api("/api/vpn/messages", {
       method: "POST",
-      body: JSON.stringify({
-        user_ids: state.messageRecipients.map((user) => Number(user.id)),
-        text,
-        button_text,
-        button_url,
-      }),
+      body: formData,
     });
     showToast(result.failed ? `Отправлено: ${result.sent}. Не доставлено: ${result.failed}` : `Отправлено: ${result.sent}`);
     byId("message-form").reset();
     byId("message-button-text").disabled = true;
+    byId("selected-recipients").hidden = true;
+    byId("message-text").maxLength = 4096;
+    byId("message-text-hint").textContent = "До 4096 символов; с фото — до 1024.";
     state.messageRecipients = [];
     renderMessageRecipients();
   } catch (error) {

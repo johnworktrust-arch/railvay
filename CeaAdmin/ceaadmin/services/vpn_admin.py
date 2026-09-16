@@ -80,6 +80,8 @@ class VpnAdminService:
             "trial",
             "paid",
             "active",
+            "inactive",
+            "vip",
             "expired",
             "issues",
             "blocked",
@@ -136,7 +138,7 @@ class VpnAdminService:
                    VALUES (?, ?, ?, TRUE)
                    ON CONFLICT(user_id) DO UPDATE SET is_active = TRUE, granted_at = excluded.granted_at,
                      granted_by = excluded.granted_by""",
-                (user_id, now.isoformat(), admin_user_id, admin_user_id),
+                (user_id, now.isoformat(), admin_user_id),
             )
             live = self.subscriptions.get_live_for_user(conn, user_id)
             if live is None:
