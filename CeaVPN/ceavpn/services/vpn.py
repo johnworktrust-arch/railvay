@@ -2157,6 +2157,16 @@ class VpnService:
             )
             subscription_id = int(job["subscription_id"])
             operation = str(job["operation"])
+            if getattr(conn, "driver", "") == "postgres":
+                # Use the same lock as payment/VIP renewal before reading entitlement.
+                # Otherwise a callback could read an old end date, then overwrite a
+                # concurrent renewal after waiting on UPDATE's row lock.
+                conn.execute(
+                    """SELECT id FROM users
+                       WHERE id = (SELECT user_id FROM vpn_subscriptions WHERE id = ?)
+                       FOR UPDATE""",
+                    (subscription_id,),
+                ).fetchone()
             current_subscription = self.subscriptions.get_by_id(
                 conn, subscription_id
             )
