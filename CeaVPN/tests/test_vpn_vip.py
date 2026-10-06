@@ -1,4 +1,6 @@
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import sys
 from types import SimpleNamespace
 
 import pytest
@@ -6,6 +8,9 @@ import pytest
 from ceavpn.database import Database
 from ceavpn.services.users import UserService
 from ceavpn.services.vpn_admin import VpnAdminService
+
+# Exercise the independent web-admin implementation against the same schema.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "CeaAdmin"))
 from ceaadmin.services.vpn_admin import VpnAdminService as WebVpnAdminService
 
 
