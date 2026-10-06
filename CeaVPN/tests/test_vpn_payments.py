@@ -311,6 +311,84 @@ class VpnPaymentTest(unittest.TestCase):
             ).fetchall()
         self.assertEqual([row["operation"] for row in rows], ["create", "update"])
 
+    def test_expired_trial_renewal_preserves_installed_subscription(self) -> None:
+        trial = self.vpn.claim_trial(user_id=int(self.owner["id"]), channel="@ceafamily")
+        self._complete_next_job(suffix="keep-old-link")
+        with self.db.transaction() as conn:
+            original = self.vpn.subscriptions.get_by_id(conn, trial.subscription["id"])
+            conn.execute(
+                "UPDATE vpn_subscriptions SET ends_at = ? WHERE id = ?",
+                ((utcnow()-timedelta(days=1)).isoformat(), original["id"]),
+            )
+        self.vpn.enqueue_due_expirations()
+        order = self._new_order()
+        before = utcnow()
+        renewed = self.vpn.confirm_admin_demo_payment(
+            user_id=int(self.owner["id"]), payment_id=order["id"], admin_authorized=True,
+        ).subscription
+        self.assertEqual(renewed["id"], original["id"])
+        self.assertEqual(renewed["provider_username"], original["provider_username"])
+        self.assertEqual(renewed["subscription_url"], original["subscription_url"])
+        self.assertEqual(renewed["kind"], "trial")
+        self.assertEqual(renewed["billing_kind"], "paid")
+        self.assertGreaterEqual(parse_iso(renewed["ends_at"]), before+timedelta(days=30))
+        self.assertEqual(self._complete_next_job(suffix="keep-old-link"), "update")
+        repeated = self.vpn.confirm_admin_demo_payment(
+            user_id=int(self.owner["id"]), payment_id=order["id"], admin_authorized=True,
+        ).subscription
+        self.assertEqual(repeated["ends_at"], renewed["ends_at"])
+
+    def test_completed_expiry_can_be_renewed_on_same_paid_identity(self) -> None:
+        order = self._new_order()
+        original = self.vpn.confirm_admin_demo_payment(
+            user_id=int(self.owner["id"]), payment_id=order["id"], admin_authorized=True,
+        ).subscription
+        self._complete_next_job(suffix="paid-link")
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE vpn_subscriptions SET ends_at = ? WHERE id = ?",
+                ((utcnow()-timedelta(days=1)).isoformat(), original["id"]),
+            )
+        self.vpn.enqueue_due_expirations()
+        self.assertEqual(self._complete_next_job(suffix="unused"), "disable")
+        renewal_order = self._new_order()
+        renewed = self.vpn.confirm_admin_demo_payment(
+            user_id=int(self.owner["id"]), payment_id=renewal_order["id"], admin_authorized=True,
+        ).subscription
+        self.assertEqual(renewed["id"], original["id"])
+        self.assertEqual(renewed["provider_username"], original["provider_username"])
+        self.assertEqual(self._complete_next_job(suffix="paid-link"), "update")
+
+    def test_late_expiry_completion_cannot_disable_renewed_access(self) -> None:
+        trial = self.vpn.claim_trial(user_id=int(self.owner["id"]), channel="@ceafamily")
+        self._complete_next_job(suffix="old-link")
+        with self.db.transaction() as conn:
+            conn.execute(
+                "UPDATE vpn_subscriptions SET ends_at = ? WHERE id = ?",
+                ((utcnow()-timedelta(days=1)).isoformat(), trial.subscription["id"]),
+            )
+        self.vpn.enqueue_due_expirations()
+        disable = self.vpn.claim_worker_job(
+            worker_id="worker-nl1", lease_seconds=60, control_plane_ready=True,
+        )
+        self.assertEqual(disable["operation"], "disable")
+        order = self._new_order()
+        self.vpn.confirm_admin_demo_payment(
+            user_id=int(self.owner["id"]), payment_id=order["id"], admin_authorized=True,
+        )
+        self.vpn.complete_worker_job(
+            worker_id="worker-nl1", job_id=disable["job_id"], lease_token=disable["lease_token"],
+        )
+        current = self.vpn.get_current_subscription(int(self.owner["id"]))
+        self.assertNotEqual(current["status"], "disabled")
+        with self.db.transaction() as conn:
+            repair = conn.execute(
+                "SELECT operation,status FROM vpn_provisioning_jobs WHERE idempotency_key = ?",
+                (f"vpn:expiry-race:{disable['job_id']}",),
+            ).fetchone()
+        self.assertEqual(repair["operation"], "update")
+        self.assertEqual(repair["status"], "pending")
+
     def test_old_payment_stays_linked_after_switching_to_another_plan(self) -> None:
         first_order = self._new_order()
         first = self.vpn.confirm_admin_demo_payment(

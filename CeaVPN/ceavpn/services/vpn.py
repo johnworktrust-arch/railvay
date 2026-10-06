@@ -1783,6 +1783,16 @@ class VpnService:
             raise BusinessRuleError("У вас нет активной подписки для добавления устройств.")
 
         duration = timedelta(days=duration_days)
+        if live is None:
+            # Expiration ends the entitlement, not the user's connection identity.
+            # Reuse it so an installed subscription can be renewed in place.
+            live = self.subscriptions.get_latest_for_user(conn, user_id)
+            if live is not None:
+                server = self._require_checkout_ready_server(conn)
+                conn.execute(
+                    "UPDATE vpn_subscriptions SET server_id = ? WHERE id = ?",
+                    (int(server["id"]), int(live["id"])),
+                )
         if live is not None:
             current_end = self._datetime(live["ends_at"])
             ends_at = max(now, current_end) + duration
@@ -1796,6 +1806,15 @@ class VpnService:
                 status=(
                     "active" if live["status"] == "active" else "provisioning"
                 ),
+            )
+            # Old queued expiry work must not disable the subscription just renewed.
+            conn.execute(
+                """UPDATE vpn_provisioning_jobs SET status = 'completed',
+                   completed_at = ?, updated_at = ?, lease_token = NULL,
+                   lease_expires_at = NULL
+                   WHERE subscription_id = ? AND operation = 'disable'
+                     AND status IN ('pending', 'failed')""",
+                (now.isoformat(), now.isoformat(), int(live["id"])),
             )
             operation = "update"
         else:
@@ -2148,7 +2167,16 @@ class VpnService:
             )
 
             if operation == "disable":
-                if is_canonical:
+                if self._datetime(current_subscription["ends_at"]) > utcnow():
+                    # A renewal may commit after a disable job was leased.
+                    # Restore the provider rather than accepting that stale expiry result.
+                    self.jobs.enqueue(
+                        conn, subscription_id=subscription_id, server_id=int(server["id"]),
+                        operation="update",
+                        idempotency_key=f"vpn:expiry-race:{job_id}",
+                    )
+                    subscription = current_subscription
+                elif is_canonical:
                     subscription = self.subscriptions.mark_status(
                         conn,
                         subscription_id=subscription_id,
