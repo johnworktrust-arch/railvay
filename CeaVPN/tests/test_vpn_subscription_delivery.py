@@ -1056,10 +1056,14 @@ class VpnQualificationGateRouteTest(unittest.IsolatedAsyncioTestCase):
         ):
             missing_hwid = await client.get(f"/sub/{token}", headers={"X-Hwid": ""})
             self.assertEqual(missing_hwid.status, 400)
+            self.assertEqual(missing_hwid.headers["x-hwid-active"], "true")
+            self.assertEqual(missing_hwid.headers["x-hwid-not-supported"], "true")
             with patch.object(VpnSubscriptionDeviceRepository, "register_or_touch",
                               side_effect=DeviceLimitExceededError):
                 limited = await client.get(f"/sub/{token}")
                 self.assertEqual(limited.status, 403)
+                self.assertEqual(limited.headers["x-hwid-active"], "true")
+                self.assertEqual(limited.headers["x-hwid-limit"], "true")
                 self.assertEqual(limited.headers["x-hwid-max-devices-reached"], "true")
                 self.assertNotIn("vless://", await limited.text())
             qualified = await client.get(f"/sub/{token}")

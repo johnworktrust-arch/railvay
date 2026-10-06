@@ -25,6 +25,11 @@ SPEC.loader.exec_module(proxy)
 
 
 class VpnSubscriptionProxyTest(unittest.TestCase):
+    def test_proxy_preserves_hwid_error_indicators(self) -> None:
+        for name in ("x-hwid-active", "x-hwid-not-supported", "x-hwid-limit",
+                     "x-hwid-max-devices-reached", "subscription-always-hwid-enable"):
+            self.assertIn(name, proxy.FORWARDED_HEADERS)
+
     def test_expiration_is_read_from_subscription_userinfo(self) -> None:
         headers = {
             "subscription-userinfo": (

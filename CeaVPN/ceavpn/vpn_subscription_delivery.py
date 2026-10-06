@@ -7,6 +7,7 @@ import hashlib
 import hmac
 import ipaddress
 import json
+import logging
 import re
 import unicodedata
 from datetime import datetime, timedelta, timezone
@@ -24,6 +25,8 @@ from ceavpn.repositories.vpn_subscription_devices import (
 )
 from ceavpn.repositories.vpn_subscriptions import VpnSubscriptionRepository
 from ceavpn.services.vpn import MARZBAN_WHITELIST_PROFILE_VERSION
+
+LOGGER = logging.getLogger(__name__)
 
 
 TOKEN_RE = re.compile(r"(?P<id>[1-9][0-9]*)\.(?P<signature>[0-9a-f]{64})")
@@ -879,7 +882,8 @@ def device_limit_exceeded_response(bot_username: str = "ceavpn_bot") -> web.Resp
     return web.Response(
         status=403,
         text="Лимит устройств исчерпан. Обратитесь в поддержку.",
-        headers={"Cache-Control": "no-store", "x-hwid-max-devices-reached": "true"},
+        headers={"Cache-Control": "no-store", "x-hwid-active": "true",
+                 "x-hwid-max-devices-reached": "true", "x-hwid-limit": "true"},
     )
 
 
@@ -1075,10 +1079,15 @@ def register_vpn_subscription_delivery_routes(
             return expired_subscription_response()
         device_key, model, platform, user_agent = _device_metadata(request)
         if not device_key:
+            LOGGER.warning(
+                "VPN subscription rejected: subscription_id=%s reason=missing_device_identity",
+                subscription["id"],
+            )
             return web.Response(
                 status=400,
                 text="Включите передачу HWID в настройках Happ и обновите подписку.",
-                headers={"Cache-Control": "no-store", "x-hwid-not-supported": "true",
+                headers={"Cache-Control": "no-store", "x-hwid-active": "true",
+                         "x-hwid-not-supported": "true",
                          "subscription-always-hwid-enable": "1"},
             )
         try:
@@ -1093,6 +1102,10 @@ def register_vpn_subscription_delivery_routes(
                     max_devices=max(1, int(subscription.get("plan_max_devices") or 3)),
                 )
         except DeviceLimitExceededError:
+            LOGGER.warning(
+                "VPN subscription rejected: subscription_id=%s reason=device_limit",
+                subscription["id"],
+            )
             return device_limit_exceeded_response(
                 settings.vpn_bot_username or "ceavpn_bot"
             )
@@ -1166,6 +1179,7 @@ def register_vpn_subscription_delivery_routes(
                 "routing-enable": "0",
                 "color-profile": HAPP_COLOR_PROFILE,
                 "subscription-always-hwid-enable": "1",
+                "x-hwid-active": "true",
             }
         )
         headers.update(happ_auto_selection_headers(settings.vpn_happ_provider_id))

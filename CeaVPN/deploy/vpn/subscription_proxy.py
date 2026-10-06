@@ -22,6 +22,8 @@ MAX_RESPONSE_BYTES = 512 * 1024
 SUBSCRIPTION_PATH_RE = re.compile(r"/sub/[A-Za-z0-9._~-]{1,160}/?")
 SIGNED_DELIVERY_PATH_RE = re.compile(r"/sub/\d{1,12}\.[0-9a-f]{64}/?")
 FORWARDED_HEADERS = {
+    "x-hwid-active",
+    "x-hwid-limit",
     "subscription-always-hwid-enable",
     "x-hwid-max-devices-reached",
     "x-hwid-not-supported",
