@@ -175,8 +175,14 @@ class VpnAdminService:
             conn.execute("UPDATE vpn_subscriptions SET server_id = ? WHERE id = ?",
                          (int(server["id"]), int(subscription["id"])))
             subscription = self.subscriptions.update_period(
-                conn, subscription_id=int(subscription["id"]), plan_id=None, kind="paid",
+                conn, subscription_id=int(subscription["id"]), plan_id=None,
+                kind=str(subscription["kind"]),
                 starts_at=str(subscription["starts_at"]), ends_at=ends_at.isoformat(),
+            )
+            # kind is immutable trial-claim history; billing_kind is current entitlement.
+            conn.execute(
+                "UPDATE vpn_subscriptions SET billing_kind = 'paid' WHERE id = ?",
+                (int(subscription["id"]),),
             )
             operation = "update"
         else:

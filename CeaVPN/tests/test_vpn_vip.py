@@ -66,7 +66,7 @@ def test_vip_extends_existing_identity_and_url(vip, expired):
         assert rows[0]["subscription_url"] == old["subscription_url"]
         assert rows[0]["provider_username"] == old["provider_username"]
         assert datetime.fromisoformat(rows[0]["ends_at"]) > now+timedelta(days=3649)
-        assert rows[0]["kind"] == "paid"
+        assert rows[0]["billing_kind"] == "paid"
         jobs = conn.execute("SELECT * FROM vpn_provisioning_jobs").fetchall()
         assert len(jobs) == 1
         assert jobs[0]["server_id"] == 2
@@ -76,6 +76,13 @@ def test_vip_extends_existing_identity_and_url(vip, expired):
 def test_vip_recovers_old_url_over_stuck_duplicate(vip):
     service, user_id, now = vip
     old = create(vip, expired=True)
+    with service.db.transaction() as conn:
+        conn.execute(
+            """INSERT INTO vpn_trial_claims
+               (user_id, subscription_id, channel, status, claimed_at, created_at, updated_at)
+               VALUES (?, ?, '@test', 'provisioned', ?, ?, ?)""",
+            (user_id, old["id"], now.isoformat(), now.isoformat(), now.isoformat()),
+        )
     duplicate = create(vip, url=False, username="vip_broken", server_id=1)
     with service.db.transaction() as conn:
         service.jobs.enqueue(conn, subscription_id=duplicate["id"], server_id=1,
