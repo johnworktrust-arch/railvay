@@ -716,6 +716,31 @@ def autoselect_profile_uri(body: bytes) -> str | None:
     return None
 
 
+def single_server_profiles(body: bytes, *, server_name: str) -> bytes:
+    """Use the canonical server's exact transport for the requested display names."""
+    lines, was_base64 = _decode_subscription(body)
+    name = server_name.strip()
+    if not name:
+        raise ValueError("Missing canonical VPN server name")
+    source = next(
+        (line for line in lines
+         if name.casefold() in unquote(urlsplit(line).fragment).casefold()),
+        None,
+    )
+    if source is None:
+        # Never substitute a stale foreign endpoint when the canonical one is missing.
+        raise ValueError("Canonical VPN server profile missing")
+    endpoint = source.partition("#")[0]
+    aliases = ("🇺🇸 США", "🇫🇮 Финляндия", "🇩🇪 Германия", "🇫🇷 Франция")
+    result = [source] + [
+        f"{endpoint}#{quote(alias, safe='')}"
+        for alias in aliases
+        if alias not in {unquote(urlsplit(source).fragment), name}
+    ]
+    rendered = ("\n".join(result) + "\n").encode("utf-8")
+    return base64.b64encode(rendered) if was_base64 else rendered
+
+
 def merge_subscription_profiles(
     body: bytes,
     *,
@@ -1116,6 +1141,11 @@ def register_vpn_subscription_delivery_routes(
                     session,
                     replica_profiles,
                 )
+            if settings.vpn_single_server_profiles:
+                body = single_server_profiles(
+                    body, server_name=str(subscription.get("server_name") or ""),
+                )
+                eligible_profiles = ()
             auto_uri = autoselect_profile_uri(body)
             auto_profile = (
                 None if auto_uri else autoselect_profile(eligible_profiles)

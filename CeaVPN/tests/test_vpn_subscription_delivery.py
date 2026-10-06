@@ -29,6 +29,7 @@ from ceavpn.vpn_subscription_delivery import (
     qualification_profile_fingerprint,
     qualified_extra_profiles,
     register_vpn_subscription_delivery_routes,
+    single_server_profiles,
 )
 
 QUALIFICATION_URL = (
@@ -86,6 +87,30 @@ QUALIFICATION_FINGERPRINT = _qualification_fingerprint()
 
 
 class VpnSubscriptionDeliveryTest(unittest.TestCase):
+    def test_single_server_names_preserve_canonical_connection_and_remove_dead_hosts(self):
+        source = "vless://9c97ef67-c753-46d0-9529-74a33f566773@nl.example.test:443?type=ws&security=tls&host=nl.example.test&path=%2Fprivate"
+        body = (source + "#" + quote("🇳🇱 Нидерланды") + "\n"
+                + source.replace("nl.example.test", "dead.example.test")
+                + "#" + quote("🇫🇮 Финляндия") + "\n").encode()
+        for encoded in (False, True):
+            data = base64.b64encode(body) if encoded else body
+            result = single_server_profiles(data, server_name="Нидерланды")
+            decoded = base64.b64decode(result) if encoded else result
+            lines = decoded.decode().splitlines()
+            self.assertEqual(len(lines), 5)
+            self.assertEqual(
+                [unquote(urlsplit(line).fragment) for line in lines],
+                ["🇳🇱 Нидерланды", "🇺🇸 США", "🇫🇮 Финляндия", "🇩🇪 Германия", "🇫🇷 Франция"],
+            )
+            self.assertTrue(all(line.partition("#")[0] == source for line in lines))
+            self.assertNotIn("dead.example.test", decoded.decode())
+            self.assertEqual(single_server_profiles(result, server_name="Нидерланды"), result)
+
+    def test_single_server_does_not_fall_back_to_another_country(self):
+        body = b"vless://9c97ef67-c753-46d0-9529-74a33f566773@dead.example.test:443?type=ws#Finland"
+        with self.assertRaisesRegex(ValueError, "Canonical VPN server profile missing"):
+            single_server_profiles(body, server_name="Нидерланды")
+
     def test_happ_auto_selection_uses_native_lowest_delay_mode(self) -> None:
         self.assertEqual(
             happ_auto_selection_headers("cea_provider_2026"),
