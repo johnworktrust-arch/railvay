@@ -154,12 +154,88 @@ class VpnAdminService:
                 rows = conn.execute("SELECT telegram_id FROM users").fetchall()
         return [int(row["telegram_id"]) for row in rows]
 
+    def _grant_vip_subscription(self, conn: Any, user_id: int, now: datetime) -> None:
+        """Keep the public subscription identity and provision only healthy workers."""
+        def timestamp(value: Any) -> datetime:
+            parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+            return parsed.replace(tzinfo=timezone.utc) if parsed.tzinfo is None else parsed
+
+        cutoff = now - timedelta(seconds=max(30, self.settings.vpn_worker_health_max_age_seconds))
+        servers = [
+            server for server in self.servers.list_active(conn)
+            if server.get("last_health_at") and timestamp(server["last_health_at"]) >= cutoff
+        ]
+        if not servers:
+            raise BusinessRuleError("Нет доступного VPN-сервера. Попробуйте выдать VIP позже.")
+        live = self.subscriptions.get_live_for_user(conn, user_id)
+        history = self.subscriptions.list_for_user(conn, user_id)
+        keep_live = live and (
+            live.get("subscription_url")
+            or not str(live.get("provider_username") or "").startswith("vip_")
+        )
+        subscription = live if keep_live else next(
+            (item for item in history if item.get("subscription_url")),
+            live or (history[0] if history else None),
+        )
+        server = next(
+            (item for item in servers if subscription and int(item["id"]) == int(subscription["server_id"])),
+            servers[0],
+        )
+        # Supersede only unfinished VIP duplicates created by the old implementation.
+        for item in history:
+            if (int(item["id"]) != int(subscription["id"])
+                    and str(item.get("provider_username") or "").startswith("vip_")
+                    and not item.get("subscription_url")
+                    and item["status"] in {"provisioning", "error"}):
+                self.subscriptions.mark_status(
+                    conn, subscription_id=int(item["id"]), status="disabled",
+                )
+                conn.execute(
+                    """UPDATE vpn_provisioning_jobs SET status = 'completed',
+                       completed_at = ?, updated_at = ?, lease_token = NULL,
+                       lease_expires_at = NULL
+                       WHERE subscription_id = ? AND status IN ('pending', 'failed')""",
+                    (now.isoformat(), now.isoformat(), int(item["id"])),
+                )
+        ends_at = now + timedelta(days=3650)
+        if subscription:
+            ends_at = max(ends_at, timestamp(subscription["ends_at"]))
+            conn.execute("UPDATE vpn_subscriptions SET server_id = ? WHERE id = ?",
+                         (int(server["id"]), int(subscription["id"])))
+            subscription = self.subscriptions.update_period(
+                conn, subscription_id=int(subscription["id"]), plan_id=None, kind="paid",
+                starts_at=str(subscription["starts_at"]), ends_at=ends_at.isoformat(),
+            )
+            operation = "update"
+        else:
+            subscription = self.subscriptions.create_provisioning(
+                conn, user_id=user_id, server_id=int(server["id"]), plan_id=None,
+                kind="paid", provider_username=f"vip_{secrets.token_hex(12)}",
+                starts_at=now.isoformat(), ends_at=ends_at.isoformat(),
+            )
+            operation = "create"
+        # Pending expiry work must not disable the entitlement just renewed.
+        conn.execute(
+            """UPDATE vpn_provisioning_jobs SET status = 'completed',
+               completed_at = ?, updated_at = ?, lease_token = NULL, lease_expires_at = NULL
+               WHERE subscription_id = ? AND operation = 'disable' AND status IN ('pending', 'failed')""",
+            (now.isoformat(), now.isoformat(), int(subscription["id"])),
+        )
+        for target in servers:
+            self.jobs.enqueue(
+                conn, subscription_id=int(subscription["id"]), server_id=int(target["id"]),
+                operation=operation,
+                idempotency_key=f"vpn:vip:{subscription['id']}:{now.isoformat()}:{target['id']}",
+            )
+
     def grant_vip(
         self, *, user_id: int, admin_user_id: int | None = None
     ) -> Dict[str, Any]:
         """Grant the selected user a long-lived free VPN entitlement."""
         now = datetime.now(timezone.utc)
         with self.db.transaction() as conn:
+            if self.db.driver == "postgres":
+                conn.execute("SELECT id FROM users WHERE id = ? FOR UPDATE", (user_id,))
             user = conn.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
             if user is None:
                 raise NotFoundError("VPN-пользователь не найден")
@@ -172,32 +248,7 @@ class VpnAdminService:
                      granted_by = excluded.granted_by""",
                 (user_id, now.isoformat(), admin_user_id),
             )
-            live = self.subscriptions.get_live_for_user(conn, user_id)
-            if live is None:
-                servers = self.servers.list_active(conn)
-                server = next(
-                    (item for item in servers if item.get("last_health_at")),
-                    servers[0] if servers else None,
-                )
-                if server is None:
-                    raise BusinessRuleError("Нет доступного VPN-сервера")
-                subscription = self.subscriptions.create_provisioning(
-                    conn,
-                    user_id=user_id,
-                    server_id=int(server["id"]),
-                    plan_id=None,
-                    kind="paid",
-                    provider_username=f"vip_{secrets.token_hex(12)}",
-                    starts_at=now.isoformat(),
-                    ends_at=(now + timedelta(days=3650)).isoformat(),
-                )
-                self.jobs.enqueue(
-                    conn,
-                    subscription_id=int(subscription["id"]),
-                    server_id=int(server["id"]),
-                    operation="create",
-                    idempotency_key=f"vpn:vip:{user_id}:{subscription['id']}",
-                )
+            self._grant_vip_subscription(conn, user_id, now)
             return self.repository.user_card(
                 conn, user_id=user_id, now=now.isoformat()
             ) or {}
